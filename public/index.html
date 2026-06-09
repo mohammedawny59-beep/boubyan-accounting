@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بوبيان — نظام المحاسبة الذكي</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e1a;--surface:#111827;--surface2:#1a2236;--border:#1e2d45;--accent:#00d4ff;--accent2:#00ff9d;--accent3:#ff6b35;--text:#e2e8f0;--text2:#94a3b8;--text3:#475569;--warning:#fbbf24;--danger:#f87171;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'IBM Plex Sans Arabic',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+.wrap{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:0 20px;}
+header{border-bottom:1px solid var(--border);padding:14px 0;background:rgba(10,14,26,0.95);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;}
+.hdr{display:flex;align-items:center;justify-content:space-between;}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;}
+.logo h1{font-size:14px;font-weight:600;}
+.logo span{font-size:11px;color:var(--text2);}
+.pill{display:flex;align-items:center;gap:5px;background:rgba(0,255,157,0.1);border:1px solid rgba(0,255,157,0.2);border-radius:20px;padding:4px 12px;font-size:11px;color:var(--accent2);}
+.dot{width:5px;height:5px;background:var(--accent2);border-radius:50%;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+.tabs{display:flex;gap:3px;padding:14px 0;border-bottom:1px solid var(--border);overflow-x:auto;}
+.tab{padding:7px 16px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--text2);font-family:'IBM Plex Sans Arabic',sans-serif;font-size:12px;cursor:pointer;white-space:nowrap;transition:all .2s;}
+.tab:hover{color:var(--text);border-color:var(--border);}
+.tab.active{background:rgba(0,212,255,0.1);border-color:rgba(0,212,255,0.3);color:var(--accent);}
+.sec{display:none;padding:22px 0;}
+.sec.active{display:block;}
+.sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;}
+.st{font-size:17px;font-weight:700;}
+.ss{font-size:11px;color:var(--text2);margin-top:2px;}
+.filter-bar{display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:18px;flex-wrap:wrap;}
+.fl{font-size:11px;color:var(--text2);}
+.fi{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 10px;color:var(--text);font-family:'IBM Plex Sans Arabic',sans-serif;font-size:11px;outline:none;}
+.fi:focus{border-color:var(--accent);}
+.btn{padding:7px 16px;border-radius:7px;border:none;font-family:'IBM Plex Sans Arabic',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;}
+.bp{background:linear-gradient(135deg,var(--accent),rgba(0,212,255,.7));color:var(--bg);}
+.bp:hover{transform:translateY(-1px);box-shadow:0 4px 15px rgba(0,212,255,.3);}
+.bs{background:linear-gradient(135deg,var(--accent2),rgba(0,255,157,.7));color:var(--bg);}
+.bd{background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);}
+.bw{background:rgba(251,191,36,.1);color:var(--warning);border:1px solid rgba(251,191,36,.2);}
+.bsm{padding:4px 10px;font-size:11px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px;}
+.kc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden;transition:border-color .2s;}
+.kc:hover{border-color:var(--accent);}
+.kc::after{content:'';position:absolute;top:0;right:0;width:55px;height:55px;border-radius:50%;filter:blur(28px);opacity:.3;}
+.kc.bl::after{background:var(--accent);}
+.kc.gr::after{background:var(--accent2);}
+.kc.or::after{background:var(--accent3);}
+.kc.ye::after{background:var(--warning);}
+.kc.re::after{background:var(--danger);}
+.kl{font-size:10px;color:var(--text2);margin-bottom:5px;}
+.kv{font-size:22px;font-weight:700;font-family:'IBM Plex Mono',monospace;}
+.kc.bl .kv{color:var(--accent);}
+.kc.gr .kv{color:var(--accent2);}
+.kc.or .kv{color:var(--accent3);}
+.kc.ye .kv{color:var(--warning);}
+.kc.re .kv{color:var(--danger);}
+.ks{font-size:9px;color:var(--text3);margin-top:3px;}
+.ins-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:18px;}
+.ins-title{font-size:13px;font-weight:600;margin-bottom:14px;}
+.ins-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;align-items:center;}
+.ins-item{background:var(--surface2);border-radius:9px;padding:12px;text-align:center;}
+.ins-lbl{font-size:9px;color:var(--text3);margin-bottom:5px;}
+.ins-val{font-size:16px;font-weight:700;font-family:'IBM Plex Mono',monospace;}
+.ins-arr{text-align:center;font-size:16px;color:var(--text3);}
+.tw{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px;}
+.th2{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.tt{font-size:12px;font-weight:600;}
+table{width:100%;border-collapse:collapse;}
+thead th{padding:9px 12px;text-align:right;font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;background:var(--surface2);border-bottom:1px solid var(--border);}
+tbody tr{border-bottom:1px solid rgba(30,45,69,.5);transition:background .15s;}
+tbody tr:hover{background:rgba(0,212,255,.03);}
+tbody tr:last-child{border-bottom:none;}
+tbody td{padding:9px 12px;font-size:11px;}
+.num{font-family:'IBM Plex Mono',monospace;font-size:11px;}
+.pos{color:var(--accent2);}
+.neg{color:var(--danger);}
+.badge{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:500;}
+.bb{background:rgba(0,212,255,.1);color:var(--accent);}
+.bg{background:rgba(0,255,157,.1);color:var(--accent2);}
+.bo{background:rgba(255,107,53,.1);color:var(--accent3);}
+.br{background:rgba(248,113,113,.1);color:var(--danger);}
+.by{background:rgba(251,191,36,.1);color:var(--warning);}
+.dc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
+.dc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;transition:all .2s;}
+.dc:hover{border-color:var(--accent);transform:translateY(-2px);}
+.dc-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.dc-name{font-size:13px;font-weight:600;}
+.dc-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);}
+.pb{height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin:5px 0;}
+.pf{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width 1s ease;}
+.ds{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:10px 0;}
+.dsl{font-size:9px;color:var(--text3);margin-bottom:1px;}
+.dsv{font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--accent2);}
+.cr{padding:9px 12px;background:rgba(0,255,157,.05);border:1px solid rgba(0,255,157,.15);border-radius:9px;display:flex;justify-content:space-between;align-items:center;margin-top:9px;}
+.cl{font-size:10px;color:var(--text2);}
+.cv{font-size:15px;font-weight:700;color:var(--accent2);font-family:'IBM Plex Mono',monospace;}
+.uz{border:2px dashed var(--border);border-radius:14px;padding:36px;text-align:center;cursor:pointer;transition:all .3s;background:var(--surface);}
+.uz:hover{border-color:var(--accent);}
+.uz.drag{border-color:var(--accent2);background:rgba(0,255,157,.05);}
+.ui{font-size:40px;margin-bottom:12px;}
+.utit{font-size:15px;font-weight:600;margin-bottom:5px;}
+.usub{font-size:11px;color:var(--text2);}
+.utypes{display:flex;gap:6px;justify-content:center;margin-top:12px;flex-wrap:wrap;}
+.utype{padding:2px 9px;border-radius:20px;font-size:10px;font-weight:500;font-family:'IBM Plex Mono',monospace;background:rgba(0,255,157,.1);color:var(--accent2);border:1px solid rgba(0,255,157,.2);}
+input[type=file]{display:none;}
+.alert{padding:10px 14px;border-radius:9px;font-size:11px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.ai{background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.2);color:var(--accent);}
+.as{background:rgba(0,255,157,.08);border:1px solid rgba(0,255,157,.2);color:var(--accent2);}
+.ae{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);color:var(--danger);}
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;}
+.sct{font-size:12px;font-weight:600;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+.fr{margin-bottom:10px;}
+.flbl{font-size:10px;color:var(--text2);margin-bottom:4px;display:block;}
+.finp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-family:'IBM Plex Sans Arabic',sans-serif;font-size:12px;outline:none;transition:border-color .2s;direction:rtl;}
+.finp:focus{border-color:var(--accent);}
+.fr2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.di{display:flex;align-items:center;justify-content:space-between;padding:7px 9px;border-radius:7px;border:1px solid var(--border);margin-bottom:5px;background:var(--surface2);}
+.din{font-size:11px;font-weight:500;}
+.dit{font-size:9px;color:var(--text2);font-family:'IBM Plex Mono',monospace;}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;}
+.modal.open{display:flex;}
+.mbox{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;width:360px;max-width:90vw;}
+.mtit{font-size:15px;font-weight:600;margin-bottom:18px;}
+.mact{display:flex;gap:8px;margin-top:14px;}
+.tg-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px;}
+.tg-status{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+.tg-dot{width:8px;height:8px;border-radius:50%;background:var(--text3);}
+.tg-dot.on{background:var(--accent2);animation:pulse 2s infinite;}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="hdr">
+      <div class="logo">
+        <div class="logo-icon">🦷</div>
+        <div><h1>بوبيان لطب الأسنان</h1><span>نظام المحاسبة الذكي v3</span></div>
+      </div>
+      <div class="pill"><div class="dot"></div><span id="srvStatus">متصل</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('dashboard',this)">📊 لوحة التحكم</button>
+    <button class="tab" onclick="showTab('upload',this)">📤 رفع البيانات</button>
+    <button class="tab" onclick="showTab('doctors',this)">👨‍⚕️ عمولات الدكاترة</button>
+    <button class="tab" onclick="showTab('expenses',this)">💸 المصاريف</button>
+    <button class="tab" onclick="showTab('telegram',this)">📱 تيليجرام</button>
+    <button class="tab" onclick="showTab('journal',this)">📝 القيود اليومية</button>
+    <button class="tab" onclick="showTab('coa',this)">📒 شجرة الحسابات</button>
+    <button class="tab" onclick="showTab('reports',this)">📈 التقارير</button>
+    <button class="tab" onclick="showTab('ledger',this)">📋 كشف الحساب</button>
+    <button class="tab" onclick="showTab('recurring',this)">🔁 المتكررة</button>
+    <button class="tab" onclick="showTab('settings',this)">⚙️ الإعدادات</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="tab-dashboard" class="sec active">
+    <div class="sh">
+      <div><div class="st">لوحة التحكم</div><div class="ss" id="dashSub">جاري التحميل...</div></div>
+      <button class="btn bp bsm" onclick="showTab('upload',null)">+ رفع تقرير</button>
+    </div>
+    <div class="filter-bar">
+      <span class="fl">🔍</span>
+      <select class="fi" id="fType" onchange="toggleFilter()">
+        <option value="all">كل البيانات</option>
+        <option value="month">شهر محدد</option>
+        <option value="range">نطاق تاريخ</option>
+      </select>
+      <div id="fMonth" style="display:none"><input type="month" class="fi" id="fMonthVal" value="2026-05"></div>
+      <div id="fRange" style="display:none;gap:6px;align-items:center;">
+        <span class="fl">من</span><input type="date" class="fi" id="fFrom">
+        <span class="fl">إلى</span><input type="date" class="fi" id="fTo">
+      </div>
+      <button class="btn bp bsm" onclick="loadDashboard()">تطبيق</button>
+    </div>
+    <div class="kpi-grid">
+      <div class="kc bl"><div class="kl">إجمالي الإيرادات</div><div class="kv" id="kTotal">—</div><div class="ks">د.ك</div></div>
+      <div class="kc gr"><div class="kl">صافي (بدون تأمين)</div><div class="kv" id="kNet">—</div><div class="ks">د.ك نقداً وشبكة</div></div>
+      <div class="kc re"><div class="kl">حصة التأمين</div><div class="kv" id="kIns">—</div><div class="ks">د.ك — 25% من الأصلي</div></div>
+      <div class="kc or"><div class="kl">إجمالي العمولات</div><div class="kv" id="kComm">—</div><div class="ks">د.ك</div></div>
+      <div class="kc ye"><div class="kl">عمولات معلّقة</div><div class="kv" id="kPend">—</div><div class="ks">د.ك غير مدفوعة</div></div>
+    </div>
+    <div class="ins-box">
+      <div class="ins-title">🏥 تفصيل التأمين</div>
+      <div class="ins-grid">
+        <div class="ins-item"><div class="ins-lbl">مسجّل بالبرنامج (بعد 25%)</div><div class="ins-val" id="iRec" style="color:var(--text2)">—</div></div>
+        <div class="ins-arr">÷0.75→</div>
+        <div class="ins-item"><div class="ins-lbl">المبلغ الأصلي</div><div class="ins-val" id="iOrig" style="color:var(--accent)">—</div></div>
+        <div class="ins-arr">×25%→</div>
+        <div class="ins-item"><div class="ins-lbl">حصة شركة التأمين</div><div class="ins-val" id="iShare" style="color:var(--danger)">—</div></div>
+        <div class="ins-arr">=</div>
+        <div class="ins-item"><div class="ins-lbl">صافي العيادة</div><div class="ins-val" id="iNet" style="color:var(--accent2)">—</div></div>
+      </div>
+    </div>
+    <div class="tw">
+      <div class="th2"><div class="tt">تفصيل يومي</div></div>
+      <table><thead><tr><th>التاريخ</th><th>كاش</th><th>K-Net</th><th>Visa</th><th>Master</th><th>تأمين</th><th>Link</th><th>الإجمالي</th></tr></thead>
+      <tbody id="dailyBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">ارفع تقرير Excel أولاً</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- UPLOAD -->
+  <div id="tab-upload" class="sec">
+    <div class="sh"><div><div class="st">رفع البيانات</div><div class="ss">ارفع تقرير Excel من البرنامج</div></div></div>
+    <div class="alert ai">💡 Reports → Reception → Daily Income أو Payments Details → صدّر Excel → ارفعه هنا</div>
+    <div id="uploadMsg"></div>
+    <div class="uz" onclick="document.getElementById('fi1').click()" id="uz">
+      <input type="file" id="fi1" accept=".xlsx,.xls" onchange="uploadFile(this)">
+      <div class="ui">📂</div>
+      <div class="utit">اسحب الملف هنا أو اضغط للاختيار</div>
+      <div class="usub">DailyIncomeReport أو PaymentsDetailsReport</div>
+      <div class="utypes"><span class="utype">DailyIncomeReport.xlsx</span><span class="utype">PaymentsDetailsReport.xlsx</span></div>
+    </div>
+    <div class="tw" style="margin-top:16px;">
+      <div class="th2"><div class="tt">📁 الملفات المرفوعة</div></div>
+      <table><thead><tr><th>اسم الملف</th><th>النوع</th><th>السجلات</th><th>تاريخ الرفع</th></tr></thead>
+      <tbody id="filesBody"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا يوجد ملفات</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- DOCTORS -->
+  <div id="tab-doctors" class="sec">
+    <div class="sh">
+      <div><div class="st">عمولات الدكاترة</div><div class="ss">محسوبة تلقائياً — تراكمية</div></div>
+    </div>
+    <div class="filter-bar">
+      <span class="fl">🔍 دكتور:</span>
+      <select class="fi" id="drFilt"><option value="all">الكل</option></select>
+      <select class="fi" id="drMonth"><option value="all">كل الأشهر</option></select>
+      <button class="btn bp bsm" onclick="loadDoctors()">تطبيق</button>
+    </div>
+    <div class="dc-grid" id="drGrid"></div>
+    <div style="margin-top:20px;">
+      <div class="tw">
+        <div class="th2"><div class="tt">سجل العمولات التراكمي</div><button class="btn bw bsm" onclick="openPayModal()">+ تسجيل دفعة</button></div>
+        <table><thead><tr><th>الدكتور</th><th>الشهر</th><th>الإيراد</th><th>العمولة</th><th>الحالة</th><th>طريقة الدفع</th><th>تاريخ الدفع</th><th></th></tr></thead>
+        <tbody id="commBody"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXPENSES -->
+  <div id="tab-expenses" class="sec">
+    <div class="sh"><div><div class="st">المصاريف</div><div class="ss">تسجيل وتتبع المصاريف</div></div>
+      <button class="btn bp bsm" onclick="openExpModal()">+ إضافة مصروف</button>
+    </div>
+    <div class="filter-bar">
+      <span class="fl">🔍</span>
+      <select class="fi" id="expFType" onchange="toggleExpFilter()">
+        <option value="all">كل المصاريف</option>
+        <option value="month">شهر محدد</option>
+        <option value="range">نطاق تاريخ</option>
+      </select>
+      <div id="expFMonth" style="display:none"><input type="month" class="fi" id="expFMonthVal"></div>
+      <div id="expFRange" style="display:none;gap:6px;align-items:center;">
+        <span class="fl">من</span><input type="date" class="fi" id="expFFrom">
+        <span class="fl">إلى</span><input type="date" class="fi" id="expFTo">
+      </div>
+      <select class="fi" id="expFCat">
+        <option value="all">كل التصنيفات</option>
+        <option>مواد مختبر</option><option>رواتب</option><option>إيجار</option>
+        <option>كهرباء/ماء</option><option>صيانة</option><option>تسويق</option>
+        <option>إقامة</option><option>تأشيرات</option><option>أخرى</option>
+      </select>
+      <button class="btn bp bsm" onclick="loadExpenses()">تطبيق</button>
+    </div>
+    <div class="kpi-grid">
+      <div class="kc re"><div class="kl">إجمالي المصاريف</div><div class="kv" id="expTotal">—</div><div class="ks">د.ك</div></div>
+      <div class="kc or"><div class="kl">عدد السجلات</div><div class="kv" id="expCount">—</div><div class="ks">مصروف</div></div>
+    </div>
+    <div class="tw">
+      <div class="th2"><div class="tt">سجل المصاريف</div></div>
+      <table><thead><tr><th>التاريخ</th><th>الوصف</th><th>التصنيف</th><th>المبلغ</th></tr></thead>
+      <tbody id="expBody"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا توجد مصاريف مسجّلة</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- TELEGRAM -->
+  <div id="tab-telegram" class="sec">
+    <div class="sh"><div><div class="st">تيليجرام</div><div class="ss">ربط البوت لإرسال الملفات والاستفسار</div></div></div>
+    <div class="alert ai">📱 ترسل ملف Excel على التيليجرام → يتحفظ تلقائياً. أو تكتب /stats و/comm وتاخذ إجابة فورية.</div>
+    <div class="tg-box">
+      <div class="tg-status"><div class="tg-dot" id="tgDot"></div><span id="tgStatus">غير متصل</span></div>
+      <div class="fr"><label class="flbl">Telegram Bot Token</label>
+        <input class="finp" id="tgToken" placeholder="1234567890:ABCdefGHI..." type="password">
+      </div>
+      <button class="btn bp" onclick="startBot()">🚀 تشغيل البوت</button>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:600;margin-bottom:12px;">طريقة إنشاء البوت:</div>
+        <div style="font-size:11px;color:var(--text2);line-height:2;">
+          1. افتح تيليجرام وابحث عن <strong style="color:var(--accent)">@BotFather</strong><br>
+          2. أرسل <strong style="color:var(--accent)">/newbot</strong><br>
+          3. اختر اسم للبوت<br>
+          4. انسخ الـ Token وضعه هنا<br>
+          5. اضغط تشغيل البوت<br>
+          6. ابعث <strong style="color:var(--accent)">/start</strong> للبوت وابدأ
+        </div>
+      </div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px;">الأوامر المتاحة:</div>
+        <div style="font-size:11px;color:var(--text2);line-height:2.2;">
+          <span class="badge bb">/start</span> — ترحيب وشرح<br>
+          <span class="badge bb">/stats</span> — إحصائيات الشهر الحالي<br>
+          <span class="badge bb">/comm</span> — عمولات الدكاترة<br>
+          <span class="badge bb">/pending</span> — العمولات غير المدفوعة<br>
+          <span class="badge bb">ملف Excel</span> — يتحفظ تلقائياً<br>
+          <span class="badge bb">أي سؤال</span> — AI يجاوبك
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JOURNAL ENTRIES -->
+  <div id="tab-journal" class="sec">
+    <div class="sh">
+      <div><div class="st">القيود اليومية</div><div class="ss">دفتر اليومية — Journal Entries</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn bp bsm" onclick="openJournalModal()">+ قيد يدوي</button>
+        <button class="btn bw bsm" onclick="exportJournal()">⬇ تصدير Excel</button>
+      </div>
+    </div>
+
+    <!-- Filter -->
+    <div class="filter-bar">
+      <span class="fl">🔍</span>
+      <select class="fi" id="jFType" onchange="toggleJFilter()">
+        <option value="all">كل القيود</option>
+        <option value="month">شهر محدد</option>
+        <option value="range">نطاق تاريخ</option>
+      </select>
+      <div id="jFMonth" style="display:none"><input type="month" class="fi" id="jFMonthVal"></div>
+      <div id="jFRange" style="display:none;gap:6px;align-items:center;">
+        <span class="fl">من</span><input type="date" class="fi" id="jFFrom">
+        <span class="fl">إلى</span><input type="date" class="fi" id="jFTo">
+      </div>
+      <select class="fi" id="jFType2">
+        <option value="all">كل الأنواع</option>
+        <option value="revenue">إيرادات</option>
+        <option value="expense">مصاريف</option>
+        <option value="manual">يدوي</option>
+        <option value="ai">AI فاتورة</option>
+      </select>
+      <button class="btn bp bsm" onclick="loadJournal()">تطبيق</button>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid">
+      <div class="kc bl"><div class="kl">إجمالي المدين</div><div class="kv" id="jTotalDebit">—</div><div class="ks">د.ك</div></div>
+      <div class="kc re"><div class="kl">إجمالي الدائن</div><div class="kv" id="jTotalCredit">—</div><div class="ks">د.ك</div></div>
+      <div class="kc gr"><div class="kl">الفرق</div><div class="kv" id="jDiff">—</div><div class="ks">يجب أن يكون صفر</div></div>
+      <div class="kc ye"><div class="kl">عدد القيود</div><div class="kv" id="jCount">—</div><div class="ks">قيد</div></div>
+    </div>
+
+    <!-- Journal Table -->
+    <div class="tw">
+      <div class="th2"><div class="tt">دفتر اليومية</div></div>
+      <table>
+        <thead><tr><th>رقم القيد</th><th>التاريخ</th><th>البيان</th><th>الحساب</th><th>مدين</th><th>دائن</th><th>النوع</th><th></th></tr></thead>
+        <tbody id="journalBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا توجد قيود</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CHART OF ACCOUNTS -->
+  <div id="tab-coa" class="sec">
+    <div class="sh">
+      <div><div class="st">شجرة الحسابات</div><div class="ss">Chart of Accounts — بوبيان لطب الأسنان</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn bp bsm" onclick="openCoaModal()">+ إضافة حساب</button>
+        <button class="btn bw bsm" onclick="exportCoa()">⬇ تصدير CSV</button>
+        <input class="fi" id="coaSearch" placeholder="بحث..." oninput="renderCoa()" style="width:160px;">
+      </div>
+    </div>
+    <div class="kpi-grid" id="coaSummary"></div>
+    <div class="tw">
+      <div class="th2">
+        <div class="tt">دليل الحسابات</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn bsm" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);" onclick="toggleAll(true)">توسيع الكل</button>
+          <button class="btn bsm" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);" onclick="toggleAll(false)">طي الكل</button>
+        </div>
+      </div>
+      <div id="coaTree" style="padding:8px;"></div>
+    </div>
+  </div>
+
+  <!-- REPORTS -->
+  <div id="tab-reports" class="sec">
+    <div class="sh"><div><div class="st">التقارير المالية</div><div class="ss">قائمة الدخل — Cash Flow</div></div></div>
+    <div class="filter-bar">
+      <span class="fl">📅 الفترة:</span>
+      <input type="month" class="fi" id="repFrom" value="2026-05">
+      <span class="fl">إلى</span>
+      <input type="month" class="fi" id="repTo" value="2026-05">
+      <button class="btn bp bsm" onclick="loadReports()">تحديث</button>
+      <button class="btn bw bsm" onclick="exportReport()">⬇ تصدير CSV</button>
+    </div>
+    <!-- Income Statement -->
+    <div class="tw" style="margin-bottom:16px;">
+      <div class="th2"><div class="tt">📊 قائمة الدخل — Income Statement</div></div>
+      <div id="incomeStatement" style="padding:16px;"></div>
+    </div>
+    <!-- Cash Flow -->
+    <div class="tw">
+      <div class="th2"><div class="tt">💵 التدفق النقدي — Cash Flow</div></div>
+      <div id="cashFlow" style="padding:16px;"></div>
+    </div>
+  </div>
+
+  <!-- ACCOUNT LEDGER -->
+  <div id="tab-ledger" class="sec">
+    <div class="sh"><div><div class="st">كشف الحساب</div><div class="ss">Account Statement</div></div></div>
+    <div class="filter-bar">
+      <span class="fl">الحساب:</span>
+      <select class="fi" id="ledgerAccount" style="width:280px;"></select>
+      <select class="fi" id="ledgerMonth">
+        <option value="all">كل الفترات</option>
+      </select>
+      <button class="btn bp bsm" onclick="loadLedger()">عرض</button>
+      <button class="btn bw bsm" onclick="exportLedger()">⬇ تصدير</button>
+    </div>
+    <div class="kpi-grid">
+      <div class="kc bl"><div class="kl">إجمالي المدين</div><div class="kv" id="ledDebit">—</div><div class="ks">د.ك</div></div>
+      <div class="kc re"><div class="kl">إجمالي الدائن</div><div class="kv" id="ledCredit">—</div><div class="ks">د.ك</div></div>
+      <div class="kc gr"><div class="kl">الرصيد</div><div class="kv" id="ledBalance">—</div><div class="ks">د.ك</div></div>
+    </div>
+    <div class="tw">
+      <div class="th2"><div class="tt" id="ledgerTitle">اختر حساباً</div></div>
+      <table>
+        <thead><tr><th>التاريخ</th><th>القيد</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+        <tbody id="ledgerBody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">اختر حساباً من القائمة</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RECURRING EXPENSES -->
+  <div id="tab-recurring" class="sec">
+    <div class="sh">
+      <div><div class="st">المصاريف المتكررة</div><div class="ss">تتحفظ تلقائياً كل بداية شهر</div></div>
+      <button class="btn bp bsm" onclick="openRecurModal()">+ إضافة متكررة</button>
+    </div>
+    <div class="alert ai" id="recurAlert" style="display:none;"></div>
+    <div class="tw">
+      <div class="th2">
+        <div class="tt">قائمة المصاريف المتكررة</div>
+        <button class="btn bs bsm" onclick="runRecurring()">▶ تطبيق الشهر الحالي الآن</button>
+      </div>
+      <table>
+        <thead><tr><th>الوصف</th><th>التصنيف</th><th>المبلغ</th><th>يوم التطبيق</th><th>الحالة</th><th>آخر تطبيق</th><th></th></tr></thead>
+        <tbody id="recurBody"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">لا توجد مصاريف متكررة</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="tab-settings" class="sec">
+    <div class="sh"><div><div class="st">إعدادات الدكاترة</div></div></div>
+    <div class="sg">
+      <div class="sc">
+        <div class="sct">➕ إضافة / تعديل دكتور</div>
+        <div class="fr"><label class="flbl">الاسم (نفس اسم البرنامج بالضبط)</label><input class="finp" id="drN" placeholder="DR.NASSER"></div>
+        <div class="fr2">
+          <div class="fr" style="margin:0"><label class="flbl">Target الشهري (د.ك)</label><input class="finp" id="drT" type="number" placeholder="4000"></div>
+          <div class="fr" style="margin:0"><label class="flbl">نسبة العمولة %</label><input class="finp" id="drC" type="number" placeholder="20"></div>
+        </div>
+        <div class="fr2">
+          <div class="fr" style="margin:0"><label class="flbl">خصم المختبر %</label><input class="finp" id="drL" type="number" placeholder="10"></div>
+          <div class="fr" style="margin:0"><label class="flbl">خصم التأمين %</label><input class="finp" id="drI" type="number" placeholder="45"></div>
+        </div>
+        <button class="btn bs" onclick="saveDoctor()" style="width:100%;margin-top:8px;">💾 حفظ</button>
+      </div>
+      <div class="sc">
+        <div class="sct">👨‍⚕️ الدكاترة المسجّلون</div>
+        <div id="drList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Journal Modal -->
+<div class="modal" id="journalModal">
+  <div class="mbox" style="width:580px;max-width:96vw;max-height:90vh;overflow-y:auto;">
+    <div class="mtit" id="journalModalTitle">قيد يومي جديد</div>
+    <input type="hidden" id="jEditId">
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">التاريخ</label><input type="date" class="finp" id="jDate"></div>
+      <div class="fr" style="margin:0"><label class="flbl">رقم المرجع</label><input class="finp" id="jRef" placeholder="INV-001"></div>
+    </div>
+    <div class="fr"><label class="flbl">البيان</label><input class="finp" id="jDesc" placeholder="وصف القيد..."></div>
+
+    <!-- Lines -->
+    <div style="margin:12px 0 6px;font-size:11px;font-weight:600;color:var(--text2);">بنود القيد</div>
+    <div id="jLines"></div>
+    <button class="btn bsm" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-bottom:12px;" onclick="addJLine()">+ إضافة سطر</button>
+
+    <!-- Balance indicator -->
+    <div id="jBalance" style="padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;"></div>
+
+    <!-- AI Invoice -->
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">📸 أو ارفع فاتورة وAI يولّد القيد</div>
+      <input type="file" id="jInvoiceFile" accept="image/*" onchange="aiJournalEntry(this)" style="display:none">
+      <button class="btn bsm" style="background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.2);" onclick="document.getElementById('jInvoiceFile').click()">📸 رفع صورة فاتورة</button>
+      <span id="jAiStatus" style="font-size:11px;color:var(--text2);margin-right:8px;"></span>
+    </div>
+
+    <div class="mact" style="margin-top:14px;">
+      <button class="btn bs" style="flex:1" onclick="saveJournal()">💾 حفظ القيد</button>
+      <button class="btn bd" onclick="closeModal('journalModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- COA Modal -->
+<div class="modal" id="coaModal">
+  <div class="mbox" style="width:420px;max-width:95vw;">
+    <div class="mtit" id="coaModalTitle">إضافة حساب جديد</div>
+    <input type="hidden" id="coaEditId">
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">رقم الحساب</label><input class="finp" id="coaCode" placeholder="5999"></div>
+      <div class="fr" style="margin:0"><label class="flbl">نوع الحساب</label>
+        <select class="finp" id="coaType">
+          <option value="asset">أصول</option>
+          <option value="liability">التزامات</option>
+          <option value="equity">حقوق الملكية</option>
+          <option value="revenue">إيرادات</option>
+          <option value="expense">مصاريف</option>
+        </select>
+      </div>
+    </div>
+    <div class="fr"><label class="flbl">اسم الحساب</label><input class="finp" id="coaName" placeholder="اسم الحساب بالعربي"></div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">الحساب الأب (اختياري)</label>
+        <select class="finp" id="coaParent"><option value="">— رئيسي —</option></select>
+      </div>
+      <div class="fr" style="margin:0"><label class="flbl">الحالة</label>
+        <select class="finp" id="coaStatus"><option value="active">فعّال</option><option value="inactive">موقوف</option></select>
+      </div>
+    </div>
+    <div class="fr"><label class="flbl">ملاحظات (اختياري)</label><input class="finp" id="coaNotes" placeholder="وصف الحساب..."></div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="saveCoa()">💾 حفظ</button>
+      <button class="btn bd" onclick="closeModal('coaModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pay Modal -->
+<div class="modal" id="payModal">
+  <div class="mbox">
+    <div class="mtit">💰 تسجيل دفع عمولة</div>
+    <div class="fr"><label class="flbl">الدكتور</label><select class="finp" id="pmDr"></select></div>
+    <div class="fr"><label class="flbl">الشهر</label><select class="finp" id="pmMonth"></select></div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">طريقة الدفع</label>
+        <select class="finp" id="pmMethod"><option>كاش</option><option>تحويل بنكي</option><option>شيك</option></select>
+      </div>
+      <div class="fr" style="margin:0"><label class="flbl">تاريخ الدفع</label><input type="date" class="finp" id="pmDate"></div>
+    </div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="savePay()">✅ تأكيد</button>
+      <button class="btn bd" onclick="closeModal('payModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Recurring Modal -->
+<div class="modal" id="recurModal">
+  <div class="mbox">
+    <div class="mtit" id="recurModalTitle">إضافة مصروف متكرر</div>
+    <input type="hidden" id="recurEditId">
+    <div class="fr"><label class="flbl">الوصف</label><input class="finp" id="recurDesc" placeholder="إيجار العيادة..."></div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">التصنيف</label>
+        <select class="finp" id="recurCat">
+          <option>إيجار</option><option>كهرباء/ماء</option><option>هاتف وإنترنت</option>
+          <option>رواتب</option><option>تأمين</option><option>اشتراكات</option><option>أخرى</option>
+        </select>
+      </div>
+      <div class="fr" style="margin:0"><label class="flbl">المبلغ (د.ك)</label>
+        <input type="number" class="finp" id="recurAmt" placeholder="0.000" step="0.001">
+      </div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">يوم التطبيق (1-28)</label>
+        <input type="number" class="finp" id="recurDay" placeholder="1" min="1" max="28" value="1">
+      </div>
+      <div class="fr" style="margin:0"><label class="flbl">الحساب المحاسبي</label>
+        <select class="finp" id="recurAccount"></select>
+      </div>
+    </div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="saveRecur()">💾 حفظ</button>
+      <button class="btn bd" onclick="closeModal('recurModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Expense Modal -->
+<div class="modal" id="expModal">
+  <div class="mbox">
+    <div class="mtit">💸 إضافة مصروف</div>
+    <div class="fr"><label class="flbl">الوصف</label><input class="finp" id="expDesc" placeholder="مواد مختبر..."></div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">التصنيف</label>
+        <select class="finp" id="expCat">
+          <option>مواد مختبر</option><option>رواتب</option><option>إيجار</option><option>كهرباء/ماء</option><option>صيانة</option><option>أخرى</option>
+        </select>
+      </div>
+      <div class="fr" style="margin:0"><label class="flbl">المبلغ (د.ك)</label><input type="number" class="finp" id="expAmt" placeholder="0.000"></div>
+    </div>
+    <div class="fr"><label class="flbl">التاريخ</label><input type="date" class="finp" id="expDate"></div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="saveExp()">✅ حفظ</button>
+      <button class="btn bd" onclick="closeModal('expModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:3000/api';
+let DB = {};
+
+async function loadAll() {
+  try {
+    const r = await fetch(`${API}/data`);
+    DB = await r.json();
+    document.getElementById('srvStatus').textContent = 'متصل';
+  } catch(e) {
+    document.getElementById('srvStatus').textContent = 'غير متصل';
+    document.querySelector('.dot').style.background = 'var(--danger)';
+  }
+}
+
+function showTab(id, el) {
+  document.querySelectorAll('.sec').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  if (el) el.classList.add('active');
+  if (id === 'dashboard') loadDashboard();
+  if (id === 'doctors') loadDoctors();
+  if (id === 'upload') loadFiles();
+  if (id === 'expenses') loadExpenses();
+  if (id === 'settings') loadSettings();
+  if (id === 'coa') renderCoa();
+  if (id === 'reports') loadReports();
+  if (id === 'ledger') loadLedger();
+  if (id === 'recurring') loadRecurring();
+  if (id === 'journal') loadJournal();
+}
+
+function toggleFilter() {
+  const t = document.getElementById('fType').value;
+  document.getElementById('fMonth').style.display = t === 'month' ? 'block' : 'none';
+  document.getElementById('fRange').style.display = t === 'range' ? 'flex' : 'none';
+}
+
+async function loadDashboard() {
+  await loadAll();
+  const t = document.getElementById('fType').value;
+  let params = '';
+  if (t === 'month') {
+    const m = document.getElementById('fMonthVal').value;
+    params = `?from=${m}-01&to=${m}-31`;
+  } else if (t === 'range') {
+    const f = document.getElementById('fFrom').value;
+    const to = document.getElementById('fTo').value;
+    if (f) params += `?from=${f}`;
+    if (to) params += `${params?'&':'?'}to=${to}`;
+  }
+  
+  try {
+    const r = await fetch(`${API}/stats${params}`);
+    const s = await r.json();
+    
+    document.getElementById('kTotal').textContent = s.totalRevenue.toFixed(3);
+    document.getElementById('kNet').textContent = s.netCash.toFixed(3);
+    document.getElementById('kIns').textContent = s.insShare.toFixed(3);
+    document.getElementById('kComm').textContent = s.totalComm.toFixed(3);
+    document.getElementById('kPend').textContent = s.pendingComm.toFixed(3);
+    document.getElementById('iRec').textContent = s.insRecorded.toFixed(3) + ' د.ك';
+    document.getElementById('iOrig').textContent = s.insOriginal.toFixed(3) + ' د.ك';
+    document.getElementById('iShare').textContent = s.insShare.toFixed(3) + ' د.ك';
+    document.getElementById('iNet').textContent = s.insNet.toFixed(3) + ' د.ك';
+    
+    const days = DB.dailyData || [];
+    let filtered = days;
+    if (t === 'month') {
+      const m = document.getElementById('fMonthVal').value;
+      filtered = days.filter(d => d.date.startsWith(m));
+    }
+    
+    document.getElementById('dashSub').textContent = `${filtered.length} يوم — ${filtered.filter(d=>d.total>0).length} يوم عمل`;
+    
+    document.getElementById('dailyBody').innerHTML = filtered.length ?
+      filtered.map(d => `<tr>
+        <td>${d.date}</td>
+        <td class="num">${d.cash.toFixed(3)}</td>
+        <td class="num">${d.knet.toFixed(3)}</td>
+        <td class="num">${d.visa.toFixed(3)}</td>
+        <td class="num">${d.master.toFixed(3)}</td>
+        <td class="num" style="color:var(--warning)">${d.insurance.toFixed(3)}</td>
+        <td class="num">${(d.link||0).toFixed(3)}</td>
+        <td class="num pos">${d.total.toFixed(3)}</td>
+      </tr>`).join('') :
+      '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا بيانات للفترة المحددة</td></tr>';
+  } catch(e) {}
+}
+
+// UPLOAD
+const uz = document.getElementById('uz');
+uz.addEventListener('dragover', e => { e.preventDefault(); uz.classList.add('drag'); });
+uz.addEventListener('dragleave', () => uz.classList.remove('drag'));
+uz.addEventListener('drop', e => { e.preventDefault(); uz.classList.remove('drag'); if(e.dataTransfer.files[0]) doUpload(e.dataTransfer.files[0]); });
+
+function uploadFile(input) { if(input.files[0]) doUpload(input.files[0]); }
+
+async function doUpload(file) {
+  const msgEl = document.getElementById('uploadMsg');
+  msgEl.innerHTML = '<div class="alert ai">⏳ جاري الرفع...</div>';
+  
+  const fd = new FormData();
+  fd.append('file', file);
+  
+  try {
+    const r = await fetch(`${API}/upload`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.success) {
+      msgEl.innerHTML = `<div class="alert as">✅ ${d.message}</div>`;
+      loadFiles();
+      loadAll();
+    } else {
+      msgEl.innerHTML = `<div class="alert ae">❌ ${d.message}</div>`;
+    }
+  } catch(e) {
+    msgEl.innerHTML = '<div class="alert ae">❌ تعذر الاتصال بالسيرفر. تأكد من تشغيل server.js</div>';
+  }
+}
+
+function loadFiles() {
+  const files = DB.uploadedFiles || [];
+  document.getElementById('filesBody').innerHTML = files.length ?
+    files.map(f => `<tr>
+      <td>${f.name}</td>
+      <td><span class="badge bg">${f.type === 'daily' ? 'Daily Income' : 'Payments'}</span></td>
+      <td class="num">${f.records}</td>
+      <td>${new Date(f.date).toLocaleDateString('ar')}</td>
+    </tr>`).join('') :
+    '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا يوجد ملفات</td></tr>';
+}
+
+// DOCTORS
+function loadDoctors() {
+  const doctors = DB.doctors || [];
+  const comms = DB.commissionHistory || [];
+  
+  // Update filters
+  const drSel = document.getElementById('drFilt');
+  const months = [...new Set(comms.map(c => c.month))].sort().reverse();
+  drSel.innerHTML = '<option value="all">الكل</option>' + doctors.map(d => `<option value="${d.name}">${d.name}</option>`).join('');
+  
+  const mSel = document.getElementById('drMonth');
+  mSel.innerHTML = '<option value="all">كل الأشهر</option>' + months.map(m => `<option value="${m}">${monthLbl(m)}</option>`).join('');
+  
+  const fDr = drSel.value;
+  const fMonth = mSel.value;
+  
+  const filtDocs = doctors.filter(d => fDr === 'all' || d.name === fDr);
+  
+  document.getElementById('drGrid').innerHTML = filtDocs.map(dr => {
+    const entries = comms.filter(c => c.doctor === dr.name && (fMonth === 'all' || c.month === fMonth));
+    const totalRev = entries.reduce((s, c) => s + c.revenue, 0);
+    const totalComm = entries.reduce((s, c) => s + c.commission, 0);
+    const paidComm = entries.filter(c => c.paid).reduce((s, c) => s + c.commission, 0);
+    const pending = totalComm - paidComm;
+    const pct = Math.min(100, dr.target > 0 ? Math.round(totalRev / dr.target * 100) : 0);
+    const init = dr.name.replace(/DR\.|Dr\./g,'').trim().substring(0,2) || 'DR';
+    return `<div class="dc">
+      <div class="dc-hdr"><div class="dc-name">${dr.name}</div><div class="dc-av">${init}</div></div>
+      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.toFixed(3)} / ${dr.target.toLocaleString()}</span></div>
+      <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
+      <div class="ds">
+        <div><div class="dsl">إجمالي العمولات</div><div class="dsv">${totalComm.toFixed(3)}</div></div>
+        <div><div class="dsl">مدفوع</div><div class="dsv" style="color:var(--accent2)">${paidComm.toFixed(3)}</div></div>
+        <div><div class="dsl">متبقي</div><div class="dsv" style="color:var(--danger)">${pending.toFixed(3)}</div></div>
+        <div><div class="dsl">نسبة العمولة</div><div class="dsv">${dr.commission}%</div></div>
+      </div>
+    </div>`;
+  }).join('');
+  
+  const filtComms = comms.filter(c => (fDr === 'all' || c.doctor === fDr) && (fMonth === 'all' || c.month === fMonth));
+  document.getElementById('commBody').innerHTML = filtComms.length ?
+    filtComms.map(c => `<tr>
+      <td><span class="badge bb">${c.doctor}</span></td>
+      <td>${monthLbl(c.month)}</td>
+      <td class="num">${c.revenue.toFixed(3)} د.ك</td>
+      <td class="num pos">${c.commission.toFixed(3)} د.ك</td>
+      <td>${c.paid ? '<span class="badge bg">✅ مدفوع</span>' : '<span class="badge br">⏳ معلّق</span>'}</td>
+      <td>${c.payMethod || '—'}</td>
+      <td>${c.payDate || '—'}</td>
+      <td>${!c.paid ? `<button class="btn bw bsm" onclick="quickPay('${c.doctor}','${c.month}')">دفع</button>` : ''}</td>
+    </tr>`).join('') :
+    '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px;">لا بيانات</td></tr>';
+}
+
+function monthLbl(m) {
+  if (!m) return '';
+  const ms = {'01':'يناير','02':'فبراير','03':'مارس','04':'أبريل','05':'مايو','06':'يونيو','07':'يوليو','08':'أغسطس','09':'سبتمبر','10':'أكتوبر','11':'نوفمبر','12':'ديسمبر'};
+  const [y, mo] = m.split('-');
+  return (ms[mo]||mo) + ' ' + y;
+}
+
+function openPayModal() {
+  const doctors = DB.doctors || [];
+  const comms = DB.commissionHistory || [];
+  const months = [...new Set(comms.map(c => c.month))].sort().reverse();
+  document.getElementById('pmDr').innerHTML = doctors.map(d => `<option>${d.name}</option>`).join('');
+  document.getElementById('pmMonth').innerHTML = months.map(m => `<option value="${m}">${monthLbl(m)}</option>`).join('');
+  document.getElementById('pmDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('payModal').classList.add('open');
+}
+
+function quickPay(dr, month) {
+  const doctors = DB.doctors || [];
+  document.getElementById('pmDr').innerHTML = `<option value="${dr}">${dr}</option>`;
+  document.getElementById('pmMonth').innerHTML = `<option value="${month}">${monthLbl(month)}</option>`;
+  document.getElementById('pmDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('payModal').classList.add('open');
+}
+
+async function savePay() {
+  const body = {
+    doctor: document.getElementById('pmDr').value,
+    month: document.getElementById('pmMonth').value,
+    payMethod: document.getElementById('pmMethod').value,
+    payDate: document.getElementById('pmDate').value
+  };
+  const r = await fetch(`${API}/commission/pay`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (d.success) { closeModal('payModal'); await loadAll(); loadDoctors(); }
+  else alert(d.message);
+}
+
+// EXPENSES
+function toggleExpFilter() {
+  const t = document.getElementById('expFType')?.value || 'all';
+  document.getElementById('expFMonth').style.display = t==='month'?'block':'none';
+  document.getElementById('expFRange').style.display = t==='range'?'flex':'none';
+}
+
+async function loadExpenses() {
+  await loadAll();
+  let expenses = DB.expenses || [];
+  const fType = document.getElementById('expFType')?.value || 'all';
+  const fCat  = document.getElementById('expFCat')?.value || 'all';
+  if (fType === 'month') {
+    const m = document.getElementById('expFMonthVal')?.value;
+    if (m) expenses = expenses.filter(e => e.date?.startsWith(m));
+  } else if (fType === 'range') {
+    const from = document.getElementById('expFFrom')?.value;
+    const to   = document.getElementById('expFTo')?.value;
+    if (from) expenses = expenses.filter(e => e.date >= from);
+    if (to)   expenses = expenses.filter(e => e.date <= to);
+  }
+  if (fCat !== 'all') expenses = expenses.filter(e => e.cat === fCat);
+  const total = expenses.reduce((s,e) => s + (parseFloat(e.amount)||0), 0);
+  if (document.getElementById('expTotal')) document.getElementById('expTotal').textContent = total.toFixed(3);
+  if (document.getElementById('expCount')) document.getElementById('expCount').textContent = expenses.length;
+  const sorted = [...expenses].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  document.getElementById('expBody').innerHTML = sorted.length ?
+    sorted.map(e => `<tr>
+      <td>${e.date || '—'}</td>
+      <td>${e.desc || '—'}${e.vendor ? ' <small style="color:var(--text3)">('+e.vendor+')</small>' : ''}</td>
+      <td><span class="badge bo">${e.cat || 'أخرى'}</span>${e.source === 'telegram_photo' ? ' <span class="badge bb" style="font-size:9px;">📸 AI</span>' : ''}</td>
+      <td class="num neg">${parseFloat(e.amount||0).toFixed(3)} د.ك</td>
+    </tr>`).join('') +
+    `<tr style="border-top:2px solid var(--border);background:var(--surface2)">
+      <td colspan="3" style="font-weight:600;padding:10px 12px;">الإجمالي</td>
+      <td class="num neg" style="font-weight:700">${total.toFixed(3)} د.ك</td>
+    </tr>` :
+    '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا توجد مصاريف</td></tr>';
+}
+
+function openExpModal() {
+  document.getElementById('expDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('expModal').classList.add('open');
+}
+
+async function saveExp() {
+  const body = { desc: document.getElementById('expDesc').value, cat: document.getElementById('expCat').value, amount: document.getElementById('expAmt').value, date: document.getElementById('expDate').value };
+  if (!body.desc || !body.amount) { alert('أدخل الوصف والمبلغ'); return; }
+  await fetch(`${API}/expenses`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  closeModal('expModal'); await loadAll(); loadExpenses();
+}
+
+// TELEGRAM
+async function startBot() {
+  const token = document.getElementById('tgToken').value.trim();
+  if (!token) { alert('أدخل الـ Token'); return; }
+  const r = await fetch(`${API}/telegram/start`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ token }) });
+  const d = await r.json();
+  if (d.success) {
+    document.getElementById('tgStatus').textContent = 'متصل ✅';
+    document.getElementById('tgDot').classList.add('on');
+  } else alert('خطأ: ' + d.message);
+}
+
+// SETTINGS
+function loadSettings() {
+  const doctors = DB.doctors || [];
+  document.getElementById('drList').innerHTML = doctors.map((d,i) => `
+    <div class="di">
+      <div><div class="din">${d.name}</div><div class="dit">Target: ${d.target.toLocaleString()} | ${d.commission}% | مختبر: ${d.lab}%</div></div>
+      <button class="btn bd bsm" onclick="delDoctor(${i})">حذف</button>
+    </div>`).join('');
+}
+
+// COA API
+async function saveCoaToServer(accounts) {
+  try {
+    await fetch(`${API}/coa`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({chartOfAccounts: accounts}) });
+    await loadAll();
+  } catch(e) {}
+}
+
+async function saveDoctor() {
+  const name = document.getElementById('drN').value.trim();
+  const target = parseFloat(document.getElementById('drT').value);
+  const commission = parseFloat(document.getElementById('drC').value);
+  const lab = parseFloat(document.getElementById('drL').value) || 0;
+  const insurance = parseFloat(document.getElementById('drI').value) || 45;
+  if (!name || !target || !commission) { alert('أدخل الاسم والـ Target والعمولة'); return; }
+  
+  const doctors = DB.doctors || [];
+  const idx = doctors.findIndex(d => d.name === name);
+  if (idx >= 0) doctors[idx] = { name, target, commission, lab, insurance };
+  else doctors.push({ name, target, commission, lab, insurance });
+  
+  await fetch(`${API}/doctors`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ doctors }) });
+  await loadAll(); loadSettings();
+  ['drN','drT','drC','drL','drI'].forEach(id => document.getElementById(id).value = '');
+}
+
+async function delDoctor(i) {
+  const doctors = DB.doctors || [];
+  if (!confirm('حذف ' + doctors[i].name + '؟')) return;
+  doctors.splice(i, 1);
+  await fetch(`${API}/doctors`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ doctors }) });
+  await loadAll(); loadSettings();
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+
+// ===== JOURNAL ENTRIES =====
+function toggleJFilter() {
+  const t = document.getElementById('jFType').value;
+  document.getElementById('jFMonth').style.display = t==='month'?'block':'none';
+  document.getElementById('jFRange').style.display = t==='range'?'flex':'none';
+}
+
+let jLineCount = 0;
+
+function addJLine(debit='', credit='', accountId='', desc='') {
+  const accounts = getCoaAccounts();
+  const id = ++jLineCount;
+  const div = document.createElement('div');
+  div.id = 'jline_' + id;
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 32px;gap:6px;margin-bottom:6px;align-items:center;';
+  div.innerHTML = `
+    <select class="finp" id="jl_acc_${id}" style="font-size:11px;">
+      <option value="">— اختر الحساب —</option>
+      ${accounts.map(a => `<option value="${a.id}" ${a.id===accountId?'selected':''}>${a.code} — ${a.name}</option>`).join('')}
+    </select>
+    <input class="finp" type="number" id="jl_debit_${id}" placeholder="مدين" value="${debit}" step="0.001" oninput="updateJBalance()">
+    <input class="finp" type="number" id="jl_credit_${id}" placeholder="دائن" value="${credit}" step="0.001" oninput="updateJBalance()">
+    <button onclick="document.getElementById('jline_${id}').remove();updateJBalance();" style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:6px;cursor:pointer;font-size:14px;width:28px;height:28px;">×</button>
+  `;
+  document.getElementById('jLines').appendChild(div);
+  updateJBalance();
+}
+
+function updateJBalance() {
+  let totalDebit = 0, totalCredit = 0;
+  document.querySelectorAll('[id^="jl_debit_"]').forEach(el => totalDebit += parseFloat(el.value)||0);
+  document.querySelectorAll('[id^="jl_credit_"]').forEach(el => totalCredit += parseFloat(el.value)||0);
+  const diff = Math.abs(totalDebit - totalCredit);
+  const bal = document.getElementById('jBalance');
+  if (!bal) return;
+  if (diff < 0.001) {
+    bal.style.cssText = 'padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;background:rgba(0,255,157,.08);border:1px solid rgba(0,255,157,.2);color:var(--accent2);';
+    bal.textContent = '✅ القيد متوازن — مدين: ' + totalDebit.toFixed(3) + ' = دائن: ' + totalCredit.toFixed(3) + ' د.ك';
+  } else {
+    bal.style.cssText = 'padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);color:var(--danger);';
+    bal.textContent = '⚠️ غير متوازن — الفرق: ' + diff.toFixed(3) + ' د.ك (مدين: ' + totalDebit.toFixed(3) + ' | دائن: ' + totalCredit.toFixed(3) + ')';
+  }
+}
+
+function openJournalModal() {
+  jLineCount = 0;
+  document.getElementById('journalModalTitle').textContent = 'قيد يومي جديد';
+  document.getElementById('jEditId').value = '';
+  document.getElementById('jDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('jRef').value = 'JV-' + String(Date.now()).slice(-5);
+  document.getElementById('jDesc').value = '';
+  document.getElementById('jLines').innerHTML = '';
+  document.getElementById('jBalance').textContent = '';
+  document.getElementById('jAiStatus').textContent = '';
+  addJLine(); addJLine();
+  document.getElementById('journalModal').classList.add('open');
+}
+
+async function aiJournalEntry(input) {
+  if (!input.files[0]) return;
+  const statusEl = document.getElementById('jAiStatus');
+  statusEl.textContent = '⏳ AI يقرأ الفاتورة...';
+  
+  const file = input.files[0];
+  const base64 = await new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.readAsDataURL(file);
+  });
+  
+  try {
+    const resp = await fetch(`${API}/ai/journal`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ image: base64, accounts: getCoaAccounts() })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      document.getElementById('jDesc').value = data.description || '';
+      document.getElementById('jRef').value = data.ref || document.getElementById('jRef').value;
+      document.getElementById('jLines').innerHTML = '';
+      jLineCount = 0;
+      data.lines.forEach(l => addJLine(l.debit||'', l.credit||'', l.accountId||''));
+      statusEl.style.color = 'var(--accent2)';
+      statusEl.textContent = '✅ تم توليد القيد تلقائياً — راجعه قبل الحفظ';
+    } else {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = '❌ ' + (data.message || 'خطأ');
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = '❌ خطأ في الاتصال';
+  }
+}
+
+async function saveJournal() {
+  const date = document.getElementById('jDate').value;
+  const desc = document.getElementById('jDesc').value.trim();
+  const ref  = document.getElementById('jRef').value.trim();
+  if (!date || !desc) { alert('أدخل التاريخ والبيان'); return; }
+  
+  const lines = [];
+  let totalDebit = 0, totalCredit = 0;
+  document.querySelectorAll('[id^="jl_acc_"]').forEach(el => {
+    const lineId = el.id.replace('jl_acc_','');
+    const accountId = el.value;
+    const debit  = parseFloat(document.getElementById('jl_debit_'+lineId)?.value)||0;
+    const credit = parseFloat(document.getElementById('jl_credit_'+lineId)?.value)||0;
+    if (accountId && (debit || credit)) {
+      const acc = getCoaAccounts().find(a => a.id === accountId);
+      lines.push({ accountId, accountCode: acc?.code||'', accountName: acc?.name||'', debit, credit });
+      totalDebit += debit; totalCredit += credit;
+    }
+  });
+  
+  if (lines.length < 2) { alert('القيد يحتاج سطرين على الأقل'); return; }
+  if (Math.abs(totalDebit - totalCredit) > 0.001) { alert('القيد غير متوازن — مدين لا يساوي دائن'); return; }
+  
+  const entry = {
+    id: document.getElementById('jEditId').value || 'JE-' + Date.now(),
+    date, desc, ref,
+    lines, totalDebit, totalCredit,
+    type: 'manual',
+    createdAt: new Date().toISOString()
+  };
+  
+  try {
+    const r = await fetch(`${API}/journal`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(entry) });
+    const d = await r.json();
+    if (d.success) { closeModal('journalModal'); await loadAll(); loadJournal(); }
+    else alert(d.message);
+  } catch(e) { alert('خطأ في الحفظ'); }
+}
+
+async function loadJournal() {
+  await loadAll();
+  const entries = DB.journalEntries || [];
+  const fType = document.getElementById('jFType')?.value || 'all';
+  const fType2 = document.getElementById('jFType2')?.value || 'all';
+  
+  let filtered = entries;
+  if (fType === 'month') {
+    const m = document.getElementById('jFMonthVal').value;
+    if (m) filtered = filtered.filter(e => e.date.startsWith(m));
+  } else if (fType === 'range') {
+    const from = document.getElementById('jFFrom').value;
+    const to   = document.getElementById('jFTo').value;
+    if (from) filtered = filtered.filter(e => e.date >= from);
+    if (to)   filtered = filtered.filter(e => e.date <= to);
+  }
+  if (fType2 !== 'all') filtered = filtered.filter(e => e.type === fType2);
+  
+  filtered.sort((a,b) => b.date.localeCompare(a.date));
+  
+  const totalDebit  = filtered.reduce((s,e) => s + e.totalDebit, 0);
+  const totalCredit = filtered.reduce((s,e) => s + e.totalCredit, 0);
+  const diff = Math.abs(totalDebit - totalCredit);
+  
+  document.getElementById('jTotalDebit').textContent  = totalDebit.toFixed(3);
+  document.getElementById('jTotalCredit').textContent = totalCredit.toFixed(3);
+  document.getElementById('jDiff').textContent        = diff.toFixed(3);
+  document.getElementById('jDiff').style.color        = diff < 0.001 ? 'var(--accent2)' : 'var(--danger)';
+  document.getElementById('jCount').textContent       = filtered.length;
+  
+  if (!filtered.length) {
+    document.getElementById('journalBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا توجد قيود</td></tr>';
+    return;
+  }
+  
+  const typeMap = {manual:'يدوي',revenue:'إيرادات',expense:'مصاريف',ai:'AI فاتورة'};
+  const typeBadge = {manual:'bb',revenue:'bg',expense:'by',ai:'bo'};
+  
+  let rows = '';
+  filtered.forEach(e => {
+    const firstLine = e.lines[0];
+    const moreLines = e.lines.length > 1 ? `<span style="font-size:9px;color:var(--text3);"> +${e.lines.length-1}</span>` : '';
+    rows += `<tr>
+      <td style="font-family:monospace;font-size:10px;">${e.ref||e.id}</td>
+      <td>${e.date}</td>
+      <td style="max-width:200px;">${e.desc}</td>
+      <td style="font-size:11px;">${firstLine?.accountCode} — ${firstLine?.accountName}${moreLines}</td>
+      <td class="num pos">${e.totalDebit.toFixed(3)}</td>
+      <td class="num neg">${e.totalCredit.toFixed(3)}</td>
+      <td><span class="badge ${typeBadge[e.type]||'bb'}">${typeMap[e.type]||e.type}</span></td>
+      <td>
+        <button class="btn bsm" style="background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.2);padding:3px 8px;font-size:10px;" onclick="viewJournal('${e.id}')">عرض</button>
+        <button class="btn bsm bd" style="padding:3px 8px;font-size:10px;" onclick="deleteJournal('${e.id}')">حذف</button>
+      </td>
+    </tr>`;
+    // Sub-lines
+    e.lines.slice(1).forEach(l => {
+      rows += `<tr style="background:rgba(0,0,0,.1);">
+        <td colspan="3"></td>
+        <td style="font-size:11px;color:var(--text2);padding-right:24px;">${l.accountCode} — ${l.accountName}</td>
+        <td class="num pos">${l.debit>0?l.debit.toFixed(3):''}</td>
+        <td class="num neg">${l.credit>0?l.credit.toFixed(3):''}</td>
+        <td colspan="2"></td>
+      </tr>`;
+    });
+  });
+  document.getElementById('journalBody').innerHTML = rows;
+}
+
+function viewJournal(id) {
+  const entries = DB.journalEntries || [];
+  const e = entries.find(x => x.id === id);
+  if (!e) return;
+  jLineCount = 0;
+  document.getElementById('journalModalTitle').textContent = 'عرض القيد: ' + (e.ref||e.id);
+  document.getElementById('jEditId').value = e.id;
+  document.getElementById('jDate').value = e.date;
+  document.getElementById('jRef').value = e.ref || '';
+  document.getElementById('jDesc').value = e.desc;
+  document.getElementById('jLines').innerHTML = '';
+  e.lines.forEach(l => addJLine(l.debit||'', l.credit||'', l.accountId||''));
+  document.getElementById('journalModal').classList.add('open');
+}
+
+async function deleteJournal(id) {
+  const entries = DB.journalEntries || [];
+  const e = entries.find(x => x.id === id);
+  if (!confirm('حذف القيد: ' + (e?.desc||id) + '؟')) return;
+  try {
+    await fetch(`${API}/journal/` + id, { method:'DELETE' });
+    await loadAll(); loadJournal();
+  } catch(ex) { alert('خطأ في الحذف'); }
+}
+
+function exportJournal() {
+  const entries = (DB.journalEntries || []).sort((a,b) => a.date.localeCompare(b.date));
+  const rows = [['رقم القيد','التاريخ','البيان','رقم الحساب','اسم الحساب','مدين','دائن','النوع']];
+  entries.forEach(e => {
+    e.lines.forEach(l => {
+      rows.push([e.ref||e.id, e.date, e.desc, l.accountCode, l.accountName, l.debit||0, l.credit||0, e.type]);
+    });
+  });
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='JournalEntries_Boubyan.csv'; a.click();
+}
+
+
+// ===== CHART OF ACCOUNTS =====
+const DEFAULT_COA = [
+  {id:'1000',code:'1000',name:'الأصول المتداولة',type:'asset',parent:'',status:'active',notes:''},
+  {id:'1100',code:'1100',name:'الصندوق — نقدي',type:'asset',parent:'1000',status:'active',notes:''},
+  {id:'1110',code:'1110',name:'البنك — الحساب الجاري',type:'asset',parent:'1000',status:'active',notes:''},
+  {id:'1120',code:'1120',name:'K-Net / Visa / Master — مستحقات',type:'asset',parent:'1000',status:'active',notes:''},
+  {id:'1130',code:'1130',name:'ذمم مدينة — شركات التأمين',type:'asset',parent:'1000',status:'active',notes:''},
+  {id:'1140',code:'1140',name:'ذمم مدينة — مرضى (آجل)',type:'asset',parent:'1000',status:'active',notes:''},
+  {id:'1150',code:'1150',name:'سلف الموظفين',type:'asset',parent:'1000',status:'active',notes:''},
+  {id:'1160',code:'1160',name:'مخزون مواد طبية وتشغيلية',type:'asset',parent:'1000',status:'active',notes:''},
+  {id:'1500',code:'1500',name:'الأصول الثابتة',type:'asset',parent:'',status:'active',notes:''},
+  {id:'1510',code:'1510',name:'معدات طبية وأجهزة أسنان',type:'asset',parent:'1500',status:'active',notes:''},
+  {id:'1520',code:'1520',name:'أثاث وتجهيزات العيادة',type:'asset',parent:'1500',status:'active',notes:''},
+  {id:'1530',code:'1530',name:'أجهزة كمبيوتر وبرامج',type:'asset',parent:'1500',status:'active',notes:''},
+  {id:'1540',code:'1540',name:'مجمّع الإهلاك',type:'asset',parent:'1500',status:'active',notes:''},
+  {id:'2000',code:'2000',name:'الالتزامات المتداولة',type:'liability',parent:'',status:'active',notes:''},
+  {id:'2100',code:'2100',name:'ذمم دائنة — موردون',type:'liability',parent:'2000',status:'active',notes:''},
+  {id:'2110',code:'2110',name:'رواتب مستحقة الدفع',type:'liability',parent:'2000',status:'active',notes:''},
+  {id:'2120',code:'2120',name:'عمولات دكاترة مستحقة',type:'liability',parent:'2000',status:'active',notes:''},
+  {id:'2130',code:'2130',name:'مبالغ مقدّمة من مرضى (Advance)',type:'liability',parent:'2000',status:'active',notes:''},
+  {id:'2140',code:'2140',name:'ضرائب ورسوم مستحقة',type:'liability',parent:'2000',status:'active',notes:''},
+  {id:'2150',code:'2150',name:'إيجار مستحق الدفع',type:'liability',parent:'2000',status:'active',notes:''},
+  {id:'2160',code:'2160',name:'حصة التأمين المستحقة — 25%',type:'liability',parent:'2000',status:'active',notes:''},
+  {id:'2500',code:'2500',name:'الالتزامات طويلة الأجل',type:'liability',parent:'',status:'active',notes:''},
+  {id:'2510',code:'2510',name:'مكافأة نهاية خدمة — EOS',type:'liability',parent:'2500',status:'active',notes:''},
+  {id:'2520',code:'2520',name:'قروض طويلة الأجل',type:'liability',parent:'2500',status:'active',notes:''},
+  {id:'3000',code:'3000',name:'حقوق الملكية',type:'equity',parent:'',status:'active',notes:''},
+  {id:'3100',code:'3100',name:'رأس المال',type:'equity',parent:'3000',status:'active',notes:''},
+  {id:'3200',code:'3200',name:'الأرباح المدوّرة',type:'equity',parent:'3000',status:'active',notes:''},
+  {id:'3300',code:'3300',name:'صافي ربح / خسارة السنة',type:'equity',parent:'3000',status:'active',notes:''},
+  {id:'4000',code:'4000',name:'إيرادات العلاجات',type:'revenue',parent:'',status:'active',notes:''},
+  {id:'4100',code:'4100',name:'إيرادات نقدية — كاش',type:'revenue',parent:'4000',status:'active',notes:''},
+  {id:'4110',code:'4110',name:'إيرادات K-Net',type:'revenue',parent:'4000',status:'active',notes:''},
+  {id:'4120',code:'4120',name:'إيرادات Visa',type:'revenue',parent:'4000',status:'active',notes:''},
+  {id:'4130',code:'4130',name:'إيرادات Master',type:'revenue',parent:'4000',status:'active',notes:''},
+  {id:'4140',code:'4140',name:'إيرادات Link',type:'revenue',parent:'4000',status:'active',notes:''},
+  {id:'4150',code:'4150',name:'إيرادات تأمين — إجمالي',type:'revenue',parent:'4000',status:'active',notes:''},
+  {id:'4160',code:'4160',name:'Cheque — شيكات',type:'revenue',parent:'4000',status:'active',notes:''},
+  {id:'4500',code:'4500',name:'إيرادات أخرى',type:'revenue',parent:'',status:'active',notes:''},
+  {id:'4510',code:'4510',name:'فوائد بنكية',type:'revenue',parent:'4500',status:'active',notes:''},
+  {id:'4520',code:'4520',name:'إيرادات متنوعة',type:'revenue',parent:'4500',status:'active',notes:''},
+  {id:'5000',code:'5000',name:'مصاريف الكوادر البشرية',type:'expense',parent:'',status:'active',notes:''},
+  {id:'5100',code:'5100',name:'رواتب الدكاترة',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5110',code:'5110',name:'عمولات الدكاترة',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5120',code:'5120',name:'رواتب الممرضين',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5130',code:'5130',name:'رواتب الاستقبال والإداريين',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5140',code:'5140',name:'رواتب عمال النظافة والخدمات',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5150',code:'5150',name:'مكافأة نهاية خدمة — EOS',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5160',code:'5160',name:'تذاكر سفر وإقامة الموظفين',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5170',code:'5170',name:'رسوم تجديد إقامة وتأشيرات',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5180',code:'5180',name:'فحوصات طبية للموظفين',type:'expense',parent:'5000',status:'active',notes:''},
+  {id:'5200',code:'5200',name:'مصاريف طبية مباشرة',type:'expense',parent:'',status:'active',notes:''},
+  {id:'5210',code:'5210',name:'مواد مختبر وأسنان',type:'expense',parent:'5200',status:'active',notes:''},
+  {id:'5220',code:'5220',name:'مستلزمات طبية استهلاكية',type:'expense',parent:'5200',status:'active',notes:''},
+  {id:'5230',code:'5230',name:'أشعة X-Ray ومواد تصوير',type:'expense',parent:'5200',status:'active',notes:''},
+  {id:'5240',code:'5240',name:'أدوية ومخدرات موضعية',type:'expense',parent:'5200',status:'active',notes:''},
+  {id:'5250',code:'5250',name:'معدات حماية (قفازات، كمامات)',type:'expense',parent:'5200',status:'active',notes:''},
+  {id:'5500',code:'5500',name:'مصاريف المبنى والخدمات',type:'expense',parent:'',status:'active',notes:''},
+  {id:'5510',code:'5510',name:'إيجار العيادة',type:'expense',parent:'5500',status:'active',notes:''},
+  {id:'5520',code:'5520',name:'كهرباء وماء',type:'expense',parent:'5500',status:'active',notes:''},
+  {id:'5530',code:'5530',name:'هاتف وإنترنت',type:'expense',parent:'5500',status:'active',notes:''},
+  {id:'5540',code:'5540',name:'صيانة معدات وأجهزة',type:'expense',parent:'5500',status:'active',notes:''},
+  {id:'5550',code:'5550',name:'نظافة وتعقيم العيادة',type:'expense',parent:'5500',status:'active',notes:''},
+  {id:'5560',code:'5560',name:'أمن وحراسة',type:'expense',parent:'5500',status:'active',notes:''},
+  {id:'5600',code:'5600',name:'مصاريف إدارية ومالية',type:'expense',parent:'',status:'active',notes:''},
+  {id:'5610',code:'5610',name:'تسويق وإعلان ووسائل التواصل',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5620',code:'5620',name:'عمولات بنكية — POS (K-Net/Visa)',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5630',code:'5630',name:'رسوم تحويلات بنكية',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5640',code:'5640',name:'خصم التأمين 25% — حصة شركات التأمين',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5650',code:'5650',name:'مصاريف محاسبة ومراجعة',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5660',code:'5660',name:'اشتراكات برامج وأنظمة',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5670',code:'5670',name:'مصاريف إدارية متنوعة',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5680',code:'5680',name:'إهلاك أصول ثابتة',type:'expense',parent:'5600',status:'active',notes:''},
+  {id:'5700',code:'5700',name:'مصاريف الإقامة والتراخيص',type:'expense',parent:'',status:'active',notes:''},
+  {id:'5710',code:'5710',name:'رسوم ترخيص العيادة (وزارة الصحة)',type:'expense',parent:'5700',status:'active',notes:''},
+  {id:'5720',code:'5720',name:'رسوم إقامة الموظفين',type:'expense',parent:'5700',status:'active',notes:''},
+  {id:'5730',code:'5730',name:'رسوم تجديد سجل تجاري',type:'expense',parent:'5700',status:'active',notes:''},
+  {id:'5740',code:'5740',name:'تأمين طبي للموظفين',type:'expense',parent:'5700',status:'active',notes:''},
+  {id:'5750',code:'5750',name:'غرامات وجزاءات',type:'expense',parent:'5700',status:'active',notes:''},
+];
+
+function getCoaAccounts() { return DB.chartOfAccounts && DB.chartOfAccounts.length ? DB.chartOfAccounts : DEFAULT_COA; }
+
+const typeLabels = {asset:'أصول',liability:'التزامات',equity:'ملكية',revenue:'إيرادات',expense:'مصاريف'};
+const typeColors = {asset:'bb',liability:'br',equity:'bg',revenue:'bg',expense:'by'};
+const typeDots   = {asset:'#378ADD',liability:'#E24B4A',equity:'#639922',revenue:'#1D9E75',expense:'#BA7517'};
+let coaExpanded = {};
+
+function renderCoa() {
+  const accounts = getCoaAccounts();
+  const search = (document.getElementById('coaSearch')?.value||'').toLowerCase();
+  const filtered = search ? accounts.filter(a=>a.name.toLowerCase().includes(search)||a.code.includes(search)) : accounts;
+  const types = ['asset','liability','equity','revenue','expense'];
+  document.getElementById('coaSummary').innerHTML = types.map(t=>{
+    const count=accounts.filter(a=>a.type===t).length;
+    const colors={asset:'bl',liability:'re',equity:'gr',revenue:'gr',expense:'or'};
+    return `<div class="kc ${colors[t]}"><div class="kl">${typeLabels[t]}</div><div class="kv">${count}</div><div class="ks">حساب</div></div>`;
+  }).join('');
+  const html = types.map(type=>{
+    const typeAccounts=filtered.filter(a=>a.type===type);
+    if(!typeAccounts.length) return '';
+    const parents=typeAccounts.filter(a=>!a.parent);
+    const children=typeAccounts.filter(a=>a.parent);
+    let rows='';
+    parents.forEach(p=>{
+      const expanded=coaExpanded[p.id]!==false;
+      const kids=children.filter(c=>c.parent===p.id);
+      rows+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:3px;border:1px solid var(--border);cursor:pointer;" onclick="toggleCoa('${p.id}')">
+        <span style="font-size:11px;color:var(--text3);width:14px;">${kids.length?(expanded?'▼':'▶'):' '}</span>
+        <span style="width:6px;height:6px;border-radius:50%;background:${typeDots[p.type]};flex-shrink:0;"></span>
+        <span style="font-family:monospace;font-size:11px;color:var(--text3);min-width:42px;">${p.code}</span>
+        <span style="flex:1;font-size:13px;font-weight:600;color:var(--text);">${p.name}</span>
+        <span style="font-size:10px;color:var(--text3);">${kids.length} فرعي</span>
+        ${p.status==='inactive'?'<span class="badge br" style="font-size:9px;">موقوف</span>':''}
+        <button class="btn bsm" style="background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.2);padding:3px 8px;font-size:10px;" onclick="event.stopPropagation();editCoa('${p.id}')">تعديل</button>
+        <button class="btn bsm bd" style="padding:3px 8px;font-size:10px;" onclick="event.stopPropagation();deleteCoa('${p.id}')">حذف</button>
+      </div>`;
+      if(expanded||search){kids.forEach(c=>{rows+=`<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;margin-right:24px;margin-bottom:3px;border-radius:8px;border:1px solid var(--border);background:var(--surface);">
+        <span style="width:14px;"></span>
+        <span style="width:5px;height:5px;border-radius:50%;background:${typeDots[c.type]};opacity:.5;flex-shrink:0;"></span>
+        <span style="font-family:monospace;font-size:11px;color:var(--text3);min-width:42px;">${c.code}</span>
+        <span style="flex:1;font-size:12px;color:var(--text);">${c.name}</span>
+        ${c.notes?`<span style="font-size:10px;color:var(--text3);">${c.notes}</span>`:''}
+        ${c.status==='inactive'?'<span class="badge br" style="font-size:9px;">موقوف</span>':''}
+        <button class="btn bsm" style="background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.2);padding:3px 8px;font-size:10px;" onclick="editCoa('${c.id}')">تعديل</button>
+        <button class="btn bsm bd" style="padding:3px 8px;font-size:10px;" onclick="deleteCoa('${c.id}')">حذف</button>
+      </div>`;});}
+    });
+    return `<div style="margin-bottom:16px;"><div style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:.05em;margin-bottom:6px;padding-right:4px;">${typeLabels[type].toUpperCase()} <span style="font-weight:400;color:var(--text3);">(${typeAccounts.length})</span></div>${rows}</div>`;
+  }).join('');
+  document.getElementById('coaTree').innerHTML=html||'<div style="text-align:center;color:var(--text3);padding:24px;">لا توجد نتائج</div>';
+}
+
+function toggleCoa(id){coaExpanded[id]=coaExpanded[id]===false?true:false;renderCoa();}
+function toggleAll(expand){getCoaAccounts().filter(a=>!a.parent).forEach(a=>{coaExpanded[a.id]=expand;});renderCoa();}
+
+function openCoaModal(){
+  const accounts=getCoaAccounts();
+  document.getElementById('coaModalTitle').textContent='إضافة حساب جديد';
+  document.getElementById('coaEditId').value='';
+  document.getElementById('coaCode').value='';
+  document.getElementById('coaName').value='';
+  document.getElementById('coaNotes').value='';
+  document.getElementById('coaStatus').value='active';
+  document.getElementById('coaType').value='expense';
+  document.getElementById('coaParent').innerHTML='<option value="">— رئيسي —</option>'+accounts.filter(a=>!a.parent).map(p=>`<option value="${p.id}">${p.code} — ${p.name}</option>`).join('');
+  document.getElementById('coaModal').classList.add('open');
+}
+
+function editCoa(id){
+  const accounts=getCoaAccounts();
+  const acc=accounts.find(a=>a.id===id);
+  if(!acc)return;
+  openCoaModal();
+  document.getElementById('coaModalTitle').textContent='تعديل حساب';
+  document.getElementById('coaEditId').value=id;
+  document.getElementById('coaCode').value=acc.code;
+  document.getElementById('coaName').value=acc.name;
+  document.getElementById('coaNotes').value=acc.notes||'';
+  document.getElementById('coaStatus').value=acc.status;
+  document.getElementById('coaType').value=acc.type;
+  document.getElementById('coaParent').value=acc.parent||'';
+}
+
+async function saveCoa(){
+  const code=document.getElementById('coaCode').value.trim();
+  const name=document.getElementById('coaName').value.trim();
+  if(!code||!name){alert('أدخل رقم الحساب والاسم');return;}
+  const accounts=getCoaAccounts();
+  const editId=document.getElementById('coaEditId').value;
+  const entry={id:editId||code,code,name,type:document.getElementById('coaType').value,parent:document.getElementById('coaParent').value,status:document.getElementById('coaStatus').value,notes:document.getElementById('coaNotes').value.trim()};
+  if(editId){const idx=accounts.findIndex(a=>a.id===editId);if(idx>=0)accounts[idx]=entry;}
+  else{if(accounts.find(a=>a.code===code)){alert('رقم الحساب موجود مسبقاً');return;}accounts.push(entry);accounts.sort((a,b)=>a.code.localeCompare(b.code));}
+  await saveCoaToServer(accounts);
+  closeModal('coaModal');renderCoa();
+}
+
+function deleteCoa(id){
+  const accounts=getCoaAccounts();
+  const acc=accounts.find(a=>a.id===id);
+  if(accounts.some(a=>a.parent===id)){alert('لا يمكن حذف حساب رئيسي يحتوي على فروع');return;}
+  if(!confirm('حذف: '+acc?.name+'؟'))return;
+  saveCoaToServer(accounts.filter(a=>a.id!==id));
+  renderCoa();
+}
+
+function exportCoa(){
+  const accounts=getCoaAccounts();
+  const rows=[['رقم الحساب','اسم الحساب','النوع','الحساب الأب','الحالة','ملاحظات']];
+  accounts.forEach(a=>rows.push([a.code,a.name,typeLabels[a.type],a.parent||'—',a.status==='active'?'فعّال':'موقوف',a.notes||'']));
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='ChartOfAccounts_Boubyan.csv';a.click();
+}
+
+
+// ===== REPORTS =====
+async function loadReports() {
+  await loadAll();
+  const from = document.getElementById('repFrom')?.value || '';
+  const to   = document.getElementById('repTo')?.value || '';
+  const daily = (DB.dailyData || []).filter(d => {
+    const m = d.date?.substring(0,7);
+    return (!from || m >= from) && (!to || m <= to);
+  });
+  const expenses = (DB.expenses || []).filter(e => {
+    const m = e.date?.substring(0,7);
+    return (!from || m >= from) && (!to || m <= to);
+  });
+
+  const totalRev    = daily.reduce((s,d) => s+d.total, 0);
+  const insRecorded = daily.reduce((s,d) => s+d.insurance, 0);
+  const insOrig     = insRecorded > 0 ? insRecorded/0.75 : 0;
+  const insShare    = insOrig * 0.25;
+  const netRev      = totalRev - insShare;
+  const totalExp    = expenses.reduce((s,e) => s+(parseFloat(e.amount)||0), 0);
+  const netIncome   = netRev - totalExp;
+
+  const knet   = daily.reduce((s,d)=>s+d.knet,0);
+  const visa   = daily.reduce((s,d)=>s+d.visa,0);
+  const master = daily.reduce((s,d)=>s+d.master,0);
+  const cash   = daily.reduce((s,d)=>s+d.cash,0);
+  const link   = daily.reduce((s,d)=>s+(d.link||0),0);
+
+  // Income Statement
+  const isEl = document.getElementById('incomeStatement');
+  if (isEl) isEl.innerHTML = `
+    <table style="width:100%;">
+      <tbody>
+        <tr style="background:var(--surface2)"><td colspan="2" style="padding:8px 12px;font-weight:600;font-size:13px;">الإيرادات</td></tr>
+        <tr><td style="padding:7px 12px;font-size:12px;color:var(--text2);">إجمالي الإيرادات</td><td class="num" style="text-align:left;padding:7px 12px;">${totalRev.toFixed(3)} د.ك</td></tr>
+        <tr><td style="padding:7px 12px;font-size:12px;color:var(--danger);">(-) حصة التأمين 25%</td><td class="num neg" style="text-align:left;padding:7px 12px;">(${insShare.toFixed(3)})</td></tr>
+        <tr style="border-top:1px solid var(--border);background:rgba(0,255,157,.05)"><td style="padding:8px 12px;font-weight:600;font-size:13px;">صافي الإيرادات</td><td class="num pos" style="text-align:left;padding:8px 12px;font-weight:700;">${netRev.toFixed(3)} د.ك</td></tr>
+        <tr style="background:var(--surface2)"><td colspan="2" style="padding:8px 12px;font-weight:600;font-size:13px;margin-top:8px;">المصاريف</td></tr>
+        <tr><td style="padding:7px 12px;font-size:12px;color:var(--text2);">إجمالي المصاريف</td><td class="num neg" style="text-align:left;padding:7px 12px;">(${totalExp.toFixed(3)})</td></tr>
+        <tr style="border-top:2px solid var(--border);background:${netIncome>=0?'rgba(0,255,157,.05)':'rgba(248,113,113,.05)'}">
+          <td style="padding:10px 12px;font-weight:700;font-size:14px;">صافي الدخل / الربح</td>
+          <td class="num ${netIncome>=0?'pos':'neg'}" style="text-align:left;padding:10px 12px;font-weight:700;font-size:16px;">${netIncome.toFixed(3)} د.ك</td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  // Cash Flow
+  const cfEl = document.getElementById('cashFlow');
+  if (cfEl) cfEl.innerHTML = `
+    <table style="width:100%;">
+      <tbody>
+        <tr style="background:var(--surface2)"><td colspan="2" style="padding:8px 12px;font-weight:600;font-size:13px;">التدفقات الداخلة</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">كاش</td><td class="num pos" style="text-align:left;padding:6px 12px;">${cash.toFixed(3)}</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">K-Net</td><td class="num pos" style="text-align:left;padding:6px 12px;">${knet.toFixed(3)}</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">Visa</td><td class="num pos" style="text-align:left;padding:6px 12px;">${visa.toFixed(3)}</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">Master</td><td class="num pos" style="text-align:left;padding:6px 12px;">${master.toFixed(3)}</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">Link</td><td class="num pos" style="text-align:left;padding:6px 12px;">${link.toFixed(3)}</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">تأمين (صافي)</td><td class="num pos" style="text-align:left;padding:6px 12px;">${insRecorded.toFixed(3)}</td></tr>
+        <tr style="border-top:1px solid var(--border);background:rgba(0,255,157,.05)"><td style="padding:8px 12px;font-weight:600;">إجمالي الداخل</td><td class="num pos" style="text-align:left;padding:8px 12px;font-weight:700;">${totalRev.toFixed(3)}</td></tr>
+        <tr style="background:var(--surface2)"><td colspan="2" style="padding:8px 12px;font-weight:600;font-size:13px;">التدفقات الخارجة</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">مصاريف نقدية</td><td class="num neg" style="text-align:left;padding:6px 12px;">(${totalExp.toFixed(3)})</td></tr>
+        <tr><td style="padding:6px 12px;font-size:12px;color:var(--text2);">حصة التأمين</td><td class="num neg" style="text-align:left;padding:6px 12px;">(${insShare.toFixed(3)})</td></tr>
+        <tr style="border-top:2px solid var(--border);background:${(totalRev-totalExp-insShare)>=0?'rgba(0,255,157,.05)':'rgba(248,113,113,.05)'}">
+          <td style="padding:10px 12px;font-weight:700;font-size:14px;">صافي التدفق النقدي</td>
+          <td class="num ${(totalRev-totalExp-insShare)>=0?'pos':'neg'}" style="text-align:left;padding:10px 12px;font-weight:700;font-size:16px;">${(totalRev-totalExp-insShare).toFixed(3)} د.ك</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function exportReport() {
+  const from = document.getElementById('repFrom')?.value || '';
+  const to   = document.getElementById('repTo')?.value || '';
+  const daily = (DB.dailyData||[]).filter(d=>{const m=d.date?.substring(0,7);return(!from||m>=from)&&(!to||m<=to);});
+  const expenses = (DB.expenses||[]).filter(e=>{const m=e.date?.substring(0,7);return(!from||m>=from)&&(!to||m<=to);});
+  const totalRev=daily.reduce((s,d)=>s+d.total,0);
+  const insShare=(daily.reduce((s,d)=>s+d.insurance,0)/0.75)*0.25;
+  const totalExp=expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  const rows=[['البند','المبلغ (د.ك)'],['إجمالي الإيرادات',totalRev.toFixed(3)],['حصة التأمين',(insShare).toFixed(3)],['صافي الإيرادات',(totalRev-insShare).toFixed(3)],['إجمالي المصاريف',totalExp.toFixed(3)],['صافي الدخل',(totalRev-insShare-totalExp).toFixed(3)]];
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='IncomeStatement_Boubyan.csv';a.click();
+}
+
+// ===== LEDGER =====
+async function loadLedger() {
+  await loadAll();
+  const accounts = getCoaAccounts();
+  const sel = document.getElementById('ledgerAccount');
+  if (sel && sel.options.length <= 1) {
+    sel.innerHTML = '<option value="">— اختر الحساب —</option>' +
+      accounts.map(a=>`<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  }
+  const months = [...new Set((DB.journalEntries||[]).map(e=>e.date?.substring(0,7)))].sort().reverse();
+  const mSel = document.getElementById('ledgerMonth');
+  if (mSel) {
+    mSel.innerHTML = '<option value="all">كل الفترات</option>' +
+      months.map(m=>`<option value="${m}">${monthLbl(m)}</option>`).join('');
+  }
+  const accountId = sel?.value;
+  if (!accountId) return;
+  const acc = accounts.find(a=>a.id===accountId);
+  const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
+  const entries = (DB.journalEntries||[]).filter(e => filterMonth==='all'||e.date?.startsWith(filterMonth));
+  let balance = 0;
+  const rows = [];
+  entries.sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
+    e.lines.filter(l=>l.accountId===accountId).forEach(l=>{
+      balance += (l.debit||0) - (l.credit||0);
+      rows.push({date:e.date,ref:e.ref||e.id,desc:e.desc,debit:l.debit||0,credit:l.credit||0,balance});
+    });
+  });
+  const totalDebit=rows.reduce((s,r)=>s+r.debit,0);
+  const totalCredit=rows.reduce((s,r)=>s+r.credit,0);
+  document.getElementById('ledDebit').textContent=totalDebit.toFixed(3);
+  document.getElementById('ledCredit').textContent=totalCredit.toFixed(3);
+  document.getElementById('ledBalance').textContent=balance.toFixed(3);
+  document.getElementById('ledBalance').style.color=balance>=0?'var(--accent2)':'var(--danger)';
+  document.getElementById('ledgerTitle').textContent=`كشف حساب: ${acc?.code} — ${acc?.name}`;
+  document.getElementById('ledgerBody').innerHTML = rows.length ?
+    rows.map(r=>`<tr>
+      <td>${r.date}</td>
+      <td style="font-family:monospace;font-size:10px;">${r.ref}</td>
+      <td>${r.desc}</td>
+      <td class="num pos">${r.debit>0?r.debit.toFixed(3):''}</td>
+      <td class="num neg">${r.credit>0?r.credit.toFixed(3):''}</td>
+      <td class="num ${r.balance>=0?'pos':'neg'}" style="font-weight:600;">${r.balance.toFixed(3)}</td>
+    </tr>`).join('') :
+    '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا الحساب</td></tr>';
+}
+
+function exportLedger() {
+  const sel = document.getElementById('ledgerAccount');
+  const accounts = getCoaAccounts();
+  const acc = accounts.find(a=>a.id===sel?.value);
+  if (!acc) return;
+  const entries = DB.journalEntries||[];
+  const rows=[['التاريخ','المرجع','البيان','مدين','دائن','الرصيد']];
+  let balance=0;
+  entries.sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
+    e.lines.filter(l=>l.accountId===acc.id).forEach(l=>{
+      balance+=(l.debit||0)-(l.credit||0);
+      rows.push([e.date,e.ref||e.id,e.desc,l.debit||0,l.credit||0,balance.toFixed(3)]);
+    });
+  });
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=`Ledger_${acc.code}_Boubyan.csv`;a.click();
+}
+
+// ===== RECURRING EXPENSES =====
+function openRecurModal() {
+  const accounts = getCoaAccounts().filter(a=>a.type==='expense');
+  document.getElementById('recurModalTitle').textContent='إضافة مصروف متكرر';
+  document.getElementById('recurEditId').value='';
+  document.getElementById('recurDesc').value='';
+  document.getElementById('recurAmt').value='';
+  document.getElementById('recurDay').value='1';
+  document.getElementById('recurAccount').innerHTML='<option value="">— اختر الحساب —</option>'+accounts.map(a=>`<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  document.getElementById('recurModal').classList.add('open');
+}
+
+async function saveRecur() {
+  const desc=document.getElementById('recurDesc').value.trim();
+  const amt=parseFloat(document.getElementById('recurAmt').value);
+  const day=parseInt(document.getElementById('recurDay').value)||1;
+  const cat=document.getElementById('recurCat').value;
+  const accountId=document.getElementById('recurAccount').value;
+  if(!desc||!amt){alert('أدخل الوصف والمبلغ');return;}
+  const entry={id:'REC-'+Date.now(),desc,cat,amount:amt,day,accountId,active:true,lastApplied:''};
+  try {
+    await fetch(`${API}/recurring`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)});
+    await loadAll();loadRecurring();closeModal('recurModal');
+  } catch(e){alert('خطأ في الحفظ');}
+}
+
+async function loadRecurring() {
+  await loadAll();
+  const items=DB.recurringExpenses||[];
+  document.getElementById('recurBody').innerHTML=items.length?
+    items.map((r,i)=>`<tr>
+      <td>${r.desc}</td>
+      <td><span class="badge bo">${r.cat}</span></td>
+      <td class="num neg">${r.amount.toFixed(3)} د.ك</td>
+      <td>اليوم ${r.day}</td>
+      <td>${r.active?'<span class="badge bg">فعّال</span>':'<span class="badge br">موقوف</span>'}</td>
+      <td style="font-size:10px;color:var(--text3);">${r.lastApplied||'لم يطبّق بعد'}</td>
+      <td>
+        <button class="btn bsm bd" style="padding:3px 8px;font-size:10px;" onclick="deleteRecur('${r.id}')">حذف</button>
+      </td>
+    </tr>`).join('') :
+    '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">لا توجد مصاريف متكررة</td></tr>';
+}
+
+async function runRecurring() {
+  try {
+    const r=await fetch(`${API}/recurring/run`,{method:'POST'});
+    const d=await r.json();
+    const al=document.getElementById('recurAlert');
+    al.style.display='flex';
+    al.className='alert as';
+    al.textContent='✅ تم تطبيق '+d.applied+' مصروف متكرر للشهر الحالي';
+    await loadAll();loadRecurring();
+  } catch(e){alert('خطأ');}
+}
+
+async function deleteRecur(id) {
+  if(!confirm('حذف هذا المصروف المتكرر؟'))return;
+  await fetch(`${API}/recurring/`+id,{method:'DELETE'});
+  await loadAll();loadRecurring();
+}
+
+
+// INIT
+(async () => {
+  await loadAll();
+  loadDashboard();
+})();
+</script>
+</body>
+</html>
