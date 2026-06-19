@@ -4,3 +4,4 @@ uploads/
 .env
 .ENV.txt
 *.env*
+!.env.example

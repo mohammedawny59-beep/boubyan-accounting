@@ -8,6 +8,7 @@ const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +19,18 @@ const CONFIG_FILE = path.join(__dirname, 'data', 'config.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 fs.ensureDirSync(path.join(__dirname, 'data'));
 fs.ensureDirSync(UPLOADS_DIR);
+
+// ===== MONGODB =====
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/boubyan_accounting';
+// Single key/value collection: one doc holds the whole DB, one holds config.
+const KV = mongoose.model('KV', new mongoose.Schema({
+  key:  { type: String, unique: true, index: true },
+  data: { type: mongoose.Schema.Types.Mixed }
+}, { minimize: false, versionKey: false }));
+
+// In-memory caches — keep loadDB/saveDB/loadConfig/saveConfig fully synchronous.
+let _dbCache = null;
+let _configCache = null;
 
 // ===== CONFIG HELPERS =====
 const DEFAULT_CONFIG = {
@@ -80,12 +93,14 @@ function deepMerge(base, override) {
 }
 
 function loadConfig() {
-  try {
-    if (fs.existsSync(CONFIG_FILE)) return deepMerge(DEFAULT_CONFIG, JSON.parse(fs.readFileSync(CONFIG_FILE,'utf8')));
-  } catch(e) {}
+  if (_configCache) return deepMerge(DEFAULT_CONFIG, _configCache);
   return { ...DEFAULT_CONFIG };
 }
-function saveConfig(cfg) { fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); }
+function saveConfig(cfg) {
+  _configCache = cfg;
+  KV.updateOne({ key: 'config' }, { $set: { data: cfg } }, { upsert: true })
+    .catch(e => console.error('❌ saveConfig -> Mongo failed:', e.message));
+}
 
 // ===== SECURITY MIDDLEWARE =====
 
@@ -338,64 +353,61 @@ function can(user, tab, action = 'view') {
   return allowed.includes(action);
 }
 
-// ===== DATABASE =====
-function loadDB() {
-  if (!fs.existsSync(DATA_FILE)) {
-    // Create default admin user
-    const adminHash = bcrypt.hashSync(process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@2026', 10);
-    const initial = {
-      users: [
-        {
-          id: 'usr-1', username: 'admin', email: 'admin@boubyan.com',
-          passwordHash: adminHash, role: 'admin',
-          fullName: 'مدير النظام', active: true,
-          createdAt: new Date().toISOString(), lastLogin: null
-        }
-      ],
-      roles: {
-        admin:       { ...DEFAULT_ROLES.admin,       id: 'admin' },
-        accountant:  { ...DEFAULT_ROLES.accountant,  id: 'accountant' },
-        receptionist:{ ...DEFAULT_ROLES.receptionist,id: 'receptionist' },
-        inventory:   { ...DEFAULT_ROLES.inventory,   id: 'inventory' },
-        viewer:      { ...DEFAULT_ROLES.viewer,       id: 'viewer' },
-      },
-      doctors: [
-        { name: 'DR.NASSER',      target: 4000, commission: 20, lab: 10, insurance: 45 },
-        { name: 'DR.KAMAL',       target: 3500, commission: 20, lab: 8,  insurance: 45 },
-        { name: 'Dr.VASIM',       target: 3000, commission: 20, lab: 12, insurance: 45 },
-        { name: 'DR. ABDULWAHAB', target: 2000, commission: 15, lab: 5,  insurance: 45 },
-        { name: 'DR.SAJEDA',      target: 2000, commission: 15, lab: 5,  insurance: 45 },
-      ],
-      dailyData: [],
-      paymentsData: [],
-      commissionHistory: [],
-      uploadedFiles: [],
-      expenses: [],
-      journalEntries: [],
-      chartOfAccounts: [],
-      vendors: [],
-      invItems: [],
-      invCategories: [],
-      invMovements: [],
-      recurringExpenses: [],
-      companyInfo: {},
-      scheduleConfig: { weeklyReport: true, weeklyDay: 0, monthlyReport: true },
-      vouchers: [],
-      cashReconciliation: [],
-      insuranceClaims: [],
-      payroll: [],
-      employees: []
-    };
-    fs.writeJsonSync(DATA_FILE, initial, { spaces: 2 });
-    return initial;
-  }
-  const db = fs.readJsonSync(DATA_FILE);
-  // Seed default COA if empty
+// ===== DATABASE (MongoDB-backed, in-memory cache for sync access) =====
+function buildInitialDB() {
+  const adminHash = bcrypt.hashSync(process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@2026', 10);
+  return {
+    users: [
+      {
+        id: 'usr-1', username: 'admin', email: 'admin@boubyan.com',
+        passwordHash: adminHash, role: 'admin',
+        fullName: 'مدير النظام', active: true,
+        createdAt: new Date().toISOString(), lastLogin: null
+      }
+    ],
+    roles: {
+      admin:       { ...DEFAULT_ROLES.admin,       id: 'admin' },
+      accountant:  { ...DEFAULT_ROLES.accountant,  id: 'accountant' },
+      receptionist:{ ...DEFAULT_ROLES.receptionist,id: 'receptionist' },
+      inventory:   { ...DEFAULT_ROLES.inventory,   id: 'inventory' },
+      viewer:      { ...DEFAULT_ROLES.viewer,       id: 'viewer' },
+    },
+    doctors: [
+      { name: 'DR.NASSER',      target: 4000, commission: 20, lab: 10, insurance: 45 },
+      { name: 'DR.KAMAL',       target: 3500, commission: 20, lab: 8,  insurance: 45 },
+      { name: 'Dr.VASIM',       target: 3000, commission: 20, lab: 12, insurance: 45 },
+      { name: 'DR. ABDULWAHAB', target: 2000, commission: 15, lab: 5,  insurance: 45 },
+      { name: 'DR.SAJEDA',      target: 2000, commission: 15, lab: 5,  insurance: 45 },
+    ],
+    dailyData: [],
+    paymentsData: [],
+    commissionHistory: [],
+    uploadedFiles: [],
+    expenses: [],
+    journalEntries: [],
+    chartOfAccounts: [],
+    vendors: [],
+    invItems: [],
+    invCategories: [],
+    invMovements: [],
+    recurringExpenses: [],
+    companyInfo: {},
+    scheduleConfig: { weeklyReport: true, weeklyDay: 0, monthlyReport: true },
+    vouchers: [],
+    cashReconciliation: [],
+    insuranceClaims: [],
+    payroll: [],
+    employees: []
+  };
+}
+
+// Apply idempotent migrations/seeds to a db object. Returns true if mutated.
+function migrateDB(db) {
+  let changed = false;
   if (!db.chartOfAccounts || db.chartOfAccounts.length === 0) {
     db.chartOfAccounts = DEFAULT_COA.map(a => ({ ...a }));
-    fs.writeJsonSync(DATA_FILE, db, { spaces: 2 });
+    changed = true;
   }
-  // Migrate existing DB — add users/roles if missing
   if (!db.users) {
     const adminHash = bcrypt.hashSync(process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@2026', 10);
     db.users = [{
@@ -411,13 +423,67 @@ function loadDB() {
       inventory:   { ...DEFAULT_ROLES.inventory,    id: 'inventory' },
       viewer:      { ...DEFAULT_ROLES.viewer,        id: 'viewer' },
     };
-    fs.writeJsonSync(DATA_FILE, db, { spaces: 2 });
+    changed = true;
   }
-  return db;
+  return changed;
+}
+
+function loadDB() {
+  if (!_dbCache) throw new Error('DB not initialized — initDB() must run before loadDB()');
+  return _dbCache;
 }
 
 function saveDB(db) {
-  fs.writeJsonSync(DATA_FILE, db, { spaces: 2 });
+  _dbCache = db;
+  KV.updateOne({ key: 'db' }, { $set: { data: db } }, { upsert: true })
+    .catch(e => console.error('❌ saveDB -> Mongo failed:', e.message));
+}
+
+// Flush caches to Mongo and close the connection cleanly on shutdown.
+async function shutdownDB() {
+  try {
+    if (_dbCache)     await KV.updateOne({ key: 'db' },     { $set: { data: _dbCache } },     { upsert: true });
+    if (_configCache) await KV.updateOne({ key: 'config' }, { $set: { data: _configCache } }, { upsert: true });
+    await mongoose.connection.close();
+  } catch (e) { console.error('❌ shutdown flush failed:', e.message); }
+}
+['SIGINT', 'SIGTERM'].forEach(sig =>
+  process.once(sig, () => { shutdownDB().finally(() => process.exit(0)); }));
+
+// Connect to Mongo, hydrate caches, run one-time migration from legacy JSON files.
+async function initDB() {
+  await mongoose.connect(MONGO_URI);
+  console.log(`🍃 MongoDB connected: ${MONGO_URI}`);
+
+  // ----- DB document -----
+  let dbDoc = await KV.findOne({ key: 'db' }).lean();
+  if (dbDoc && dbDoc.data) {
+    _dbCache = dbDoc.data;
+  } else if (fs.existsSync(DATA_FILE)) {
+    // One-time migration from legacy data/database.json
+    _dbCache = fs.readJsonSync(DATA_FILE);
+    console.log('📦 Migrated legacy database.json into MongoDB');
+  } else {
+    _dbCache = buildInitialDB();
+    console.log('🆕 Created fresh database in MongoDB');
+  }
+  const dbChanged = migrateDB(_dbCache);
+  if (!dbDoc || !dbDoc.data || dbChanged) {
+    await KV.updateOne({ key: 'db' }, { $set: { data: _dbCache } }, { upsert: true });
+  }
+
+  // ----- Config document -----
+  let cfgDoc = await KV.findOne({ key: 'config' }).lean();
+  if (cfgDoc && cfgDoc.data) {
+    _configCache = cfgDoc.data;
+  } else if (fs.existsSync(CONFIG_FILE)) {
+    try { _configCache = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); }
+    catch (e) { _configCache = { ...DEFAULT_CONFIG }; }
+    await KV.updateOne({ key: 'config' }, { $set: { data: _configCache } }, { upsert: true });
+    console.log('📦 Migrated legacy config.json into MongoDB');
+  } else {
+    _configCache = { ...DEFAULT_CONFIG };
+  }
 }
 
 // ===== EXCEL PARSER =====
@@ -2019,9 +2085,10 @@ function setupBot(bot) {
   });
 }
 
-// Auto-start bot if token saved (token stored as base64)
-const db = loadDB();
-if (db.telegramToken) {
+// Auto-start bot if token saved (token stored as base64) — called after initDB()
+function autoStartBot() {
+  const db = loadDB();
+  if (!db.telegramToken) return;
   try {
     const decoded = Buffer.from(db.telegramToken, 'base64').toString('utf8').trim().replace(/[\s\n\r]/g, '');
     if (decoded && /^\d+:[A-Za-z0-9_-]+$/.test(decoded)) {
@@ -2908,10 +2975,18 @@ if(expData.length && document.getElementById('expChart')){
   res.send(html);
 });
 
-app.listen(PORT, () => {
-  console.log(`\n✅ بوبيان للمحاسبة - يعمل على http://localhost:${PORT}`);
-  console.log(`📂 البيانات محفوظة في: ${DATA_FILE}`);
-});
+initDB()
+  .then(() => {
+    autoStartBot();
+    app.listen(PORT, () => {
+      console.log(`\n✅ بوبيان للمحاسبة - يعمل على http://localhost:${PORT}`);
+      console.log(`📂 البيانات محفوظة في: MongoDB (${MONGO_URI})`);
+    });
+  })
+  .catch(err => {
+    console.error('❌ فشل الاتصال بقاعدة البيانات MongoDB:', err.message);
+    process.exit(1);
+  });
 
 // ═══════════════════════════════════════════════════
 // AI ACCOUNTING MASTER — المحاسب الذكي المتقدم
