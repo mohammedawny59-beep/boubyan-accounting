@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"echo \\\"=== legacy file ===\\\"; ls -la data/database.json 2>/dev/null && node -e \\\"const d=require('./data/database.json'); console.log('keys:',Object.keys(d).length); console.log(Object.key...",
-  "error": "Exit code 1\n=== legacy file ===\n-rw-r--r--@ 1 almuzaini  staff  15992 Jun 19 14:26 data/database.json\nkeys: 22\nusers(1), roles(object), doctors(5), dailyData(0), paymentsData(0), commissionHistory(0), uploadedFiles(0), expenses(0), journalEntries(0), chartOfAccounts(50), vendors(0), invItems(0), invCategories(0), invMovements(0), recurringExpenses(0), companyInfo(object), scheduleConfig(object), vouchers(0), cashReconciliation(0), insuranceClaims(0), payroll(0), employees(0)\n=== config ===",
-  "timestamp": "2026-06-19T11:53:56.422Z",
-  "retry_count": 1
-}

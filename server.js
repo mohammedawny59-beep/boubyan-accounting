@@ -8,7 +8,9 @@ const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
+const {
+  initDB, loadDB, saveDB, loadConfig, saveConfig, shutdownDB,
+} = require('./lib/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,15 +24,6 @@ fs.ensureDirSync(UPLOADS_DIR);
 
 // ===== MONGODB =====
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/boubyan_accounting';
-// Single key/value collection: one doc holds the whole DB, one holds config.
-const KV = mongoose.model('KV', new mongoose.Schema({
-  key:  { type: String, unique: true, index: true },
-  data: { type: mongoose.Schema.Types.Mixed }
-}, { minimize: false, versionKey: false }));
-
-// In-memory caches — keep loadDB/saveDB/loadConfig/saveConfig fully synchronous.
-let _dbCache = null;
-let _configCache = null;
 
 // ===== CONFIG HELPERS =====
 const DEFAULT_CONFIG = {
@@ -80,28 +73,6 @@ function genId(prefix = '') {
   return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function deepMerge(base, override) {
-  const result = { ...base };
-  for (const key of Object.keys(override || {})) {
-    if (override[key] && typeof override[key] === 'object' && !Array.isArray(override[key]) && base[key] && typeof base[key] === 'object') {
-      result[key] = deepMerge(base[key], override[key]);
-    } else {
-      result[key] = override[key];
-    }
-  }
-  return result;
-}
-
-function loadConfig() {
-  if (_configCache) return deepMerge(DEFAULT_CONFIG, _configCache);
-  return { ...DEFAULT_CONFIG };
-}
-function saveConfig(cfg) {
-  _configCache = cfg;
-  KV.updateOne({ key: 'config' }, { $set: { data: cfg } }, { upsert: true })
-    .catch(e => console.error('❌ saveConfig -> Mongo failed:', e.message));
-}
-
 // ===== SECURITY MIDDLEWARE =====
 
 // Security headers
@@ -135,10 +106,14 @@ app.use(cors({
   credentials: true
 }));
 
-// Simple API key auth for all /api routes (optional — set API_SECRET in .env to enable)
+// Optional machine-to-machine API key — browser SPA uses JWT instead.
 const API_SECRET = process.env.API_SECRET;
 app.use('/api', (req, res, next) => {
-  if (!API_SECRET) return next(); // disabled if not set
+  if (!API_SECRET) return next();
+  // Public login + JWT-authenticated SPA requests must not require x-api-secret.
+  if (req.path.startsWith('/auth/')) return next();
+  const authHeader = req.headers['authorization'] || '';
+  if (authHeader.startsWith('Bearer ')) return next();
   const token = req.headers['x-api-secret'] || req.query._secret;
   if (token !== API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
   next();
@@ -355,16 +330,8 @@ function can(user, tab, action = 'view') {
 
 // ===== DATABASE (MongoDB-backed, in-memory cache for sync access) =====
 function buildInitialDB() {
-  const adminHash = bcrypt.hashSync(process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@2026', 10);
   return {
-    users: [
-      {
-        id: 'usr-1', username: 'admin', email: 'admin@boubyan.com',
-        passwordHash: adminHash, role: 'admin',
-        fullName: 'مدير النظام', active: true,
-        createdAt: new Date().toISOString(), lastLogin: null
-      }
-    ],
+    users: [],
     roles: {
       admin:       { ...DEFAULT_ROLES.admin,       id: 'admin' },
       accountant:  { ...DEFAULT_ROLES.accountant,  id: 'accountant' },
@@ -408,12 +375,14 @@ function migrateDB(db) {
     db.chartOfAccounts = DEFAULT_COA.map(a => ({ ...a }));
     changed = true;
   }
-  if (!db.users) {
+  if (!db.users || db.users.length === 0) {
     const adminHash = bcrypt.hashSync(process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@2026', 10);
     db.users = [{
-      id: 'usr-1', username: 'admin', email: 'admin@boubyan.com',
+      id: 'usr-1',
+      username: (process.env.ADMIN_DEFAULT_USERNAME || 'admin').trim(),
+      email: (process.env.ADMIN_DEFAULT_EMAIL || 'admin@boubyan.com').trim(),
       passwordHash: adminHash, role: 'admin',
-      fullName: 'مدير النظام', active: true,
+      fullName: process.env.ADMIN_DEFAULT_FULLNAME || 'مدير النظام', active: true,
       createdAt: new Date().toISOString(), lastLogin: null
     }];
     db.roles = {
@@ -428,63 +397,8 @@ function migrateDB(db) {
   return changed;
 }
 
-function loadDB() {
-  if (!_dbCache) throw new Error('DB not initialized — initDB() must run before loadDB()');
-  return _dbCache;
-}
-
-function saveDB(db) {
-  _dbCache = db;
-  KV.updateOne({ key: 'db' }, { $set: { data: db } }, { upsert: true })
-    .catch(e => console.error('❌ saveDB -> Mongo failed:', e.message));
-}
-
-// Flush caches to Mongo and close the connection cleanly on shutdown.
-async function shutdownDB() {
-  try {
-    if (_dbCache)     await KV.updateOne({ key: 'db' },     { $set: { data: _dbCache } },     { upsert: true });
-    if (_configCache) await KV.updateOne({ key: 'config' }, { $set: { data: _configCache } }, { upsert: true });
-    await mongoose.connection.close();
-  } catch (e) { console.error('❌ shutdown flush failed:', e.message); }
-}
 ['SIGINT', 'SIGTERM'].forEach(sig =>
   process.once(sig, () => { shutdownDB().finally(() => process.exit(0)); }));
-
-// Connect to Mongo, hydrate caches, run one-time migration from legacy JSON files.
-async function initDB() {
-  await mongoose.connect(MONGO_URI);
-  console.log(`🍃 MongoDB connected: ${MONGO_URI}`);
-
-  // ----- DB document -----
-  let dbDoc = await KV.findOne({ key: 'db' }).lean();
-  if (dbDoc && dbDoc.data) {
-    _dbCache = dbDoc.data;
-  } else if (fs.existsSync(DATA_FILE)) {
-    // One-time migration from legacy data/database.json
-    _dbCache = fs.readJsonSync(DATA_FILE);
-    console.log('📦 Migrated legacy database.json into MongoDB');
-  } else {
-    _dbCache = buildInitialDB();
-    console.log('🆕 Created fresh database in MongoDB');
-  }
-  const dbChanged = migrateDB(_dbCache);
-  if (!dbDoc || !dbDoc.data || dbChanged) {
-    await KV.updateOne({ key: 'db' }, { $set: { data: _dbCache } }, { upsert: true });
-  }
-
-  // ----- Config document -----
-  let cfgDoc = await KV.findOne({ key: 'config' }).lean();
-  if (cfgDoc && cfgDoc.data) {
-    _configCache = cfgDoc.data;
-  } else if (fs.existsSync(CONFIG_FILE)) {
-    try { _configCache = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); }
-    catch (e) { _configCache = { ...DEFAULT_CONFIG }; }
-    await KV.updateOne({ key: 'config' }, { $set: { data: _configCache } }, { upsert: true });
-    console.log('📦 Migrated legacy config.json into MongoDB');
-  } else {
-    _configCache = { ...DEFAULT_CONFIG };
-  }
-}
 
 // ===== EXCEL PARSER =====
 function parseDailyIncome(filePath) {
@@ -2975,7 +2889,14 @@ if(expData.length && document.getElementById('expChart')){
   res.send(html);
 });
 
-initDB()
+initDB({
+  mongoUri: MONGO_URI,
+  dataFile: DATA_FILE,
+  configFile: CONFIG_FILE,
+  defaultConfig: DEFAULT_CONFIG,
+  buildInitialDB,
+  migrateDB,
+})
   .then(() => {
     autoStartBot();
     app.listen(PORT, () => {

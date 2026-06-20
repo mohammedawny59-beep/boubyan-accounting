@@ -1,7 +1,84 @@
+# Dependencies
 node_modules/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+.ENV.txt
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
+*credentials*.json
+
+# Runtime data (local cache, user uploads)
 data/
 uploads/
-.env
-.ENV.txt
-*.env*
-!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build / output
+dist/
+build/
+out/
+.tmp/
+tmp/
+temp/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Deployment
+.vercel/
+
+# Node
+.npm/
+.node_repl_history
+
+# Local databases / dumps
+*.sqlite
+*.sqlite3
+*.db
+dump/
+dumps/
+
+# AI / local agent tooling
+.omc/
+.claude/
+.cursor/
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
+.cache/
