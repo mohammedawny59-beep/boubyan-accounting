@@ -559,7 +559,6 @@ html.light table thead th { background: var(--surface2); color: var(--text2); }
 html.light .ins-box { background: #fff; box-shadow: var(--shadow-xs); border-color: var(--border); }
 html.light .ins-title { color: var(--text); }
 html.light .ins-val { font-weight: 700; }
-html.light .toast { background: rgba(255,255,255,.97); color: var(--text); box-shadow: var(--shadow-md); }
 html.light .notif-panel { background: #fff; box-shadow: var(--shadow-lg); }
 html.light .notif-overlay { background: rgba(10,20,50,.25); }
 
@@ -785,30 +784,47 @@ button, .btn, .bex, .btn-sm, .nav-item, .cat-btn, .hdr-pill-btn, .cfg-tab {
 
 /* ── 4. TOAST NOTIFICATION SYSTEM ── */
 #toast-region {
-  position: fixed; bottom: 24px; left: 24px;
-  display: flex; flex-direction: column; gap: 10px;
+  position: fixed; top: 72px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 8px;
   z-index: 8000; pointer-events: none;
+  align-items: center; width: max-content; max-width: 90vw;
 }
 .toast {
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; border-radius: var(--r-md);
-  background: var(--surface2); border: 1px solid var(--border);
-  box-shadow: var(--shadow-lg);
-  font-size: 12px; color: var(--text);
+  padding: 11px 16px 11px 14px;
+  border-radius: var(--r-lg);
+  background: rgba(22,27,39,.92);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255,255,255,.04);
+  font-size: 12px; font-weight: 500; color: var(--text);
   pointer-events: all; cursor: pointer;
-  min-width: 240px; max-width: 360px;
+  min-width: 260px; max-width: 420px;
+  backdrop-filter: blur(20px) saturate(1.4);
   animation: toastIn 280ms cubic-bezier(.34,1.56,.64,1) forwards;
-  backdrop-filter: blur(12px);
+  position: relative;
 }
-.toast.success { border-color: rgba(45,212,191,.35); background: rgba(45,212,191,.08); }
-.toast.error   { border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.08); }
-.toast.warning { border-color: rgba(251,191,36,.35);  background: rgba(251,191,36,.08);  }
-.toast.info    { border-color: rgba(79,142,247,.35);  background: rgba(79,142,247,.08);  }
-.toast-icon { font-size: 16px; flex-shrink: 0; }
-.toast-msg  { flex: 1; line-height: 1.4; }
-.toast.out  { animation: toastOut 220ms ease forwards; }
-@keyframes toastIn  { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-@keyframes toastOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-20px); opacity: 0; } }
+.toast::before {
+  content: ''; position: absolute; right: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 60%; border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: currentColor; opacity: .5;
+}
+.toast.success { border-color: rgba(16,185,129,.3);  background: rgba(16,185,129,.08);  color: #6ee7b7; }
+.toast.error   { border-color: rgba(239,68,68,.3);   background: rgba(239,68,68,.08);   color: #fca5a5; }
+.toast.warning { border-color: rgba(245,158,11,.3);  background: rgba(245,158,11,.08);  color: #fcd34d; }
+.toast.info    { border-color: rgba(59,130,246,.3);  background: rgba(59,130,246,.08);  color: #93c5fd; }
+.toast-icon { font-size: 15px; flex-shrink: 0; line-height: 1; }
+.toast-msg  { flex: 1; line-height: 1.45; color: var(--text); }
+.toast-close { background: none; border: none; color: var(--text3); font-size: 14px; cursor: pointer; padding: 0 0 0 6px; line-height: 1; opacity: .7; flex-shrink: 0; }
+.toast-close:hover { opacity: 1; }
+.toast.out  { animation: toastOut 200ms ease-in forwards; }
+@keyframes toastIn  { from { transform: translateY(-14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes toastOut { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-10px); opacity: 0; } }
+html.light .toast { background: rgba(255,255,255,.96); border-color: var(--border); color: var(--text); }
+html.light .toast.success { background: rgba(16,185,129,.07); border-color: rgba(16,185,129,.3); color: #065f46; }
+html.light .toast.error   { background: rgba(239,68,68,.07);  border-color: rgba(239,68,68,.3);  color: #991b1b; }
+html.light .toast.warning { background: rgba(245,158,11,.07); border-color: rgba(245,158,11,.3); color: #92400e; }
+html.light .toast.info    { background: rgba(59,130,246,.07); border-color: rgba(59,130,246,.3); color: #1e40af; }
 
 /* ── 5. SKELETON LOADING ── */
 @keyframes shimmer {
@@ -1136,6 +1152,185 @@ input:-webkit-autofill:focus {
 }
 .kc:hover .widget-drag-handle { opacity: 1; }
 .kc.dragging { opacity: .5; border: 2px dashed var(--accent); transform: rotate(1deg); }
+
+/* ══════════════════════════════════════════════
+   LEDGER ENTRY DETAIL MODAL
+══════════════════════════════════════════════ */
+#ledgerEntryModal {
+  display: none; position: fixed; inset: 0;
+  background: rgba(2,6,18,.75);
+  backdrop-filter: blur(10px);
+  z-index: 3000;
+  align-items: center; justify-content: center;
+}
+#ledgerEntryModal.open { display: flex; }
+#ledgerEntryModal.open .lem-dialog { animation: lemIn 260ms cubic-bezier(.34,1.3,.64,1) forwards; }
+#ledgerEntryModal.closing .lem-dialog { animation: lemOut 180ms ease-in forwards; }
+
+@keyframes lemIn  { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes lemOut { from { opacity: 1; transform: translateY(0) scale(1); }        to { opacity: 0; transform: translateY(8px) scale(.98); } }
+
+.lem-dialog {
+  width: 620px; max-width: 95vw; max-height: 88vh;
+  display: flex; flex-direction: column;
+  background: rgba(18,24,38,.92);
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 20px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.65), 0 0 0 1px rgba(59,130,246,.07);
+  backdrop-filter: blur(28px) saturate(1.5);
+  overflow: hidden;
+  direction: rtl;
+}
+html.light .lem-dialog {
+  background: rgba(255,255,255,.97);
+  border-color: var(--border);
+  box-shadow: var(--shadow-lg);
+}
+
+.lem-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.02);
+  flex-shrink: 0;
+}
+html.light .lem-header { border-bottom-color: var(--border); background: transparent; }
+
+.lem-title-group { display: flex; align-items: center; gap: 10px; }
+.lem-title {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  letter-spacing: -.01em; line-height: 1.3;
+}
+.lem-ref {
+  font-size: 11px; font-family: 'IBM Plex Mono', monospace;
+  color: var(--text3); margin-top: 2px;
+}
+.lem-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 9px; border-radius: var(--r-full);
+  font-size: 10px; font-weight: 600; letter-spacing: .03em;
+  flex-shrink: 0;
+}
+.lem-badge.balanced   { background: rgba(16,185,129,.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,.25); }
+.lem-badge.unbalanced { background: rgba(239,68,68,.12);  color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
+.lem-badge.auto       { background: rgba(59,130,246,.12); color: #93c5fd; border: 1px solid rgba(59,130,246,.25); }
+
+.lem-close-btn {
+  width: 30px; height: 30px; border-radius: var(--r-sm);
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  color: var(--text3); cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+  flex-shrink: 0;
+}
+.lem-close-btn:hover { background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3); color: #fca5a5; }
+html.light .lem-close-btn { background: var(--surface2); border-color: var(--border); }
+
+.lem-body { flex: 1; overflow-y: auto; padding: 20px 22px; }
+.lem-body::-webkit-scrollbar { width: 4px; }
+.lem-body::-webkit-scrollbar-track { background: transparent; }
+.lem-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
+
+.lem-meta {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px; margin-bottom: 16px;
+}
+.lem-meta-item {
+  padding: 10px 13px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: var(--r-md);
+}
+html.light .lem-meta-item { background: var(--surface2); border-color: var(--border); }
+.lem-meta-label { font-size: 9px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.lem-meta-value { font-size: 13px; font-weight: 600; color: var(--text); font-family: 'IBM Plex Mono', monospace; }
+.lem-meta-item.full { grid-column: 1 / -1; }
+.lem-meta-item.full .lem-meta-value { font-family: 'IBM Plex Sans Arabic', sans-serif; font-size: 12px; font-weight: 500; }
+
+.lem-divider {
+  height: 1px; background: rgba(255,255,255,.06);
+  margin: 0 0 16px;
+}
+html.light .lem-divider { background: var(--border); }
+
+.lem-table-wrap { border-radius: var(--r-md); overflow: hidden; border: 1px solid rgba(255,255,255,.07); }
+html.light .lem-table-wrap { border-color: var(--border); }
+
+.lem-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.lem-table thead th {
+  padding: 9px 12px; text-align: right;
+  font-size: 9px; font-weight: 700; color: var(--text3);
+  text-transform: uppercase; letter-spacing: .06em;
+  background: rgba(255,255,255,.03);
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+html.light .lem-table thead th { background: var(--surface2); border-bottom-color: var(--border); }
+.lem-table thead th:last-child, .lem-table thead th:nth-last-child(2) { text-align: left; }
+
+.lem-table tbody tr {
+  border-bottom: 1px solid rgba(255,255,255,.04);
+  transition: background var(--t-fast);
+}
+.lem-table tbody tr:last-child { border-bottom: none; }
+.lem-table tbody tr:hover { background: rgba(79,142,247,.05); }
+.lem-table tbody td {
+  padding: 9px 12px; color: var(--text2);
+  vertical-align: middle;
+}
+html.light .lem-table tbody tr { border-bottom-color: var(--border); }
+
+.lem-table .td-num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px; text-align: left; direction: ltr;
+}
+.lem-table .td-debit  { color: var(--accent2) !important; }
+.lem-table .td-credit { color: var(--danger) !important; }
+.lem-table .td-empty  { color: var(--text3); }
+.lem-table .td-code   { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3); white-space: nowrap; }
+.lem-table .td-name   { color: var(--text); font-weight: 500; }
+
+.lem-table tfoot td {
+  padding: 10px 12px; font-weight: 700;
+  font-size: 12px; color: var(--text);
+  background: rgba(255,255,255,.03);
+  border-top: 1px solid rgba(255,255,255,.09);
+}
+html.light .lem-table tfoot td { background: var(--surface2); border-top-color: var(--border); }
+.lem-table tfoot .td-num { font-size: 13px; }
+
+.lem-footer {
+  display: flex; align-items: center; gap: 8px;
+  padding: 16px 22px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.02);
+  flex-shrink: 0;
+}
+html.light .lem-footer { border-top-color: var(--border); background: transparent; }
+
+.lem-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 16px; border-radius: var(--r-md);
+  font-family: 'IBM Plex Sans Arabic', sans-serif;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid transparent;
+  transition: background var(--t-base), border-color var(--t-base), transform var(--t-fast), box-shadow var(--t-base);
+  touch-action: manipulation;
+}
+.lem-btn:active { transform: scale(.97); }
+.lem-btn.primary {
+  background: var(--accent); color: #fff; border-color: var(--accentDark);
+  box-shadow: 0 2px 8px rgba(59,130,246,.25);
+}
+.lem-btn.primary:hover { background: var(--accentDark); box-shadow: 0 4px 14px rgba(59,130,246,.35); }
+.lem-btn.secondary {
+  background: rgba(255,255,255,.05); color: var(--text2);
+  border-color: rgba(255,255,255,.1);
+}
+.lem-btn.secondary:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.18); color: var(--text); }
+html.light .lem-btn.secondary { background: var(--surface2); border-color: var(--border); }
+html.light .lem-btn.secondary:hover { background: var(--surface3); }
+.lem-spacer { flex: 1; }
 </style>
 </head>
 <body>
@@ -5923,56 +6118,99 @@ async function loadLedger() {
     '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا الحساب</td></tr>';
 }
 
+let _lemCurrentId = null;
+
 function showLedgerEntry(id) {
   const e = (DB.journalEntries || []).find(x => x.id === id);
   if (!e) return;
+  _lemCurrentId = id;
+
   const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const linesHtml = (e.lines||[]).map(l=>`
-    <tr>
-      <td style="font-family:monospace;font-size:11px;">${esc(l.accountCode||'')} — ${esc(l.accountName||'')}</td>
-      <td class="num pos" style="text-align:left;direction:ltr;">${l.debit>0?l.debit.fmt():''}</td>
-      <td class="num neg" style="text-align:left;direction:ltr;">${l.credit>0?l.credit.fmt():''}</td>
-    </tr>`).join('');
-  const html = `<div style="padding:4px 0;">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px;">
-      <div><span style="color:var(--text3)">التاريخ:</span> <strong>${esc(e.date)}</strong></div>
-      <div><span style="color:var(--text3)">المرجع:</span> <strong style="font-family:monospace;">${esc(e.ref||e.id)}</strong></div>
-      <div style="grid-column:1/-1"><span style="color:var(--text3)">البيان:</span> ${esc(e.desc)}</div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <thead><tr style="border-bottom:1px solid var(--border);">
-        <th style="text-align:right;padding:4px 0;">الحساب</th>
-        <th style="text-align:left;padding:4px 6px;">مدين</th>
-        <th style="text-align:left;padding:4px 6px;">دائن</th>
-      </tr></thead>
-      <tbody>${linesHtml}</tbody>
-      <tfoot><tr style="border-top:1px solid var(--border);font-weight:600;">
-        <td>الإجمالي</td>
-        <td class="num pos" style="text-align:left;direction:ltr;">${(e.totalDebit||0).fmt()}</td>
-        <td class="num neg" style="text-align:left;direction:ltr;">${(e.totalCredit||0).fmt()}</td>
-      </tr></tfoot>
-    </table>
-  </div>`;
-  // Reuse journalViewModal if exists, else show alert fallback
-  const vm = document.getElementById('journalViewModal');
-  if (vm) {
-    document.getElementById('jvmTitle').textContent = 'تفاصيل القيد — ' + (e.ref||e.id.substring(0,14));
-    document.getElementById('jvmBody').innerHTML = html;
-    vm.classList.add('open');
+  const modal = document.getElementById('ledgerEntryModal');
+
+  // Header
+  document.getElementById('lemTitle').textContent = 'تفاصيل القيد';
+  document.getElementById('lemRef').textContent = e.ref || e.id;
+
+  // Badge: auto-income vs balanced vs unbalanced
+  const td = e.totalDebit || 0, tc = e.totalCredit || 0;
+  const balanced = Math.abs(td - tc) < 0.01;
+  const isAuto = (e.id||'').startsWith('JE-INC-') || (e.ref||'').startsWith('JE-INC-');
+  const badge = document.getElementById('lemBadge');
+  if (isAuto) {
+    badge.textContent = 'تلقائي'; badge.className = 'lem-badge auto';
+  } else if (balanced) {
+    badge.textContent = 'متوازن ✓'; badge.className = 'lem-badge balanced';
   } else {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    overlay.innerHTML = `<div style="background:var(--card);border-radius:12px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow:auto;direction:rtl;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <strong>تفاصيل القيد — ${esc(e.ref||e.id.substring(0,14))}</strong>
-        <button onclick="this.closest('[style]').remove()" style="background:none;border:none;color:var(--text2);font-size:18px;cursor:pointer;">✕</button>
-      </div>
-      ${html}
-    </div>`;
-    overlay.addEventListener('click', ev => { if (ev.target===overlay) overlay.remove(); });
-    document.body.appendChild(overlay);
+    badge.textContent = 'غير متوازن!'; badge.className = 'lem-badge unbalanced';
   }
+
+  // Meta grid
+  document.getElementById('lemMeta').innerHTML = `
+    <div class="lem-meta-item">
+      <div class="lem-meta-label">التاريخ</div>
+      <div class="lem-meta-value">${esc(e.date||'—')}</div>
+    </div>
+    <div class="lem-meta-item">
+      <div class="lem-meta-label">المرجع</div>
+      <div class="lem-meta-value">${esc(e.ref||e.id||'—')}</div>
+    </div>
+    <div class="lem-meta-item full">
+      <div class="lem-meta-label">البيان</div>
+      <div class="lem-meta-value">${esc(e.desc||'—')}</div>
+    </div>`;
+
+  // Lines
+  document.getElementById('lemLines').innerHTML = (e.lines||[]).map(l => {
+    const hasDebit  = (l.debit  || 0) > 0;
+    const hasCredit = (l.credit || 0) > 0;
+    return `<tr>
+      <td class="td-code">${esc(l.accountCode||'')}</td>
+      <td class="td-name">${esc(l.accountName||'')}</td>
+      <td class="td-num ${hasDebit  ? 'td-debit'  : 'td-empty'}">${hasDebit  ? l.debit.fmt()  : '—'}</td>
+      <td class="td-num ${hasCredit ? 'td-credit' : 'td-empty'}">${hasCredit ? l.credit.fmt() : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  // Footer totals
+  document.getElementById('lemTfoot').innerHTML = `<tr>
+    <td colspan="2" style="font-weight:700;color:var(--text);">الإجمالي</td>
+    <td class="td-num td-debit">${td.fmt()}</td>
+    <td class="td-num td-credit">${tc.fmt()}</td>
+  </tr>`;
+
+  // Hide Edit button for auto-generated entries
+  document.getElementById('lemEditBtn').style.display = isAuto ? 'none' : '';
+
+  // Animate in
+  modal.classList.remove('closing');
+  modal.classList.add('open');
+  document.addEventListener('keydown', _lemEscHandler);
 }
+
+function closeLedgerModal() {
+  const modal = document.getElementById('ledgerEntryModal');
+  modal.classList.add('closing');
+  setTimeout(() => {
+    modal.classList.remove('open', 'closing');
+    _lemCurrentId = null;
+  }, 190);
+  document.removeEventListener('keydown', _lemEscHandler);
+}
+
+function lemEditCurrent() {
+  if (!_lemCurrentId) return;
+  closeLedgerModal();
+  setTimeout(() => editJournal(_lemCurrentId), 200);
+}
+
+function _lemEscHandler(e) { if (e.key === 'Escape') closeLedgerModal(); }
+
+// Close on backdrop click
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('ledgerEntryModal');
+  if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeLedgerModal(); });
+});
 
 function openTransferModal() {
   const accounts = getCoaAccounts().filter(a => !a.isGroup);
@@ -7467,18 +7705,25 @@ async function apiFetch(path, opts) {
 }
 const showToast = (msg, type) => toast(msg, type);
 
-function toast(msg, type = 'info', duration = 3500) {
-  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+function toast(msg, type = 'info', duration = 4000) {
+  const icons = {
+    success: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    error:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    warning: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    info:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  };
   const t = document.createElement('div');
   t.className = `toast ${type}`;
-  t.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><span class="toast-msg">${msg}</span>`;
+  t.setAttribute('role', 'alert');
+  t.innerHTML = `<span class="toast-icon">${icons[type]||icons.info}</span><span class="toast-msg">${msg}</span><button class="toast-close" aria-label="إغلاق">✕</button>`;
+  t.querySelector('.toast-close').onclick = e => { e.stopPropagation(); dismiss(t); };
   t.onclick = () => dismiss(t);
   _toastRegion.appendChild(t);
   const timer = setTimeout(() => dismiss(t), duration);
   function dismiss(el) {
     clearTimeout(timer);
     el.classList.add('out');
-    setTimeout(() => el.remove(), 250);
+    setTimeout(() => el.remove(), 220);
   }
   return t;
 }
@@ -10030,6 +10275,50 @@ showTab = function(id, el) {
   <div style="margin-top:16px;display:flex;gap:8px">
     <button class="btn bp" onclick="saveDashLayout()" style="flex:1">حفظ التخصيص</button>
     <button class="btn" onclick="resetDashLayout()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">إعادة ضبط</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     LEDGER ENTRY DETAIL MODAL
+═══════════════════════════════════════════════ -->
+<div id="ledgerEntryModal" role="dialog" aria-modal="true" aria-labelledby="lemTitle">
+  <div class="lem-dialog">
+    <div class="lem-header">
+      <div class="lem-title-group">
+        <div>
+          <div class="lem-title" id="lemTitle">تفاصيل القيد</div>
+          <div class="lem-ref" id="lemRef"></div>
+        </div>
+        <span class="lem-badge" id="lemBadge"></span>
+      </div>
+      <button class="lem-close-btn" onclick="closeLedgerModal()" aria-label="إغلاق">✕</button>
+    </div>
+    <div class="lem-body">
+      <div class="lem-meta" id="lemMeta"></div>
+      <div class="lem-divider"></div>
+      <div class="lem-table-wrap">
+        <table class="lem-table">
+          <thead>
+            <tr>
+              <th style="width:90px">رقم الحساب</th>
+              <th>اسم الحساب</th>
+              <th style="width:110px;text-align:left">مدين</th>
+              <th style="width:110px;text-align:left">دائن</th>
+            </tr>
+          </thead>
+          <tbody id="lemLines"></tbody>
+          <tfoot id="lemTfoot"></tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="lem-footer">
+      <button class="lem-btn primary" id="lemEditBtn" onclick="lemEditCurrent()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        تعديل القيد
+      </button>
+      <span class="lem-spacer"></span>
+      <button class="lem-btn secondary" onclick="closeLedgerModal()">إغلاق</button>
+    </div>
   </div>
 </div>
 
