@@ -2002,6 +2002,9 @@ input:-webkit-autofill:focus {
         <button class="btn bsm" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);" onclick="resetCoaDefaults()">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg> إعادة تعيين
         </button>
+        <button class="btn bsm" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);color:#fbbf24;" onclick="openTransferModal()">
+          ⇄ تحويل بين حسابات
+        </button>
       </div>
     </div>
 
@@ -3379,6 +3382,41 @@ input:-webkit-autofill:focus {
     <div id="coaAnalysisContent"></div>
     <div class="mact">
       <button class="btn bd" onclick="closeModal('coaAnalysisModal')">إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<!-- Transfer Between Accounts Modal -->
+<div class="modal" id="transferModal">
+  <div class="mbox" style="max-width:460px;">
+    <div class="mtit">⇄ تحويل بين حسابات</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+      <div>
+        <label class="flbl">من حساب (مصدر)</label>
+        <select class="finp" id="trFrom" style="width:100%;"></select>
+      </div>
+      <div>
+        <label class="flbl">إلى حساب (وجهة)</label>
+        <select class="finp" id="trTo" style="width:100%;"></select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <label class="flbl">المبلغ (د.ك)</label>
+          <input class="finp" type="number" id="trAmount" placeholder="0.000" step="0.001" min="0.001">
+        </div>
+        <div>
+          <label class="flbl">التاريخ</label>
+          <input class="finp" type="date" id="trDate">
+        </div>
+      </div>
+      <div>
+        <label class="flbl">البيان</label>
+        <input class="finp" type="text" id="trDesc" placeholder="سبب التحويل...">
+      </div>
+    </div>
+    <div class="mact" style="margin-top:14px;">
+      <button class="btn bs" style="flex:1" onclick="saveTransfer()">💾 تسجيل التحويل</button>
+      <button class="btn bd" onclick="closeModal('transferModal')">إلغاء</button>
     </div>
   </div>
 </div>
@@ -4981,6 +5019,9 @@ let jLineCount = 0;
 function addJLine(debit='', credit='', accountId='', desc='') {
   const accounts = getCoaAccounts();
   const id = ++jLineCount;
+  // Round to 3dp to avoid floating-point display/balance issues
+  const dv = debit  !== '' && debit  !== null && debit  !== undefined ? (Math.round(parseFloat(debit)  * 1000) / 1000 || '') : '';
+  const cv = credit !== '' && credit !== null && credit !== undefined ? (Math.round(parseFloat(credit) * 1000) / 1000 || '') : '';
   const div = document.createElement('div');
   div.id = 'jline_' + id;
   div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 32px;gap:6px;margin-bottom:6px;align-items:center;';
@@ -4989,8 +5030,8 @@ function addJLine(debit='', credit='', accountId='', desc='') {
       <option value="">— اختر الحساب —</option>
       ${accounts.map(a => `<option value="${a.id}" ${a.id===accountId?'selected':''}>${a.code} — ${a.name}</option>`).join('')}
     </select>
-    <input class="finp" type="number" id="jl_debit_${id}" placeholder="مدين" value="${debit}" step="0.001" oninput="updateJBalance()">
-    <input class="finp" type="number" id="jl_credit_${id}" placeholder="دائن" value="${credit}" step="0.001" oninput="updateJBalance()">
+    <input class="finp" type="number" id="jl_debit_${id}" placeholder="مدين" value="${dv}" step="0.001" oninput="updateJBalance()">
+    <input class="finp" type="number" id="jl_credit_${id}" placeholder="دائن" value="${cv}" step="0.001" oninput="updateJBalance()">
     <button onclick="document.getElementById('jline_${id}').remove();updateJBalance();" style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:6px;cursor:pointer;font-size:14px;width:28px;height:28px;">×</button>
   `;
   document.getElementById('jLines').appendChild(div);
@@ -5090,7 +5131,10 @@ async function saveJournal() {
   });
   
   if (lines.length < 2) { alert('القيد يحتاج سطرين على الأقل'); return; }
-  if (Math.abs(totalDebit - totalCredit) > 0.001) { alert('القيد غير متوازن — مدين لا يساوي دائن'); return; }
+  // Round totals to 3dp before comparing to avoid floating-point false positives
+  const td3 = parseFloat(totalDebit.toFixed(3));
+  const tc3 = parseFloat(totalCredit.toFixed(3));
+  if (Math.abs(td3 - tc3) > 0.005) { alert('القيد غير متوازن — مدين لا يساوي دائن\nالفرق: ' + Math.abs(td3-tc3).toFixed(3) + ' د.ك'); return; }
   
   const editId = document.getElementById('jEditId').value;
   const isEdit = !!editId;
@@ -5818,7 +5862,7 @@ async function loadLedger() {
   entries.sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
     e.lines.filter(l=>l.accountId===accountId).forEach(l=>{
       balance += (l.debit||0) - (l.credit||0);
-      rows.push({date:e.date,ref:e.ref||e.id,desc:e.desc,debit:l.debit||0,credit:l.credit||0,balance});
+      rows.push({entryId:e.id,date:e.date,ref:e.ref||e.id,desc:e.desc,debit:l.debit||0,credit:l.credit||0,balance});
     });
   });
   const totalDebit=rows.reduce((s,r)=>s+r.debit,0);
@@ -5829,15 +5873,117 @@ async function loadLedger() {
   document.getElementById('ledBalance').style.color=balance>=0?'var(--accent2)':'var(--danger)';
   document.getElementById('ledgerTitle').textContent=`كشف حساب: ${acc?.code} — ${acc?.name}`;
   document.getElementById('ledgerBody').innerHTML = rows.length ?
-    rows.map(r=>`<tr>
+    rows.map(r=>`<tr style="cursor:pointer;" onclick="showLedgerEntry('${r.entryId}')" title="اضغط لعرض تفاصيل القيد">
       <td>${r.date}</td>
-      <td style="font-family:monospace;font-size:10px;">${r.ref}</td>
+      <td style="font-family:monospace;font-size:10px;color:var(--accent);">${r.ref}</td>
       <td>${r.desc}</td>
       <td class="num pos">${r.debit>0?r.debit.fmt():''}</td>
       <td class="num neg">${r.credit>0?r.credit.fmt():''}</td>
       <td class="num ${r.balance>=0?'pos':'neg'}" style="font-weight:600;">${r.balance.fmt()}</td>
     </tr>`).join('') :
     '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا الحساب</td></tr>';
+}
+
+function showLedgerEntry(id) {
+  const e = (DB.journalEntries || []).find(x => x.id === id);
+  if (!e) return;
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const linesHtml = (e.lines||[]).map(l=>`
+    <tr>
+      <td style="font-family:monospace;font-size:11px;">${esc(l.accountCode||'')} — ${esc(l.accountName||'')}</td>
+      <td class="num pos" style="text-align:left;direction:ltr;">${l.debit>0?l.debit.fmt():''}</td>
+      <td class="num neg" style="text-align:left;direction:ltr;">${l.credit>0?l.credit.fmt():''}</td>
+    </tr>`).join('');
+  const html = `<div style="padding:4px 0;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px;">
+      <div><span style="color:var(--text3)">التاريخ:</span> <strong>${esc(e.date)}</strong></div>
+      <div><span style="color:var(--text3)">المرجع:</span> <strong style="font-family:monospace;">${esc(e.ref||e.id)}</strong></div>
+      <div style="grid-column:1/-1"><span style="color:var(--text3)">البيان:</span> ${esc(e.desc)}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="border-bottom:1px solid var(--border);">
+        <th style="text-align:right;padding:4px 0;">الحساب</th>
+        <th style="text-align:left;padding:4px 6px;">مدين</th>
+        <th style="text-align:left;padding:4px 6px;">دائن</th>
+      </tr></thead>
+      <tbody>${linesHtml}</tbody>
+      <tfoot><tr style="border-top:1px solid var(--border);font-weight:600;">
+        <td>الإجمالي</td>
+        <td class="num pos" style="text-align:left;direction:ltr;">${(e.totalDebit||0).fmt()}</td>
+        <td class="num neg" style="text-align:left;direction:ltr;">${(e.totalCredit||0).fmt()}</td>
+      </tr></tfoot>
+    </table>
+  </div>`;
+  // Reuse journalViewModal if exists, else show alert fallback
+  const vm = document.getElementById('journalViewModal');
+  if (vm) {
+    document.getElementById('jvmTitle').textContent = 'تفاصيل القيد — ' + (e.ref||e.id.substring(0,14));
+    document.getElementById('jvmBody').innerHTML = html;
+    vm.classList.add('open');
+  } else {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `<div style="background:var(--card);border-radius:12px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow:auto;direction:rtl;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <strong>تفاصيل القيد — ${esc(e.ref||e.id.substring(0,14))}</strong>
+        <button onclick="this.closest('[style]').remove()" style="background:none;border:none;color:var(--text2);font-size:18px;cursor:pointer;">✕</button>
+      </div>
+      ${html}
+    </div>`;
+    overlay.addEventListener('click', ev => { if (ev.target===overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+}
+
+function openTransferModal() {
+  const accounts = getCoaAccounts().filter(a => !a.isGroup);
+  const opts = accounts.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  document.getElementById('trFrom').innerHTML = opts;
+  document.getElementById('trTo').innerHTML = opts;
+  document.getElementById('trAmount').value = '';
+  document.getElementById('trDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('trDesc').value = '';
+  document.getElementById('transferModal').classList.add('open');
+}
+
+async function saveTransfer() {
+  const fromId = document.getElementById('trFrom').value;
+  const toId   = document.getElementById('trTo').value;
+  const amount = parseFloat(document.getElementById('trAmount').value) || 0;
+  const date   = document.getElementById('trDate').value;
+  const desc   = document.getElementById('trDesc').value.trim() || 'تحويل بين حسابات';
+  if (!fromId || !toId) { alert('اختر الحساب المصدر والوجهة'); return; }
+  if (fromId === toId) { alert('الحساب المصدر والوجهة لا يمكن أن يكونا نفس الحساب'); return; }
+  if (amount <= 0) { alert('أدخل مبلغاً صحيحاً'); return; }
+  if (!date) { alert('أدخل التاريخ'); return; }
+
+  const accounts = getCoaAccounts();
+  const fromAcc = accounts.find(a => a.id === fromId);
+  const toAcc   = accounts.find(a => a.id === toId);
+  const v = parseFloat(amount.toFixed(3));
+
+  const entry = {
+    id: 'JE-TR-' + Date.now(),
+    date, desc,
+    ref: 'TRANSFER-' + Date.now(),
+    type: 'transfer',
+    totalDebit: v, totalCredit: v,
+    createdAt: new Date().toISOString(),
+    lines: [
+      { accountId: toId,   accountCode: toAcc?.code||'',   accountName: toAcc?.name||'',   debit: v, credit: 0 },
+      { accountId: fromId, accountCode: fromAcc?.code||'', accountName: fromAcc?.name||'', debit: 0, credit: v },
+    ],
+  };
+
+  try {
+    const r = await fetch(`${API}/journal`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(entry) });
+    const d = await r.json();
+    if (d.success) {
+      closeModal('transferModal');
+      await loadAll();
+      alert(`✅ تم التحويل: ${v.toFixed(3)} د.ك\nمن: ${fromAcc?.name} → إلى: ${toAcc?.name}`);
+    } else alert(d.message || 'خطأ في الحفظ');
+  } catch(e) { alert('خطأ في الاتصال'); }
 }
 
 function exportLedger() {
@@ -8174,7 +8320,12 @@ async function agentPreview() {
   try {
     const d = await apiFetch('/ai/agent/preview', { method:'POST', body: JSON.stringify({ command: cmd }) });
     if (!d.success || !d.plan) {
-      document.getElementById('agentResult').innerHTML = '<div style="color:var(--danger);padding:16px;">❌ '+escHtml(d.error||'فشل التحليل')+'</div>';
+      const errMsg = d.error || 'فشل التحليل';
+      const isKeyMissing = errMsg.includes('ANTHROPIC_API_KEY') || errMsg.includes('غير مضبوط');
+      document.getElementById('agentResult').innerHTML = `<div style="color:var(--danger);padding:16px;line-height:1.8;">
+        ❌ ${escHtml(errMsg)}
+        ${isKeyMissing ? '<br><small style="color:var(--text3);">أضف ANTHROPIC_API_KEY في ملف .env ثم أعد تشغيل السيرفر</small>' : ''}
+      </div>`;
       return;
     }
     _agentPlan = d.plan;

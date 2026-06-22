@@ -201,9 +201,9 @@ const DEFAULT_COA = [
   // ── الأصول المتداولة ──────────────────────────────
   { id:'1000', code:'1000', name:'الأصول',              type:'asset',    parent:null, isGroup:true, balance:0 },
   { id:'1100', code:'1100', name:'الصندوق — نقدي',      type:'asset',    parent:'1000', balance:0 },
-  { id:'1110', code:'1110', name:'البنك الأهلي الكويتي',type:'asset',    parent:'1000', balance:0 },
-  { id:'1120', code:'1120', name:'بنك بوبيان',          type:'asset',    parent:'1000', balance:0 },
-  { id:'1130', code:'1130', name:'K-Net / Visa (حساب عبور)', type:'asset', parent:'1000', balance:0 },
+  { id:'1110', code:'1110', name:'البنك — الحساب الجاري',             type:'asset', parent:'1000', balance:0 },
+  { id:'1120', code:'1120', name:'K-Net / Visa / Master — مستحقات',  type:'asset', parent:'1000', balance:0 },
+  { id:'1130', code:'1130', name:'ذمم مدينة — شركات التأمين',        type:'asset', parent:'1000', balance:0 },
   { id:'1200', code:'1200', name:'الذمم المدينة — مرضى', type:'asset',   parent:'1000', balance:0 },
   { id:'1210', code:'1210', name:'مطالبات التأمين المعلقة', type:'asset', parent:'1000', balance:0 },
   { id:'1300', code:'1300', name:'المخزون — مستلزمات طبية', type:'asset', parent:'1000', balance:0 },
@@ -227,13 +227,15 @@ const DEFAULT_COA = [
   { id:'3200', code:'3200', name:'الأرباح المحتجزة',     type:'equity',   parent:'3000', balance:0 },
   { id:'3300', code:'3300', name:'أرباح/خسائر الفترة الحالية', type:'equity', parent:'3000', balance:0 },
   // ── الإيرادات ─────────────────────────────────────
-  { id:'4000', code:'4000', name:'الإيرادات',            type:'revenue',  parent:null, isGroup:true, balance:0 },
-  { id:'4100', code:'4100', name:'إيرادات علاج الأسنان', type:'revenue',  parent:'4000', balance:0 },
-  { id:'4110', code:'4110', name:'إيرادات نقدية',        type:'revenue',  parent:'4000', balance:0 },
-  { id:'4120', code:'4120', name:'إيرادات K-Net / Visa', type:'revenue',  parent:'4000', balance:0 },
-  { id:'4130', code:'4130', name:'إيرادات تأمين صحي',   type:'revenue',  parent:'4000', balance:0 },
-  { id:'4140', code:'4140', name:'إيرادات Link / Online', type:'revenue', parent:'4000', balance:0 },
-  { id:'4200', code:'4200', name:'إيرادات أخرى',         type:'revenue',  parent:'4000', balance:0 },
+  { id:'4000', code:'4000', name:'الإيرادات',                    type:'revenue', parent:null,   isGroup:true, balance:0 },
+  { id:'4100', code:'4100', name:'إيرادات نقدية — كاش',          type:'revenue', parent:'4000', balance:0 },
+  { id:'4110', code:'4110', name:'إيرادات K-Net',                type:'revenue', parent:'4000', balance:0 },
+  { id:'4120', code:'4120', name:'إيرادات Visa',                 type:'revenue', parent:'4000', balance:0 },
+  { id:'4130', code:'4130', name:'إيرادات Master',               type:'revenue', parent:'4000', balance:0 },
+  { id:'4140', code:'4140', name:'إيرادات Link',                 type:'revenue', parent:'4000', balance:0 },
+  { id:'4150', code:'4150', name:'إيرادات تأمين — إجمالي',       type:'revenue', parent:'4000', balance:0 },
+  { id:'4160', code:'4160', name:'إيرادات شيكات',                type:'revenue', parent:'4000', balance:0 },
+  { id:'4200', code:'4200', name:'إيرادات أخرى',                 type:'revenue', parent:'4000', balance:0 },
   // ── المصاريف ─────────────────────────────────────
   { id:'5000', code:'5000', name:'المصاريف',             type:'expense',  parent:null, isGroup:true, balance:0 },
   { id:'5100', code:'5100', name:'رواتب وأجور',          type:'expense',  parent:'5000', balance:0 },
@@ -374,6 +376,33 @@ function migrateDB(db) {
   if (!db.chartOfAccounts || db.chartOfAccounts.length === 0) {
     db.chartOfAccounts = DEFAULT_COA.map(a => ({ ...a }));
     changed = true;
+  } else {
+    // Fix misnamed accounts and add missing ones
+    const coaFixes = {
+      '4100': 'إيرادات نقدية — كاش',
+      '4110': 'إيرادات K-Net',
+      '4120': 'إيرادات Visa',
+      '4130': 'إيرادات Master',
+      '4140': 'إيرادات Link',
+      '1110': 'البنك — الحساب الجاري',
+      '1120': 'K-Net / Visa / Master — مستحقات',
+      '1130': 'ذمم مدينة — شركات التأمين',
+    };
+    for (const [code, correctName] of Object.entries(coaFixes)) {
+      const acc = db.chartOfAccounts.find(a => a.code === code);
+      if (acc && acc.name !== correctName) { acc.name = correctName; changed = true; }
+    }
+    // Add missing revenue accounts
+    const newAccounts = [
+      { id:'4150', code:'4150', name:'إيرادات تأمين — إجمالي', type:'revenue', parent:'4000', balance:0 },
+      { id:'4160', code:'4160', name:'إيرادات شيكات',           type:'revenue', parent:'4000', balance:0 },
+    ];
+    for (const acc of newAccounts) {
+      if (!db.chartOfAccounts.find(a => a.code === acc.code)) {
+        db.chartOfAccounts.push({ ...acc });
+        changed = true;
+      }
+    }
   }
   if (!db.users || db.users.length === 0) {
     const adminHash = bcrypt.hashSync(process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@2026', 10);
@@ -747,7 +776,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       }
       db.dailyData.sort((a, b) => b.date.localeCompare(a.date));
 
-      // === AUTO JOURNAL ENTRIES FOR DAILY INCOME ===
+      // === AUTO JOURNAL ENTRIES FOR DAILY INCOME (monthly grouping) ===
       if (!db.journalEntries) db.journalEntries = [];
       const coa = db.chartOfAccounts || [];
       const findAcc = (code) => {
@@ -755,7 +784,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         return a || { id: code, code, name: code };
       };
 
-      // Revenue accounts
+      // Revenue credit accounts
       const rev4100 = findAcc('4100'); // Cash
       const rev4110 = findAcc('4110'); // K-Net
       const rev4120 = findAcc('4120'); // Visa
@@ -763,55 +792,66 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       const rev4140 = findAcc('4140'); // Link
       const rev4150 = findAcc('4150'); // Insurance
       const rev4160 = findAcc('4160'); // Cheque
-      // Debit accounts
-      const cash1100 = findAcc('1100');
-      const bank1110 = findAcc('1110');
-      const knet1120 = findAcc('1120');
-      const ins1130  = findAcc('1130');
+      // Asset debit accounts
+      const cash1100 = findAcc('1100'); // Sundry cash
+      const bank1110 = findAcc('1110'); // Bank (Link / Cheque)
+      const knet1120 = findAcc('1120'); // K-Net / Visa / Master receivables
+      const ins1130  = findAcc('1130'); // Insurance receivable
 
+      // Group uploaded records by month (YYYY-MM)
+      const monthGroups = {};
       for (const rec of parsed) {
-        // Skip if journal already exists for this date (auto-income type)
-        const alreadyExists = db.journalEntries.some(
-          e => e.date === rec.date && e.type === 'auto-income' && e.ref === `INCOME-${rec.date}`
-        );
-        if (alreadyExists) {
-          // Update existing — remove old, rebuild
-          db.journalEntries = db.journalEntries.filter(
-            e => !(e.date === rec.date && e.type === 'auto-income' && e.ref === `INCOME-${rec.date}`)
-          );
-        }
+        const month = rec.date.substring(0, 7);
+        if (!monthGroups[month]) monthGroups[month] = { cash:0, knet:0, visa:0, master:0, link:0, cheque:0, insurance:0 };
+        const g = monthGroups[month];
+        g.cash      += rec.cash      || 0;
+        g.knet      += rec.knet      || 0;
+        g.visa      += rec.visa      || 0;
+        g.master    += rec.master    || 0;
+        g.link      += rec.link      || 0;
+        g.cheque    += rec.cheque    || 0;
+        g.insurance += rec.insurance || 0;
+      }
 
+      for (const [month, g] of Object.entries(monthGroups)) {
+        // Remove any previous auto-income entry for this month (re-upload replaces it)
+        db.journalEntries = db.journalEntries.filter(
+          e => !(e.type === 'auto-income' && e.ref === `INCOME-${month}`)
+        );
+
+        const r = (v) => parseFloat(v.toFixed(3));
         const lines = [];
         let totalRev = 0;
 
-        // Debit lines (what we received)
-        if (rec.cash      > 0) { lines.push({ accountId: cash1100.id, accountCode: '1100', accountName: cash1100.name, debit: rec.cash,      credit: 0 }); totalRev += rec.cash; }
-        if (rec.knet      > 0) { lines.push({ accountId: knet1120.id, accountCode: '1120', accountName: knet1120.name, debit: rec.knet,      credit: 0 }); totalRev += rec.knet; }
-        if (rec.visa      > 0) { lines.push({ accountId: knet1120.id, accountCode: '1120', accountName: knet1120.name, debit: rec.visa,      credit: 0 }); totalRev += rec.visa; }
-        if (rec.master    > 0) { lines.push({ accountId: knet1120.id, accountCode: '1120', accountName: knet1120.name, debit: rec.master,    credit: 0 }); totalRev += rec.master; }
-        if (rec.link      > 0) { lines.push({ accountId: bank1110.id, accountCode: '1110', accountName: bank1110.name, debit: rec.link,      credit: 0 }); totalRev += rec.link; }
-        if (rec.cheque    > 0) { lines.push({ accountId: bank1110.id, accountCode: '1110', accountName: bank1110.name, debit: rec.cheque,    credit: 0 }); totalRev += rec.cheque; }
-        if (rec.insurance > 0) { lines.push({ accountId: ins1130.id,  accountCode: '1130', accountName: ins1130.name,  debit: rec.insurance, credit: 0 }); totalRev += rec.insurance; }
+        // Debit lines
+        if (g.cash      > 0) { const v=r(g.cash);      lines.push({ accountId:cash1100.id, accountCode:'1100', accountName:cash1100.name, debit:v, credit:0 }); totalRev+=v; }
+        if (g.knet      > 0) { const v=r(g.knet);      lines.push({ accountId:knet1120.id, accountCode:'1120', accountName:knet1120.name, debit:v, credit:0 }); totalRev+=v; }
+        if (g.visa      > 0) { const v=r(g.visa);      lines.push({ accountId:knet1120.id, accountCode:'1120', accountName:knet1120.name, debit:v, credit:0 }); totalRev+=v; }
+        if (g.master    > 0) { const v=r(g.master);    lines.push({ accountId:knet1120.id, accountCode:'1120', accountName:knet1120.name, debit:v, credit:0 }); totalRev+=v; }
+        if (g.link      > 0) { const v=r(g.link);      lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:v, credit:0 }); totalRev+=v; }
+        if (g.cheque    > 0) { const v=r(g.cheque);    lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:v, credit:0 }); totalRev+=v; }
+        if (g.insurance > 0) { const v=r(g.insurance); lines.push({ accountId:ins1130.id,  accountCode:'1130', accountName:ins1130.name,  debit:v, credit:0 }); totalRev+=v; }
 
-        // Credit lines (revenue recognized)
-        if (rec.cash      > 0) lines.push({ accountId: rev4100.id, accountCode: '4100', accountName: rev4100.name, debit: 0, credit: rec.cash });
-        if (rec.knet      > 0) lines.push({ accountId: rev4110.id, accountCode: '4110', accountName: rev4110.name, debit: 0, credit: rec.knet });
-        if (rec.visa      > 0) lines.push({ accountId: rev4120.id, accountCode: '4120', accountName: rev4120.name, debit: 0, credit: rec.visa });
-        if (rec.master    > 0) lines.push({ accountId: rev4130.id, accountCode: '4130', accountName: rev4130.name, debit: 0, credit: rec.master });
-        if (rec.link      > 0) lines.push({ accountId: rev4140.id, accountCode: '4140', accountName: rev4140.name, debit: 0, credit: rec.link });
-        if (rec.cheque    > 0) lines.push({ accountId: rev4160.id, accountCode: '4160', accountName: rev4160.name, debit: 0, credit: rec.cheque });
-        if (rec.insurance > 0) lines.push({ accountId: rev4150.id, accountCode: '4150', accountName: rev4150.name, debit: 0, credit: rec.insurance });
+        // Credit lines
+        if (g.cash      > 0) { const v=r(g.cash);      lines.push({ accountId:rev4100.id, accountCode:'4100', accountName:rev4100.name, debit:0, credit:v }); }
+        if (g.knet      > 0) { const v=r(g.knet);      lines.push({ accountId:rev4110.id, accountCode:'4110', accountName:rev4110.name, debit:0, credit:v }); }
+        if (g.visa      > 0) { const v=r(g.visa);      lines.push({ accountId:rev4120.id, accountCode:'4120', accountName:rev4120.name, debit:0, credit:v }); }
+        if (g.master    > 0) { const v=r(g.master);    lines.push({ accountId:rev4130.id, accountCode:'4130', accountName:rev4130.name, debit:0, credit:v }); }
+        if (g.link      > 0) { const v=r(g.link);      lines.push({ accountId:rev4140.id, accountCode:'4140', accountName:rev4140.name, debit:0, credit:v }); }
+        if (g.cheque    > 0) { const v=r(g.cheque);    lines.push({ accountId:rev4160.id, accountCode:'4160', accountName:rev4160.name, debit:0, credit:v }); }
+        if (g.insurance > 0) { const v=r(g.insurance); lines.push({ accountId:rev4150.id, accountCode:'4150', accountName:rev4150.name, debit:0, credit:v }); }
 
         if (lines.length < 2 || totalRev === 0) continue;
 
+        const lastDay = new Date(month + '-28'); // safe last day for all months
         db.journalEntries.push({
-          id:          `JE-INC-${rec.date}`,
-          date:        rec.date,
-          desc:        `إيرادات يومية — ${rec.date}`,
-          ref:         `INCOME-${rec.date}`,
+          id:          `JE-INC-${month}`,
+          date:        month + '-30', // end of month reference date
+          desc:        `إيرادات شهر ${month}`,
+          ref:         `INCOME-${month}`,
           type:        'auto-income',
-          totalDebit:  totalRev,
-          totalCredit: totalRev,
+          totalDebit:  r(totalRev),
+          totalCredit: r(totalRev),
           createdAt:   new Date().toISOString(),
           lines,
           autoGenerated: true,
@@ -881,13 +921,29 @@ function updateCommissions(db) {
     groups[key].revenue += p.total;
   }
   
-  // Update commission history
+  // Update commission history + create insurance expense journal entries
+  const coa = db.chartOfAccounts || [];
+  const findAcc = (code) => coa.find(a => a.code === code) || { id: code, code, name: code };
+  const insExpAcc  = findAcc('5730'); // تأمين طبي وعمالي
+  const insLiabAcc = findAcc('2200'); // رواتب / التزامات مستحقة
+
   for (const key of Object.keys(groups)) {
     const g = groups[key];
-    const dr = db.doctors.find(d => d.name === g.doctor);
+    const dr = db.doctors.find(d =>
+      d.name === g.doctor ||
+      d.name.toLowerCase().replace(/\s+/g,'') === g.doctor.toLowerCase().replace(/\s+/g,'')
+    );
     if (!dr) continue;
     const commission = calcCommission(dr, g.revenue);
-    
+
+    // Calculate insurance deduction amount
+    const cfg = loadConfig();
+    const formula = cfg.commissionFormula || {};
+    const base = formula.base || 'above_target';
+    const baseAmt = base === 'above_target' ? Math.max(0, g.revenue - (dr.target || 0)) : g.revenue;
+    const insRate = (formula.deductions || ['lab']).includes('insurance') ? (dr.insurance || 0) : 0;
+    const insDeduction = parseFloat((baseAmt * insRate / 100).toFixed(3));
+
     const existing = db.commissionHistory.find(c => c.doctor === g.doctor && c.month === g.month);
     if (existing) {
       existing.revenue = g.revenue;
@@ -902,6 +958,28 @@ function updateCommissions(db) {
         paid: false,
         payMethod: '',
         payDate: ''
+      });
+    }
+
+    // Insurance expense journal entry (only if insurance deduction exists)
+    if (insDeduction > 0) {
+      const jeRef = `INS-EXP-${g.doctor}-${g.month}`.replace(/\s/g,'-');
+      db.journalEntries = db.journalEntries || [];
+      db.journalEntries = db.journalEntries.filter(e => e.ref !== jeRef);
+      db.journalEntries.push({
+        id: genId('JE-INS-'),
+        date: g.month + '-30',
+        desc: `مصاريف تأمين — ${g.doctor} — ${g.month}`,
+        ref: jeRef,
+        type: 'insurance-expense',
+        totalDebit: insDeduction,
+        totalCredit: insDeduction,
+        createdAt: new Date().toISOString(),
+        autoGenerated: true,
+        lines: [
+          { accountId: insExpAcc.id,  accountCode: '5730', accountName: insExpAcc.name,  debit: insDeduction, credit: 0 },
+          { accountId: insLiabAcc.id, accountCode: '2200', accountName: insLiabAcc.name, debit: 0, credit: insDeduction },
+        ],
       });
     }
   }
