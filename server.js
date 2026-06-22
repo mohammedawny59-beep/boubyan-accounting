@@ -5030,42 +5030,56 @@ app.get('/api/vouchers', (req,res)=>{
 
 app.post('/api/vouchers', (req,res)=>{
   const db=loadDB();
-  const {type,date,amount,payee,category,notes,debitAccId,creditAccId} = req.body;
-  if(!type||!date||!amount) return res.status(400).json({error:'missing fields'});
+  const {type,date,payee,notes,assetAccId,lines} = req.body;
+  if(!type||!date) return res.status(400).json({error:'missing fields'});
+  if(!lines||!lines.length) return res.status(400).json({error:'no lines provided'});
 
   const accounts=db.chartOfAccounts||[];
-  const debitAcc  = accounts.find(a=>a.id===debitAccId)  || {id:debitAccId||'',  code:debitAccId||'',  name:'حساب مدين'};
-  const creditAcc = accounts.find(a=>a.id===creditAccId) || {id:creditAccId||'', code:creditAccId||'', name:'حساب دائن'};
+  const assetAcc=accounts.find(a=>a.id===assetAccId)||{id:assetAccId||'',code:assetAccId||'',name:'حساب نقدي'};
+  const total=lines.reduce((s,l)=>s+(parseFloat(l.amount)||0),0);
 
-  const number = nextVoucherNo(db, type);
-  const amt = parseFloat(amount)||0;
-  const voucher = {
-    id:'VCH-'+Date.now(), number, type, date, amount:amt,
-    payee:payee||'', category:category||'', notes:notes||'',
-    debitAccId:debitAcc.id,   debitAccName:debitAcc.name,
-    creditAccId:creditAcc.id, creditAccName:creditAcc.name,
+  // Resolve each distribution line against COA
+  const resolvedLines=lines.map(l=>{
+    const acc=accounts.find(a=>a.id===l.accountId)||{id:l.accountId,code:l.accountId,name:l.accountId};
+    return {accountId:acc.id,accountCode:acc.code,accountName:acc.name,amount:parseFloat(l.amount)||0,desc:l.desc||''};
+  });
+
+  const number=nextVoucherNo(db,type);
+  const voucher={
+    id:'VCH-'+Date.now(), number, type, date, amount:total,
+    payee:payee||'', notes:notes||'',
+    assetAccId:assetAcc.id, assetAccName:assetAcc.name,
+    lines:resolvedLines,
     createdAt:new Date().toISOString()
   };
   if(!db.vouchers) db.vouchers=[];
   db.vouchers.push(voucher);
 
-  // Auto journal entry
+  // Build balanced journal entry
   if(!db.journalEntries) db.journalEntries=[];
-  const jeDesc = type==='receipt'
-    ? `سند قبض ${number} — ${payee||''}`
-    : `سند صرف ${number} — ${payee||''}`;
+  const jeLines=[];
+  if(type==='receipt'){
+    // DEBIT: asset account (full total)
+    jeLines.push({accountId:assetAcc.id,accountCode:assetAcc.code,accountName:assetAcc.name,debit:total,credit:0});
+    // CREDIT: each distribution line
+    resolvedLines.forEach(l=>jeLines.push({accountId:l.accountId,accountCode:l.accountCode,accountName:l.accountName,debit:0,credit:l.amount}));
+  } else {
+    // DEBIT: each distribution line
+    resolvedLines.forEach(l=>jeLines.push({accountId:l.accountId,accountCode:l.accountCode,accountName:l.accountName,debit:l.amount,credit:0}));
+    // CREDIT: asset account (full total)
+    jeLines.push({accountId:assetAcc.id,accountCode:assetAcc.code,accountName:assetAcc.name,debit:0,credit:total});
+  }
+
+  const jeDesc=type==='receipt'?`سند قبض ${number} — ${payee||''}`:`سند صرف ${number} — ${payee||''}`;
   db.journalEntries.push({
     id:'JE-'+number, date, desc:jeDesc,
-    ref:number, type, totalDebit:amt, totalCredit:amt,
+    ref:number, type, totalDebit:total, totalCredit:total,
     createdAt:new Date().toISOString(),
-    lines:[
-      {accountId:debitAcc.id,  accountCode:debitAcc.code,  accountName:debitAcc.name,  debit:amt, credit:0},
-      {accountId:creditAcc.id, accountCode:creditAcc.code, accountName:creditAcc.name, debit:0,   credit:amt}
-    ]
+    lines:jeLines
   });
 
   saveDB(db);
-  res.json({success:true, voucher});
+  res.json({success:true,voucher});
 });
 
 app.delete('/api/vouchers/:id', (req,res)=>{

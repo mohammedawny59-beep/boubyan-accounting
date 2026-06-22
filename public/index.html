@@ -484,6 +484,33 @@ input[type=file]{display:none;}
 .vc-credit-badge{background:rgba(16,185,129,.12);color:#6ee7b7;}
 html.light .vc-header::before{opacity:.04;}
 html.light .vc-flow-section{background:rgba(0,0,0,.02);border-color:rgba(0,0,0,.07);}
+/* Voucher multi-line distribution */
+.vc-asset-row{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:var(--r);padding:10px 14px;margin-bottom:12px;}
+.vc-asset-lbl{display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:11px;font-weight:700;color:var(--text2);flex-shrink:0;}
+.vc-asset-row select.finp{flex:1;margin:0;}
+.vc-asset-amt{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:var(--text1);white-space:nowrap;min-width:85px;text-align:left;flex-shrink:0;}
+.vc-dist-section{border:1px solid rgba(255,255,255,.06);border-radius:var(--r);overflow:hidden;margin-bottom:12px;}
+.vc-dist-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.05);}
+.vc-dist-ttl{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text2);}
+.vc-add-btn{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--accent);background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.18);border-radius:var(--r-sm);padding:4px 10px;cursor:pointer;transition:background var(--t-base),border-color var(--t-base);}
+.vc-add-btn:hover{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.35);}
+.vc-lines-hd{display:grid;grid-template-columns:1fr 96px 1fr 28px;gap:6px;padding:5px 14px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid rgba(255,255,255,.04);}
+.vc-line{display:grid;grid-template-columns:1fr 96px 1fr 28px;gap:6px;padding:6px 14px;align-items:center;border-bottom:1px solid rgba(255,255,255,.03);transition:background var(--t-fast),opacity var(--t-base);}
+.vc-line:last-child{border-bottom:none;}
+.vc-line:hover{background:rgba(255,255,255,.02);}
+.vc-line .finp{margin:0;padding:6px 8px;font-size:11px;}
+.vc-line-del{width:28px;height:28px;border-radius:6px;border:1px solid transparent;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text3);transition:background var(--t-base),border-color var(--t-base),color var(--t-base);flex-shrink:0;}
+.vc-line-del:hover{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.25);color:#f87171;}
+.vc-total-row{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:9px 14px;border-top:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.015);}
+.vc-total-lbl{font-size:11px;color:var(--text3);font-weight:600;}
+.vc-total-num{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;color:var(--text1);}
+html.light .vc-asset-row{background:rgba(0,0,0,.02);border-color:rgba(0,0,0,.07);}
+html.light .vc-dist-section{border-color:rgba(0,0,0,.08);}
+html.light .vc-dist-hdr{background:rgba(0,0,0,.02);border-color:rgba(0,0,0,.06);}
+html.light .vc-lines-hd{border-color:rgba(0,0,0,.05);}
+html.light .vc-line{border-color:rgba(0,0,0,.04);}
+html.light .vc-line:hover{background:rgba(0,0,0,.015);}
+html.light .vc-total-row{background:rgba(0,0,0,.02);border-color:rgba(0,0,0,.06);}
 
 /* journal save button loading state */
 .btn-saving { opacity:.6; pointer-events:none; cursor:not-allowed; }
@@ -8181,86 +8208,140 @@ async function loadVouchers() {
       <td><span class="badge ${v.type==='receipt'?'bg':'br'}">${v.type==='receipt'?'قبض':'صرف'}</span></td>
       <td>${v.date}</td>
       <td>${v.payee||'—'}</td>
-      <td>${v.type==='receipt'?(v.debitAccName||'—'):(v.creditAccName||'—')}</td>
-      <td>${v.category||'—'}</td>
+      <td>${v.assetAccName||(v.type==='receipt'?(v.debitAccName||'—'):(v.creditAccName||'—'))}</td>
+      <td style="font-size:11px;color:var(--text3)">${v.lines?v.lines.length+' بنود':(v.category||'—')}</td>
       <td class="num ${v.type==='receipt'?'pos':'neg'}" style="font-weight:700">${v.amount.fmt()}</td>
       <td><button class="btn bd bsm" onclick="deleteVoucher('${v.id}')">حذف</button></td>
     </tr>`).join('');
 }
 
+let _vcLineCount = 0;
+let _vcAllAccounts = [];
+
 function openVcModal(type) {
   const isReceipt = type === 'receipt';
   document.getElementById('vcModalType').value = type;
+  _vcLineCount = 0;
 
-  // Header styling
-  const header = document.getElementById('vcModalHeader');
-  header.className = 'vc-header ' + (isReceipt ? 'vc-header-receipt' : 'vc-header-payment');
+  // All active leaf accounts from COA
+  _vcAllAccounts = getCoaAccounts().filter(a => a.status !== 'inactive' && !a.isGroup && a.code);
+  const assets = _vcAllAccounts.filter(a => a.code.startsWith('1'));
+
+  // Header
+  document.getElementById('vcModalHeader').className = 'vc-header ' + (isReceipt ? 'vc-header-receipt' : 'vc-header-payment');
   document.getElementById('vcModalIcon').innerHTML = isReceipt
     ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12l10-10 10 10"/></svg>'
     : '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V2M22 12L12 22 2 12"/></svg>';
   document.getElementById('vcModalTitle').textContent = isReceipt ? 'سند قبض' : 'سند صرف';
-  document.getElementById('vcModalSub').textContent   = isReceipt ? 'توثيق حركة نقدية واردة' : 'توثيق حركة نقدية صادرة';
+  document.getElementById('vcModalSub').textContent   = isReceipt ? 'توثيق حركة نقدية واردة — قيد متعدد البنود' : 'توثيق حركة نقدية صادرة — قيد متعدد البنود';
 
-  // Populate dropdowns from COA (leaf accounts only)
-  const allAccs  = getCoaAccounts().filter(a => a.status !== 'inactive' && !a.isGroup);
-  const assets   = allAccs.filter(a => a.code && a.code.startsWith('1'));
-  const revenues = allAccs.filter(a => a.code && a.code.startsWith('4'));
-  const expenses = allAccs.filter(a => a.code && a.code.startsWith('5'));
+  // Asset account dropdown (always 1xxx — cash / bank)
+  document.getElementById('vcModalAssetAcc').innerHTML =
+    assets.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
 
-  const debitSel  = document.getElementById('vcModalDebitAcc');
-  const creditSel = document.getElementById('vcModalCreditAcc');
-
+  // Labels: asset side badge + distribution side badge
+  const assetBadge = document.getElementById('vcAssetBadge');
+  const distBadge  = document.getElementById('vcDistBadge');
   if (isReceipt) {
-    document.getElementById('vcDebitLabel').textContent  = 'وصل إلى (حساب أصول)';
-    document.getElementById('vcCreditLabel').textContent = 'مصدر الإيراد';
-    debitSel.innerHTML  = assets.map(a   => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
-    creditSel.innerHTML = revenues.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+    assetBadge.textContent = 'مدين'; assetBadge.className = 'vc-flow-badge vc-debit-badge';
+    distBadge.textContent  = 'دائن'; distBadge.style.cssText = 'background:rgba(16,185,129,.12);color:#6ee7b7';
+    document.getElementById('vcAssetLblTxt').textContent = 'الحساب النقدي (وصل إلى)';
+    document.getElementById('vcDistTitle').textContent   = 'توزيع الإيرادات والمطالبات';
   } else {
-    document.getElementById('vcDebitLabel').textContent  = 'حساب المصروف';
-    document.getElementById('vcCreditLabel').textContent = 'مدفوع من (حساب أصول)';
-    debitSel.innerHTML  = expenses.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
-    creditSel.innerHTML = assets.map(a   => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+    assetBadge.textContent = 'دائن'; assetBadge.className = 'vc-flow-badge vc-credit-badge';
+    distBadge.textContent  = 'مدين'; distBadge.style.cssText = 'background:rgba(59,130,246,.12);color:#93c5fd';
+    document.getElementById('vcAssetLblTxt').textContent = 'الحساب النقدي (مدفوع منه)';
+    document.getElementById('vcDistTitle').textContent   = 'توزيع المصاريف والمدفوعات';
   }
 
+  // Start with one empty line
+  document.getElementById('vcLines').innerHTML = '';
+  addVcLine();
+
   // Reset fields
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById('vcModalDate').value   = today;
-  document.getElementById('vcModalAmount').value = '';
-  document.getElementById('vcModalPayee').value  = '';
-  document.getElementById('vcModalCat').value    = '';
-  document.getElementById('vcModalNotes').value  = '';
+  document.getElementById('vcModalDate').value  = new Date().toISOString().slice(0, 10);
+  document.getElementById('vcModalPayee').value = '';
+  document.getElementById('vcModalNotes').value = '';
+  calcVcTotal();
   document.getElementById('vcModal').classList.add('open');
 }
 
-async function saveVoucher() {
-  const date        = document.getElementById('vcModalDate').value;
-  const amount      = document.getElementById('vcModalAmount').value;
-  const type        = document.getElementById('vcModalType').value;
-  const debitAccId  = document.getElementById('vcModalDebitAcc').value;
-  const creditAccId = document.getElementById('vcModalCreditAcc').value;
+function addVcLine() {
+  const id   = ++_vcLineCount;
+  const opts = _vcAllAccounts
+    .map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
 
-  if (!date || !amount)            return toast('يرجى إدخال التاريخ والمبلغ', 'warning');
-  if (!debitAccId || !creditAccId) return toast('يرجى اختيار الحسابات', 'warning');
+  const row = document.createElement('div');
+  row.className = 'vc-line';
+  row.id = `vcLine${id}`;
+  row.innerHTML = `
+    <select class="finp" id="vcLineAcc${id}">${opts}</select>
+    <input type="number" step="0.001" min="0" class="finp" id="vcLineAmt${id}"
+           placeholder="0.000" oninput="calcVcTotal()" style="direction:ltr;text-align:left">
+    <input type="text" class="finp" id="vcLineDesc${id}" placeholder="البيان (اختياري)">
+    <button class="vc-line-del" type="button" onclick="removeVcLine(${id})" aria-label="حذف البند">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>`;
+  document.getElementById('vcLines').appendChild(row);
+}
+
+function removeVcLine(id) {
+  const el = document.getElementById(`vcLine${id}`);
+  if (!el) return;
+  el.style.opacity = '0';
+  setTimeout(() => { el.remove(); calcVcTotal(); }, 150);
+}
+
+function calcVcTotal() {
+  let total = 0;
+  document.querySelectorAll('#vcLines .vc-line').forEach(row => {
+    const id  = row.id.replace('vcLine', '');
+    total += parseFloat(document.getElementById(`vcLineAmt${id}`)?.value) || 0;
+  });
+  const fmt = total.toFixed(3);
+  document.getElementById('vcTotalNum').textContent  = fmt;
+  document.getElementById('vcAssetAmt').textContent  = fmt + ' د.ك';
+  return total;
+}
+
+async function saveVoucher() {
+  const date    = document.getElementById('vcModalDate').value;
+  const type    = document.getElementById('vcModalType').value;
+  const assetId = document.getElementById('vcModalAssetAcc').value;
+
+  // Collect distribution lines
+  const lines = [];
+  document.querySelectorAll('#vcLines .vc-line').forEach(row => {
+    const id  = row.id.replace('vcLine', '');
+    const accountId = document.getElementById(`vcLineAcc${id}`)?.value;
+    const amount    = parseFloat(document.getElementById(`vcLineAmt${id}`)?.value) || 0;
+    const desc      = document.getElementById(`vcLineDesc${id}`)?.value?.trim() || '';
+    if (accountId && amount > 0) lines.push({ accountId, amount, desc });
+  });
+
+  if (!date)         return toast('يرجى إدخال التاريخ', 'warning');
+  if (!lines.length) return toast('يرجى إدخال بند واحد على الأقل بمبلغ', 'warning');
 
   const btn = document.getElementById('vcSaveBtn');
   btn.disabled = true; btn.classList.add('btn-saving');
 
   try {
-    const body = {
-      type, date, amount,
-      payee:    document.getElementById('vcModalPayee').value,
-      category: document.getElementById('vcModalCat').value,
-      notes:    document.getElementById('vcModalNotes').value,
-      debitAccId, creditAccId,
-    };
-    const r = await fetch('/api/vouchers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const r = await fetch('/api/vouchers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type, date, lines, assetAccId: assetId,
+        payee: document.getElementById('vcModalPayee').value,
+        notes: document.getElementById('vcModalNotes').value,
+      })
+    });
     const d = await r.json();
     if (d.success) {
       document.getElementById('vcModal').classList.remove('open');
       loadVouchers();
       toast('تم حفظ السند بنجاح', 'success');
     } else {
-      toast('فشل في حفظ السند', 'error');
+      toast(d.error || 'فشل في حفظ السند', 'error');
     }
   } catch(e) {
     toast('حدث خطأ في الاتصال', 'error');
@@ -10270,44 +10351,58 @@ showTab = function(id, el) {
 
 <!-- ── VOUCHER MODAL ── -->
 <div id="vcModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
-  <div class="mbox" style="width:480px">
+  <div class="mbox" style="width:620px;max-height:88vh;overflow-y:auto;scrollbar-width:thin">
+    <!-- Coloured header -->
     <div id="vcModalHeader" class="vc-header vc-header-receipt">
       <div class="vc-header-icon" id="vcModalIcon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12l10-10 10 10"/></svg>
       </div>
       <div>
         <div class="vc-header-title" id="vcModalTitle">سند قبض</div>
-        <div class="vc-header-sub" id="vcModalSub">توثيق حركة نقدية واردة</div>
+        <div class="vc-header-sub" id="vcModalSub">توثيق حركة نقدية واردة — قيد متعدد البنود</div>
       </div>
     </div>
     <input type="hidden" id="vcModalType" value="receipt">
+
+    <!-- Date + Payee -->
     <div class="fr2">
       <div class="fr"><label class="flbl">التاريخ *</label><input type="date" class="finp" id="vcModalDate" style="min-height:40px"></div>
-      <div class="fr"><label class="flbl">المبلغ (د.ك) *</label><input type="number" step="0.001" min="0" class="finp" id="vcModalAmount" placeholder="0.000" style="min-height:40px"></div>
+      <div class="fr"><label class="flbl">الجهة</label><input type="text" class="finp" id="vcModalPayee" placeholder="اسم العميل أو المورد" style="min-height:40px"></div>
     </div>
-    <div class="fr2">
-      <div class="fr"><label class="flbl">الجهة</label><input type="text" class="finp" id="vcModalPayee" placeholder="اسم المريض أو المورد" style="min-height:40px"></div>
-      <div class="fr"><label class="flbl">التصنيف</label><input type="text" class="finp" id="vcModalCat" placeholder="مثال: مراجعة" style="min-height:40px"></div>
+
+    <!-- Fixed asset account (debit for receipt / credit for payment) -->
+    <div class="vc-asset-row">
+      <div class="vc-asset-lbl" id="vcAssetLbl">
+        <span class="vc-flow-badge vc-debit-badge" id="vcAssetBadge">مدين</span>
+        <span id="vcAssetLblTxt">الحساب النقدي (وصل إلى)</span>
+      </div>
+      <select class="finp" id="vcModalAssetAcc" style="min-height:40px"></select>
+      <div class="vc-asset-amt" id="vcAssetAmt">0.000 د.ك</div>
     </div>
-    <div class="vc-flow-section">
-      <div class="vc-flow-label">القيد المحاسبي</div>
-      <div class="vc-flow-row">
-        <div class="vc-flow-item">
-          <span class="vc-flow-badge vc-debit-badge">مدين</span>
-          <label class="flbl" id="vcDebitLabel">وصل إلى</label>
-          <select class="finp" id="vcModalDebitAcc" style="min-height:40px"></select>
+
+    <!-- Distribution lines -->
+    <div class="vc-dist-section">
+      <div class="vc-dist-hdr">
+        <div class="vc-dist-ttl">
+          <span class="vc-flow-badge" id="vcDistBadge" style="background:rgba(16,185,129,.12);color:#6ee7b7">دائن</span>
+          <span id="vcDistTitle">توزيع الإيرادات والمطالبات</span>
         </div>
-        <div class="vc-flow-arrow">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        </div>
-        <div class="vc-flow-item">
-          <span class="vc-flow-badge vc-credit-badge">دائن</span>
-          <label class="flbl" id="vcCreditLabel">مصدر الإيراد</label>
-          <select class="finp" id="vcModalCreditAcc" style="min-height:40px"></select>
-        </div>
+        <button class="vc-add-btn" type="button" onclick="addVcLine()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          إضافة بند
+        </button>
+      </div>
+      <div class="vc-lines-hd"><span>الحساب</span><span>المبلغ (د.ك)</span><span>البيان</span><span></span></div>
+      <div id="vcLines"></div>
+      <div class="vc-total-row">
+        <span class="vc-total-lbl">الإجمالي</span>
+        <span class="vc-total-num" id="vcTotalNum">0.000</span>
+        <span style="font-size:11px;color:var(--text3)">د.ك</span>
       </div>
     </div>
+
     <div class="fr"><label class="flbl">ملاحظات</label><input type="text" class="finp" id="vcModalNotes" placeholder="اختياري" style="min-height:40px"></div>
+
     <div class="mact">
       <button class="btn bp" id="vcSaveBtn" onclick="saveVoucher()" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
