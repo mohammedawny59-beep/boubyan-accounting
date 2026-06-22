@@ -462,6 +462,29 @@ input[type=file]{display:none;}
 .mtit{font-size:15px;font-weight:700;margin-bottom:20px;color:var(--text);}
 .mact{display:flex;gap:8px;margin-top:16px;}
 
+/* ── VOUCHER MODAL ── */
+.vc-header{display:flex;align-items:center;gap:14px;padding:20px 24px 16px;margin:-24px -24px 16px;border-radius:var(--r-xl) var(--r-xl) 0 0;position:relative;overflow:hidden;}
+.vc-header::before{content:'';position:absolute;inset:0;opacity:.07;pointer-events:none;}
+.vc-header-receipt{border-top:3px solid #10b981;}
+.vc-header-receipt::before{background:#10b981;}
+.vc-header-payment{border-top:3px solid #ef4444;}
+.vc-header-payment::before{background:#ef4444;}
+.vc-header-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.vc-header-receipt .vc-header-icon{background:rgba(16,185,129,.15);color:#34d399;}
+.vc-header-payment .vc-header-icon{background:rgba(239,68,68,.15);color:#f87171;}
+.vc-header-title{font-size:17px;font-weight:700;color:var(--text1);}
+.vc-header-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+.vc-flow-section{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-radius:var(--r);padding:14px 16px;margin:4px 0 12px;}
+.vc-flow-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:12px;}
+.vc-flow-row{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end;}
+.vc-flow-item{display:flex;flex-direction:column;gap:5px;}
+.vc-flow-arrow{display:flex;align-items:center;justify-content:center;padding-bottom:10px;color:var(--text3);font-size:18px;}
+.vc-flow-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 8px;border-radius:100px;width:fit-content;margin-bottom:2px;}
+.vc-debit-badge{background:rgba(59,130,246,.12);color:#93c5fd;}
+.vc-credit-badge{background:rgba(16,185,129,.12);color:#6ee7b7;}
+html.light .vc-header::before{opacity:.04;}
+html.light .vc-flow-section{background:rgba(0,0,0,.02);border-color:rgba(0,0,0,.07);}
+
 /* journal save button loading state */
 .btn-saving { opacity:.6; pointer-events:none; cursor:not-allowed; }
 .btn-saving::after { content:'…'; }
@@ -1935,7 +1958,7 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
     </div>
     <div class="tw">
       <div class="th2"><div class="tt">سجل السندات</div></div>
-      <table><thead><tr><th>رقم السند</th><th>النوع</th><th>التاريخ</th><th>الجهة</th><th>طريقة الدفع</th><th>التصنيف</th><th>المبلغ (د.ك)</th><th></th></tr></thead>
+      <table><thead><tr><th>رقم السند</th><th>النوع</th><th>التاريخ</th><th>الجهة</th><th>الحساب النقدي</th><th>التصنيف</th><th>المبلغ (د.ك)</th><th></th></tr></thead>
       <tbody id="vcBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">لا توجد سندات</td></tr></tbody></table>
     </div>
   </div>
@@ -8158,7 +8181,7 @@ async function loadVouchers() {
       <td><span class="badge ${v.type==='receipt'?'bg':'br'}">${v.type==='receipt'?'قبض':'صرف'}</span></td>
       <td>${v.date}</td>
       <td>${v.payee||'—'}</td>
-      <td>${v.method==='knet'?'K-Net':'كاش'}</td>
+      <td>${v.type==='receipt'?(v.debitAccName||'—'):(v.creditAccName||'—')}</td>
       <td>${v.category||'—'}</td>
       <td class="num ${v.type==='receipt'?'pos':'neg'}" style="font-weight:700">${v.amount.fmt()}</td>
       <td><button class="btn bd bsm" onclick="deleteVoucher('${v.id}')">حذف</button></td>
@@ -8166,30 +8189,84 @@ async function loadVouchers() {
 }
 
 function openVcModal(type) {
+  const isReceipt = type === 'receipt';
   document.getElementById('vcModalType').value = type;
-  document.getElementById('vcModalTitle').textContent = type==='receipt'?'🟢 سند قبض':'🔴 سند صرف';
-  document.getElementById('vcModalAccLabel').textContent = type==='receipt'?'حساب الإيراد (كود)':'حساب المصروف (كود)';
-  document.getElementById('vcModalAccCode').value = type==='receipt'?'4100':'5100';
-  const today = new Date().toISOString().slice(0,10);
-  document.getElementById('vcModalDate').value = today;
+
+  // Header styling
+  const header = document.getElementById('vcModalHeader');
+  header.className = 'vc-header ' + (isReceipt ? 'vc-header-receipt' : 'vc-header-payment');
+  document.getElementById('vcModalIcon').innerHTML = isReceipt
+    ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12l10-10 10 10"/></svg>'
+    : '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V2M22 12L12 22 2 12"/></svg>';
+  document.getElementById('vcModalTitle').textContent = isReceipt ? 'سند قبض' : 'سند صرف';
+  document.getElementById('vcModalSub').textContent   = isReceipt ? 'توثيق حركة نقدية واردة' : 'توثيق حركة نقدية صادرة';
+
+  // Populate dropdowns from COA (leaf accounts only)
+  const allAccs  = getCoaAccounts().filter(a => a.status !== 'inactive' && !a.isGroup);
+  const assets   = allAccs.filter(a => a.code && a.code.startsWith('1'));
+  const revenues = allAccs.filter(a => a.code && a.code.startsWith('4'));
+  const expenses = allAccs.filter(a => a.code && a.code.startsWith('5'));
+
+  const debitSel  = document.getElementById('vcModalDebitAcc');
+  const creditSel = document.getElementById('vcModalCreditAcc');
+
+  if (isReceipt) {
+    document.getElementById('vcDebitLabel').textContent  = 'وصل إلى (حساب أصول)';
+    document.getElementById('vcCreditLabel').textContent = 'مصدر الإيراد';
+    debitSel.innerHTML  = assets.map(a   => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+    creditSel.innerHTML = revenues.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  } else {
+    document.getElementById('vcDebitLabel').textContent  = 'حساب المصروف';
+    document.getElementById('vcCreditLabel').textContent = 'مدفوع من (حساب أصول)';
+    debitSel.innerHTML  = expenses.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+    creditSel.innerHTML = assets.map(a   => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  }
+
+  // Reset fields
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('vcModalDate').value   = today;
+  document.getElementById('vcModalAmount').value = '';
+  document.getElementById('vcModalPayee').value  = '';
+  document.getElementById('vcModalCat').value    = '';
+  document.getElementById('vcModalNotes').value  = '';
   document.getElementById('vcModal').classList.add('open');
 }
 
 async function saveVoucher() {
-  const body = {
-    type:        document.getElementById('vcModalType').value,
-    date:        document.getElementById('vcModalDate').value,
-    amount:      document.getElementById('vcModalAmount').value,
-    payee:       document.getElementById('vcModalPayee').value,
-    method:      document.getElementById('vcModalMethod').value,
-    category:    document.getElementById('vcModalCat').value,
-    notes:       document.getElementById('vcModalNotes').value,
-    accountCode: document.getElementById('vcModalAccCode').value,
-  };
-  if(!body.date||!body.amount) return alert('يرجى إدخال التاريخ والمبلغ');
-  const r = await fetch('/api/vouchers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const d = await r.json();
-  if(d.success){ document.getElementById('vcModal').classList.remove('open'); loadVouchers(); }
+  const date        = document.getElementById('vcModalDate').value;
+  const amount      = document.getElementById('vcModalAmount').value;
+  const type        = document.getElementById('vcModalType').value;
+  const debitAccId  = document.getElementById('vcModalDebitAcc').value;
+  const creditAccId = document.getElementById('vcModalCreditAcc').value;
+
+  if (!date || !amount)            return toast('يرجى إدخال التاريخ والمبلغ', 'warning');
+  if (!debitAccId || !creditAccId) return toast('يرجى اختيار الحسابات', 'warning');
+
+  const btn = document.getElementById('vcSaveBtn');
+  btn.disabled = true; btn.classList.add('btn-saving');
+
+  try {
+    const body = {
+      type, date, amount,
+      payee:    document.getElementById('vcModalPayee').value,
+      category: document.getElementById('vcModalCat').value,
+      notes:    document.getElementById('vcModalNotes').value,
+      debitAccId, creditAccId,
+    };
+    const r = await fetch('/api/vouchers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    if (d.success) {
+      document.getElementById('vcModal').classList.remove('open');
+      loadVouchers();
+      toast('تم حفظ السند بنجاح', 'success');
+    } else {
+      toast('فشل في حفظ السند', 'error');
+    }
+  } catch(e) {
+    toast('حدث خطأ في الاتصال', 'error');
+  } finally {
+    btn.disabled = false; btn.classList.remove('btn-saving');
+  }
 }
 
 async function deleteVoucher(id) {
@@ -10193,25 +10270,53 @@ showTab = function(id, el) {
 
 <!-- ── VOUCHER MODAL ── -->
 <div id="vcModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
-  <div class="mbox" style="width:420px">
-    <div class="mtit" id="vcModalTitle">سند قبض</div>
+  <div class="mbox" style="width:480px">
+    <div id="vcModalHeader" class="vc-header vc-header-receipt">
+      <div class="vc-header-icon" id="vcModalIcon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12l10-10 10 10"/></svg>
+      </div>
+      <div>
+        <div class="vc-header-title" id="vcModalTitle">سند قبض</div>
+        <div class="vc-header-sub" id="vcModalSub">توثيق حركة نقدية واردة</div>
+      </div>
+    </div>
     <input type="hidden" id="vcModalType" value="receipt">
     <div class="fr2">
-      <div class="fr"><label class="flbl">التاريخ *</label><input type="date" class="finp" id="vcModalDate"></div>
-      <div class="fr"><label class="flbl">المبلغ (د.ك) *</label><input type="number" step="0.001" class="finp" id="vcModalAmount" placeholder="0.000"></div>
+      <div class="fr"><label class="flbl">التاريخ *</label><input type="date" class="finp" id="vcModalDate" style="min-height:40px"></div>
+      <div class="fr"><label class="flbl">المبلغ (د.ك) *</label><input type="number" step="0.001" min="0" class="finp" id="vcModalAmount" placeholder="0.000" style="min-height:40px"></div>
     </div>
-    <div class="fr"><label class="flbl">الجهة (الاسم)</label><input type="text" class="finp" id="vcModalPayee" placeholder="اسم المريض أو المورد"></div>
     <div class="fr2">
-      <div class="fr"><label class="flbl">طريقة الدفع</label>
-        <select class="finp" id="vcModalMethod"><option value="cash">كاش</option><option value="knet">K-Net</option></select>
-      </div>
-      <div class="fr"><label class="flbl">التصنيف</label><input type="text" class="finp" id="vcModalCat" placeholder="مثال: مراجعة"></div>
+      <div class="fr"><label class="flbl">الجهة</label><input type="text" class="finp" id="vcModalPayee" placeholder="اسم المريض أو المورد" style="min-height:40px"></div>
+      <div class="fr"><label class="flbl">التصنيف</label><input type="text" class="finp" id="vcModalCat" placeholder="مثال: مراجعة" style="min-height:40px"></div>
     </div>
-    <div class="fr"><label class="flbl" id="vcModalAccLabel">حساب الإيراد (كود)</label><input type="text" class="finp" id="vcModalAccCode" placeholder="4100"></div>
-    <div class="fr"><label class="flbl">ملاحظات</label><input type="text" class="finp" id="vcModalNotes" placeholder="اختياري"></div>
+    <div class="vc-flow-section">
+      <div class="vc-flow-label">القيد المحاسبي</div>
+      <div class="vc-flow-row">
+        <div class="vc-flow-item">
+          <span class="vc-flow-badge vc-debit-badge">مدين</span>
+          <label class="flbl" id="vcDebitLabel">وصل إلى</label>
+          <select class="finp" id="vcModalDebitAcc" style="min-height:40px"></select>
+        </div>
+        <div class="vc-flow-arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="vc-flow-item">
+          <span class="vc-flow-badge vc-credit-badge">دائن</span>
+          <label class="flbl" id="vcCreditLabel">مصدر الإيراد</label>
+          <select class="finp" id="vcModalCreditAcc" style="min-height:40px"></select>
+        </div>
+      </div>
+    </div>
+    <div class="fr"><label class="flbl">ملاحظات</label><input type="text" class="finp" id="vcModalNotes" placeholder="اختياري" style="min-height:40px"></div>
     <div class="mact">
-      <button class="btn bp" onclick="saveVoucher()">💾 حفظ السند</button>
-      <button class="btn bd" onclick="document.getElementById('vcModal').classList.remove('open')">إلغاء</button>
+      <button class="btn bp" id="vcSaveBtn" onclick="saveVoucher()" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        حفظ السند
+      </button>
+      <button class="btn bd" onclick="document.getElementById('vcModal').classList.remove('open')" style="display:flex;align-items:center;gap:6px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        إلغاء
+      </button>
     </div>
   </div>
 </div>

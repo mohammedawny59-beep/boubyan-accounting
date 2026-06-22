@@ -5030,49 +5030,39 @@ app.get('/api/vouchers', (req,res)=>{
 
 app.post('/api/vouchers', (req,res)=>{
   const db=loadDB();
-  const {type,date,amount,payee,method,category,notes,accountCode} = req.body;
+  const {type,date,amount,payee,category,notes,debitAccId,creditAccId} = req.body;
   if(!type||!date||!amount) return res.status(400).json({error:'missing fields'});
+
+  const accounts=db.chartOfAccounts||[];
+  const debitAcc  = accounts.find(a=>a.id===debitAccId)  || {id:debitAccId||'',  code:debitAccId||'',  name:'حساب مدين'};
+  const creditAcc = accounts.find(a=>a.id===creditAccId) || {id:creditAccId||'', code:creditAccId||'', name:'حساب دائن'};
 
   const number = nextVoucherNo(db, type);
   const amt = parseFloat(amount)||0;
   const voucher = {
-    id:'VCH-'+Date.now(), number, type, date,
-    amount:amt, payee:payee||'', method:method||'cash',
-    category:category||'', notes:notes||'',
-    accountCode:accountCode||'', createdAt:new Date().toISOString()
+    id:'VCH-'+Date.now(), number, type, date, amount:amt,
+    payee:payee||'', category:category||'', notes:notes||'',
+    debitAccId:debitAcc.id,   debitAccName:debitAcc.name,
+    creditAccId:creditAcc.id, creditAccName:creditAcc.name,
+    createdAt:new Date().toISOString()
   };
   if(!db.vouchers) db.vouchers=[];
   db.vouchers.push(voucher);
 
   // Auto journal entry
-  const accounts=db.chartOfAccounts||[];
-  const cashAcc=accounts.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'};
-  const methodAcc = method==='knet'?(accounts.find(a=>a.code==='1110')||{id:'1110',code:'1110',name:'K-Net'}):cashAcc;
   if(!db.journalEntries) db.journalEntries=[];
-
-  if(type==='receipt'){
-    const revAcc=accounts.find(a=>a.code===(accountCode||'4100'))||{id:'4100',code:'4100',name:'إيرادات'};
-    db.journalEntries.push({
-      id:'JE-'+number, date, desc:`سند قبض ${number} — ${payee||''}`,
-      ref:number, type:'receipt', totalDebit:amt, totalCredit:amt,
-      createdAt:new Date().toISOString(),
-      lines:[
-        {accountId:methodAcc.id,accountCode:methodAcc.code,accountName:methodAcc.name,debit:amt,credit:0},
-        {accountId:revAcc.id,accountCode:revAcc.code,accountName:revAcc.name,debit:0,credit:amt}
-      ]
-    });
-  } else {
-    const expAcc=accounts.find(a=>a.code===(accountCode||'5100'))||{id:'5100',code:'5100',name:'مصاريف عامة'};
-    db.journalEntries.push({
-      id:'JE-'+number, date, desc:`سند صرف ${number} — ${payee||''}`,
-      ref:number, type:'payment', totalDebit:amt, totalCredit:amt,
-      createdAt:new Date().toISOString(),
-      lines:[
-        {accountId:expAcc.id,accountCode:expAcc.code,accountName:expAcc.name,debit:amt,credit:0},
-        {accountId:methodAcc.id,accountCode:methodAcc.code,accountName:methodAcc.name,debit:0,credit:amt}
-      ]
-    });
-  }
+  const jeDesc = type==='receipt'
+    ? `سند قبض ${number} — ${payee||''}`
+    : `سند صرف ${number} — ${payee||''}`;
+  db.journalEntries.push({
+    id:'JE-'+number, date, desc:jeDesc,
+    ref:number, type, totalDebit:amt, totalCredit:amt,
+    createdAt:new Date().toISOString(),
+    lines:[
+      {accountId:debitAcc.id,  accountCode:debitAcc.code,  accountName:debitAcc.name,  debit:amt, credit:0},
+      {accountId:creditAcc.id, accountCode:creditAcc.code, accountName:creditAcc.name, debit:0,   credit:amt}
+    ]
+  });
 
   saveDB(db);
   res.json({success:true, voucher});
