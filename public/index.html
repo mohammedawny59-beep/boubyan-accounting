@@ -456,9 +456,15 @@ input[type=file]{display:none;}
 /* ── MODALS ── */
 .modal{display:none;position:fixed;inset:0;background:rgba(2,6,18,.82);backdrop-filter:blur(8px);z-index:200;align-items:center;justify-content:center;}
 .modal.open{display:flex;}
+.modal.open .mbox { animation: mboxIn 240ms cubic-bezier(.34,1.18,.64,1) forwards; }
+@keyframes mboxIn { from { opacity:0; transform:translateY(16px) scale(.96); } to { opacity:1; transform:translateY(0) scale(1); } }
 .mbox{background:var(--surface);border:1px solid var(--borderAct);border-radius:var(--r-xl);padding:24px;width:360px;max-width:92vw;box-shadow:var(--shadow-lg),0 0 0 1px rgba(79,142,247,.06);}
 .mtit{font-size:15px;font-weight:700;margin-bottom:20px;color:var(--text);}
 .mact{display:flex;gap:8px;margin-top:16px;}
+
+/* journal save button loading state */
+.btn-saving { opacity:.6; pointer-events:none; cursor:not-allowed; }
+.btn-saving::after { content:'…'; }
 
 /* ── TELEGRAM ── */
 .tg-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px;margin-top:16px;}
@@ -5348,8 +5354,8 @@ async function saveJournal() {
   const date = document.getElementById('jDate').value;
   const desc = document.getElementById('jDesc').value.trim();
   const ref  = document.getElementById('jRef').value.trim();
-  if (!date || !desc) { alert('أدخل التاريخ والبيان'); return; }
-  
+  if (!date || !desc) { showToast('أدخل التاريخ والبيان أولاً', 'warning'); return; }
+
   const lines = [];
   let totalDebit = 0, totalCredit = 0;
   document.querySelectorAll('[id^="jl_acc_"]').forEach(el => {
@@ -5363,17 +5369,18 @@ async function saveJournal() {
       totalDebit += debit; totalCredit += credit;
     }
   });
-  
-  if (lines.length < 2) { alert('القيد يحتاج سطرين على الأقل'); return; }
-  // Round totals to 3dp before comparing to avoid floating-point false positives
+
+  if (lines.length < 2) { showToast('القيد يحتاج سطرين على الأقل', 'warning'); return; }
   const td3 = parseFloat(totalDebit.toFixed(3));
   const tc3 = parseFloat(totalCredit.toFixed(3));
-  if (Math.abs(td3 - tc3) > 0.005) { alert('القيد غير متوازن — مدين لا يساوي دائن\nالفرق: ' + Math.abs(td3-tc3).toFixed(3) + ' د.ك'); return; }
-  
+  if (Math.abs(td3 - tc3) > 0.005) {
+    showToast('القيد غير متوازن — الفرق: ' + Math.abs(td3 - tc3).toFixed(3) + ' د.ك', 'error');
+    return;
+  }
+
   const editId = document.getElementById('jEditId').value;
   const isEdit = !!editId;
   const existing = isEdit ? (DB.journalEntries||[]).find(e => e.id === editId) : null;
-
   const entry = {
     id: editId || 'JE-' + Date.now(),
     date, desc, ref,
@@ -5381,6 +5388,10 @@ async function saveJournal() {
     type: existing?.type || 'manual',
     createdAt: existing?.createdAt || new Date().toISOString(),
   };
+
+  // Disable save button during request
+  const saveBtn = document.querySelector('#journalModal .btn.bs');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('btn-saving'); }
 
   try {
     let r;
@@ -5390,9 +5401,25 @@ async function saveJournal() {
       r = await fetch(`${API}/journal`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(entry) });
     }
     const d = await r.json();
-    if (d.success) { closeModal('journalModal'); await loadAll(); loadJournal(); }
-    else alert(d.message);
-  } catch(e) { alert('خطأ في الحفظ'); }
+    if (d.success) {
+      closeModal('journalModal');
+      await loadAll();
+      loadJournal();
+      showToast(isEdit ? 'تم حفظ التعديل بنجاح' : 'تمت إضافة القيد بنجاح', 'success');
+      // If edit was opened from ledger detail popup, reopen it with fresh data
+      if (_lemReturnId) {
+        const returnId = _lemReturnId;
+        _lemReturnId = null;
+        setTimeout(() => showLedgerEntry(returnId), 260);
+      }
+    } else {
+      showToast(d.message || 'حدث خطأ أثناء الحفظ', 'error');
+    }
+  } catch(e) {
+    showToast('خطأ في الاتصال بالخادم', 'error');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.classList.remove('btn-saving'); }
+  }
 }
 
 async function loadJournal() {
@@ -5512,7 +5539,8 @@ async function deleteJournal(id) {
   try {
     await fetch(`${API}/journal/` + id, { method:'DELETE' });
     await loadAll(); loadJournal();
-  } catch(ex) { alert('خطأ في الحذف'); }
+    showToast('تم حذف القيد', 'success');
+  } catch(ex) { showToast('خطأ في حذف القيد', 'error'); }
 }
 
 function exportJournal() { exportExcel('journal'); }
@@ -6119,6 +6147,7 @@ async function loadLedger() {
 }
 
 let _lemCurrentId = null;
+let _lemReturnId  = null;  // set when edit is launched from ledger detail popup
 
 function showLedgerEntry(id) {
   const e = (DB.journalEntries || []).find(x => x.id === id);
@@ -6200,8 +6229,9 @@ function closeLedgerModal() {
 
 function lemEditCurrent() {
   if (!_lemCurrentId) return;
+  _lemReturnId = _lemCurrentId;   // remember to reopen after save
   closeLedgerModal();
-  setTimeout(() => editJournal(_lemCurrentId), 200);
+  setTimeout(() => editJournal(_lemReturnId), 200);
 }
 
 function _lemEscHandler(e) { if (e.key === 'Escape') closeLedgerModal(); }
@@ -6229,10 +6259,10 @@ async function saveTransfer() {
   const amount = parseFloat(document.getElementById('trAmount').value) || 0;
   const date   = document.getElementById('trDate').value;
   const desc   = document.getElementById('trDesc').value.trim() || 'تحويل بين حسابات';
-  if (!fromId || !toId) { alert('اختر الحساب المصدر والوجهة'); return; }
-  if (fromId === toId) { alert('الحساب المصدر والوجهة لا يمكن أن يكونا نفس الحساب'); return; }
-  if (amount <= 0) { alert('أدخل مبلغاً صحيحاً'); return; }
-  if (!date) { alert('أدخل التاريخ'); return; }
+  if (!fromId || !toId) { showToast('اختر الحساب المصدر والوجهة', 'warning'); return; }
+  if (fromId === toId) { showToast('الحساب المصدر والوجهة لا يمكن أن يكونا نفس الحساب', 'warning'); return; }
+  if (amount <= 0) { showToast('أدخل مبلغاً صحيحاً أكبر من الصفر', 'warning'); return; }
+  if (!date) { showToast('أدخل التاريخ', 'warning'); return; }
 
   const accounts = getCoaAccounts();
   const fromAcc = accounts.find(a => a.id === fromId);
@@ -6258,9 +6288,9 @@ async function saveTransfer() {
     if (d.success) {
       closeModal('transferModal');
       await loadAll();
-      alert(`✅ تم التحويل: ${v.toFixed(3)} د.ك\nمن: ${fromAcc?.name} → إلى: ${toAcc?.name}`);
-    } else alert(d.message || 'خطأ في الحفظ');
-  } catch(e) { alert('خطأ في الاتصال'); }
+      showToast(`تم التحويل: ${v.toFixed(3)} د.ك — من ${fromAcc?.name} إلى ${toAcc?.name}`, 'success');
+    } else showToast(d.message || 'خطأ في الحفظ', 'error');
+  } catch(e) { showToast('خطأ في الاتصال بالخادم', 'error'); }
 }
 
 function exportLedger() {
