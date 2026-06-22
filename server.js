@@ -1126,6 +1126,39 @@ app.delete('/api/expenses/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== RESET DATA (admin only) =====
+app.post('/api/reset-data', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+  const { scope } = req.body; // 'all' | 'transactions'
+  const db = loadDB();
+
+  // Always wipe transaction data
+  db.dailyData        = [];
+  db.paymentsData     = [];
+  db.commissionHistory = [];
+  db.journalEntries   = [];
+  db.expenses         = [];
+  db.uploadedFiles    = [];
+  db.vouchers         = [];
+  db.cashReconciliation = [];
+  db.insuranceClaims  = [];
+  db.payroll          = [];
+  db.invMovements     = [];
+
+  if (scope === 'all') {
+    // Also reset doctors, vendors, inventory, assets, COA (re-seed defaults)
+    db.doctors      = [];
+    db.vendors      = [];
+    db.invItems     = [];
+    db.invCategories = [];
+    db.employees    = [];
+    db.chartOfAccounts = DEFAULT_COA.map(a => ({ ...a }));
+  }
+
+  saveDB(db);
+  res.json({ success: true, scope });
+});
+
 // Stats endpoint
 app.get('/api/stats', (req, res) => {
   const { from, to } = req.query;
