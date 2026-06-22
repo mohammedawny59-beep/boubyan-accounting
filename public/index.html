@@ -466,6 +466,32 @@ input[type=file]{display:none;}
 .btn-saving { opacity:.6; pointer-events:none; cursor:not-allowed; }
 .btn-saving::after { content:'…'; }
 
+/* ── JOURNAL ENTRIES LIST ── */
+.je-row { cursor:pointer; }
+.je-row:hover { background:rgba(59,130,246,.07) !important; }
+.je-date { font-family:'IBM Plex Mono',monospace; font-size:11px; white-space:nowrap; color:var(--text2); width:90px; }
+.je-ref  { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text3); white-space:nowrap; max-width:130px; overflow:hidden; text-overflow:ellipsis; }
+.je-desc-cell { max-width:260px; }
+.je-desc-text { font-size:12px; color:var(--text); font-weight:500; margin-bottom:5px; line-height:1.35; }
+.je-meta { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+.je-lines-pill { font-size:9px; color:var(--text3); font-family:'IBM Plex Mono',monospace; padding:1px 7px; border-radius:var(--r-full); background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.07); white-space:nowrap; }
+.je-auto-pill  { font-size:9px; color:var(--accent); padding:1px 7px; border-radius:var(--r-full); background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.2); white-space:nowrap; }
+.je-edited-dot { font-size:10px; color:var(--warning); line-height:1; }
+.je-amount { white-space:nowrap; }
+.je-actions-cell { white-space:nowrap; }
+.je-action-btn {
+  width:28px; height:28px; border-radius:var(--r-sm);
+  border:1px solid transparent; background:transparent;
+  cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
+  transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast);
+  color:var(--text3); vertical-align:middle;
+}
+.je-action-btn:hover { transform:none; }
+.je-btn-view:hover { background:rgba(59,130,246,.12); border-color:rgba(59,130,246,.3); color:var(--accentLight); }
+.je-btn-edit:hover { background:rgba(245,158,11,.12); border-color:rgba(245,158,11,.3); color:var(--accent3); }
+.je-btn-del:hover  { background:rgba(239,68,68,.12);  border-color:rgba(239,68,68,.3);  color:var(--danger); }
+html.light .je-action-btn { color:var(--text2); }
+
 /* ── TELEGRAM ── */
 .tg-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px;margin-top:16px;}
 .tg-status{display:flex;align-items:center;gap:8px;margin-bottom:16px;}
@@ -2167,10 +2193,17 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
 
     <!-- Journal Table -->
     <div class="tw">
-      <div class="th2"><div class="tt">دفتر اليومية</div></div>
+      <div class="th2"><div class="tt">دفتر اليومية</div><div style="font-size:10px;color:var(--text3);">اضغط على أي صف لعرض التفاصيل والتعديل</div></div>
       <table>
-        <thead><tr><th>رقم القيد</th><th>التاريخ</th><th>البيان</th><th>الحساب</th><th>مدين</th><th>دائن</th><th>النوع</th><th></th></tr></thead>
-        <tbody id="journalBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا توجد قيود</td></tr></tbody>
+        <thead><tr>
+          <th style="width:96px">التاريخ</th>
+          <th style="width:120px">المرجع</th>
+          <th>البيان</th>
+          <th style="width:110px;text-align:left">مدين</th>
+          <th style="width:110px;text-align:left">دائن</th>
+          <th style="width:90px;text-align:center">إجراءات</th>
+        </tr></thead>
+        <tbody id="journalBody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد قيود</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -5453,43 +5486,47 @@ async function loadJournal() {
   document.getElementById('jCount').textContent       = filtered.length;
   
   if (!filtered.length) {
-    document.getElementById('journalBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا توجد قيود</td></tr>';
+    document.getElementById('journalBody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:32px 20px;">لا توجد قيود في هذه الفترة</td></tr>';
     return;
   }
-  
-  const typeMap   = { manual:'يدوي', revenue:'إيرادات', expense:'مصاريف', ai:'AI فاتورة', 'auto-income':'📊 Excel', inventory:'📦 مخزون', 'vendor-pay':'💳 مورد' };
-  const typeBadge = { manual:'bb', revenue:'bg', expense:'by', ai:'bo', 'auto-income':'bg', inventory:'bb', 'vendor-pay':'by' };
+
+  const typeMap   = { manual:'يدوي', revenue:'إيرادات', expense:'مصاريف', ai:'AI', 'auto-income':'Excel', inventory:'مخزون', 'vendor-pay':'مورد', transfer:'تحويل' };
+  const typeBadge = { manual:'bb', revenue:'bg', expense:'by', ai:'bo', 'auto-income':'bg', inventory:'bb', 'vendor-pay':'by', transfer:'bb' };
+
+  // SVG icons (inline, consistent 14×14 stroke)
+  const icoEye   = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const icoEdit  = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+  const icoTrash = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
 
   let rows = '';
   filtered.forEach(e => {
-    const firstLine  = e.lines[0];
-    const moreLines  = e.lines.length > 1 ? `<span style="font-size:9px;color:var(--text3);"> +${e.lines.length-1} سطر</span>` : '';
-    const isAuto     = e.autoGenerated || e.type === 'auto-income';
-    const autoLabel  = isAuto ? `<span class="badge bb" style="font-size:9px;margin-right:4px;">🔄 تلقائي</span>` : '';
-    const editedLabel = e.updatedAt ? `<span title="عُدّل ${e.updatedAt.substring(0,10)}" style="font-size:9px;color:var(--warning);">✏️</span>` : '';
-    rows += `<tr>
-      <td style="font-family:monospace;font-size:10px;">${e.ref||e.id.substring(0,12)}</td>
-      <td>${e.date}</td>
-      <td style="max-width:200px;">${e.desc}${autoLabel}${editedLabel}</td>
-      <td style="font-size:11px;">${firstLine?.accountCode||''} — ${firstLine?.accountName||''}${moreLines}</td>
-      <td class="num pos">${(e.totalDebit||0).fmt()}</td>
-      <td class="num neg">${(e.totalCredit||0).fmt()}</td>
-      <td><span class="badge ${typeBadge[e.type]||'bb'}">${typeMap[e.type]||e.type}</span></td>
-      <td style="display:flex;gap:3px;flex-wrap:wrap;">
-        <button class="btn bsm" style="background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.2);padding:3px 7px;font-size:10px;" onclick="viewJournal('${e.id}')">👁</button>
-        <button class="btn bsm bw" style="padding:3px 7px;font-size:10px;" onclick="editJournal('${e.id}')">✏️</button>
-        <button class="btn bsm bd" style="padding:3px 7px;font-size:10px;" onclick="deleteJournal('${e.id}')">🗑</button>
+    const isAuto   = e.autoGenerated || e.type === 'auto-income';
+    const autoPill = isAuto ? `<span class="je-auto-pill">تلقائي</span>` : '';
+    const editDot  = e.updatedAt ? `<span class="je-edited-dot" title="عُدّل ${e.updatedAt.substring(0,10)}">●</span>` : '';
+    const typeCls  = typeBadge[e.type] || 'bb';
+    const typeLabel= typeMap[e.type]   || e.type;
+    const lineCount= e.lines.length;
+
+    rows += `<tr class="je-row" onclick="showLedgerEntry('${e.id}')" title="اضغط لعرض التفاصيل">
+      <td class="je-date">${escHtml(e.date)}</td>
+      <td class="je-ref">${escHtml(e.ref || e.id.substring(0,14))}</td>
+      <td class="je-desc-cell">
+        <div class="je-desc-text">${escHtml(e.desc)}</div>
+        <div class="je-meta">
+          <span class="badge ${typeCls}" style="font-size:9px;">${typeLabel}</span>
+          ${autoPill}
+          <span class="je-lines-pill">${lineCount} سطر</span>
+          ${editDot}
+        </div>
+      </td>
+      <td class="num pos je-amount" style="text-align:left;direction:ltr;">${(e.totalDebit||0).fmt()}</td>
+      <td class="num neg je-amount" style="text-align:left;direction:ltr;">${(e.totalCredit||0).fmt()}</td>
+      <td class="je-actions-cell" onclick="event.stopPropagation()" style="text-align:center;">
+        <button class="je-action-btn je-btn-view" onclick="showLedgerEntry('${e.id}')" aria-label="عرض" title="عرض التفاصيل">${icoEye}</button>
+        <button class="je-action-btn je-btn-edit" onclick="editJournal('${e.id}')"     aria-label="تعديل" title="تعديل القيد">${icoEdit}</button>
+        <button class="je-action-btn je-btn-del"  onclick="deleteJournal('${e.id}')"  aria-label="حذف" title="حذف القيد">${icoTrash}</button>
       </td>
     </tr>`;
-    e.lines.slice(1).forEach(l => {
-      rows += `<tr style="background:rgba(0,0,0,.08);">
-        <td colspan="3"></td>
-        <td style="font-size:11px;color:var(--text2);padding-right:24px;">↳ ${l.accountCode} — ${l.accountName}</td>
-        <td class="num pos">${l.debit >0?l.debit.fmt() :''}</td>
-        <td class="num neg">${l.credit>0?l.credit.fmt():''}</td>
-        <td colspan="2"></td>
-      </tr>`;
-    });
   });
   document.getElementById('journalBody').innerHTML = rows;
 }
@@ -6208,8 +6245,7 @@ function showLedgerEntry(id) {
     <td class="td-num td-credit">${tc.fmt()}</td>
   </tr>`;
 
-  // Hide Edit button for auto-generated entries
-  document.getElementById('lemEditBtn').style.display = isAuto ? 'none' : '';
+  document.getElementById('lemEditBtn').style.display = '';
 
   // Animate in
   modal.classList.remove('closing');
