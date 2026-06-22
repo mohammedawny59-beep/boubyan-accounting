@@ -1159,33 +1159,78 @@ app.post('/api/reset-data', requireAuth, (req, res) => {
   res.json({ success: true, scope });
 });
 
-// Stats endpoint
+// Stats endpoint — reads from journal entries (source of truth)
 app.get('/api/stats', (req, res) => {
   const { from, to } = req.query;
   const db = loadDB();
-  
-  let daily = db.dailyData;
+  const r3 = v => parseFloat(v.toFixed(3));
+
+  // Filter journal entries by date range
+  let entries = db.journalEntries || [];
+  if (from) entries = entries.filter(e => e.date >= from);
+  if (to)   entries = entries.filter(e => e.date <= to);
+
+  // Revenue accounts: any account whose code starts with '4'
+  const coa = db.chartOfAccounts || [];
+  const isRevAccount = (accountId) => {
+    const acc = coa.find(a => a.id === accountId || a.code === accountId);
+    return acc ? acc.code.startsWith('4') : false;
+  };
+
+  // Sum credit amounts per revenue account from journal lines
+  const revByCode = {};
+  for (const entry of entries) {
+    for (const line of entry.lines || []) {
+      if ((line.credit || 0) > 0 && isRevAccount(line.accountId)) {
+        const acc = coa.find(a => a.id === line.accountId);
+        const code = acc?.code || line.accountCode || line.accountId;
+        revByCode[code] = (revByCode[code] || 0) + (line.credit || 0);
+      }
+    }
+  }
+
+  const totalRevenue = Object.values(revByCode).reduce((s, v) => s + v, 0);
+  const insRevenue   = revByCode['4150'] || 0; // إيرادات تأمين
+  const cashRevenue  = revByCode['4100'] || 0;
+  const knetRevenue  = revByCode['4110'] || 0;
+  const visaRevenue  = revByCode['4120'] || 0;
+  const masterRevenue= revByCode['4130'] || 0;
+  const linkRevenue  = revByCode['4140'] || 0;
+  const chequeRevenue= revByCode['4160'] || 0;
+
+  // Insurance share (25% of the gross insurance amount)
+  const insOriginal  = insRevenue > 0 ? insRevenue / 0.75 : 0;
+  const insShare     = r3(insOriginal * 0.25);
+
+  // Work days = unique dates with revenue > 0 from daily data (unchanged)
+  let daily = db.dailyData || [];
   if (from) daily = daily.filter(d => d.date >= from);
-  if (to) daily = daily.filter(d => d.date <= to);
-  
-  const totalRevenue = daily.reduce((s, d) => s + d.total, 0);
-  const insRecorded = daily.reduce((s, d) => s + d.insurance, 0);
-  const insOriginal = insRecorded > 0 ? insRecorded / 0.75 : 0;
-  const insShare = insOriginal * 0.25;
+  if (to)   daily = daily.filter(d => d.date <= to);
   const workDays = daily.filter(d => d.total > 0).length;
-  const totalComm = db.commissionHistory.reduce((s, c) => s + c.commission, 0);
-  const pendingComm = db.commissionHistory.filter(c => !c.paid).reduce((s, c) => s + c.commission, 0);
-  
+
+  const totalComm  = (db.commissionHistory || []).reduce((s, c) => s + (c.commission || 0), 0);
+  const pendingComm= (db.commissionHistory || []).filter(c => !c.paid).reduce((s, c) => s + (c.commission || 0), 0);
+
   res.json({
-    totalRevenue: parseFloat(totalRevenue.toFixed(3)),
-    insRecorded: parseFloat(insRecorded.toFixed(3)),
-    insOriginal: parseFloat(insOriginal.toFixed(3)),
-    insShare: parseFloat(insShare.toFixed(3)),
-    insNet: parseFloat(insRecorded.toFixed(3)),
-    netCash: parseFloat((totalRevenue - insRecorded).toFixed(3)),
+    totalRevenue:  r3(totalRevenue),
+    insRecorded:   r3(insRevenue),
+    insOriginal:   r3(insOriginal),
+    insShare,
+    insNet:        r3(insRevenue),
+    netCash:       r3(totalRevenue - insRevenue),
     workDays,
-    totalComm: parseFloat(totalComm.toFixed(3)),
-    pendingComm: parseFloat(pendingComm.toFixed(3)),
+    totalComm:     r3(totalComm),
+    pendingComm:   r3(pendingComm),
+    // breakdown by payment method
+    byMethod: {
+      cash:   r3(cashRevenue),
+      knet:   r3(knetRevenue),
+      visa:   r3(visaRevenue),
+      master: r3(masterRevenue),
+      link:   r3(linkRevenue),
+      cheque: r3(chequeRevenue),
+      insurance: r3(insRevenue),
+    }
   });
 });
 
@@ -5999,12 +6044,37 @@ function buildFinancialSnapshot(db) {
   const now       = new Date();
   const thisMonth = now.toISOString().substring(0,7);
   const lastMonth = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().substring(0,7);
-  const daily     = db.dailyData  || [];
   const expenses  = db.expenses   || [];
   const coa       = db.chartOfAccounts || [];
+  const entries   = db.journalEntries || [];
 
-  const rev = m => daily.filter(d=>d.date&&d.date.startsWith(m)).reduce((s,d)=>s+(parseFloat(d.total)||0),0);
-  const exp = m => expenses.filter(e=>e.date&&e.date.startsWith(m)).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  // Revenue from journal entries (credit side of accounts starting with '4')
+  const isRevAcc = (accountId) => {
+    const acc = coa.find(a => a.id === accountId || a.code === accountId);
+    return acc ? acc.code.startsWith('4') : (String(accountId).startsWith('4'));
+  };
+  const isExpAcc = (accountId) => {
+    const acc = coa.find(a => a.id === accountId || a.code === accountId);
+    return acc ? acc.code.startsWith('5') : (String(accountId).startsWith('5'));
+  };
+
+  const rev = m => entries
+    .filter(e => e.date && e.date.startsWith(m))
+    .reduce((s, e) => s + (e.lines||[]).filter(l => isRevAcc(l.accountId) && (l.credit||0) > 0)
+      .reduce((ss, l) => ss + (l.credit||0), 0), 0);
+
+  const expFromJournals = m => entries
+    .filter(e => e.date && e.date.startsWith(m))
+    .reduce((s, e) => s + (e.lines||[]).filter(l => isExpAcc(l.accountId) && (l.debit||0) > 0)
+      .reduce((ss, l) => ss + (l.debit||0), 0), 0);
+
+  const exp = m => {
+    const fromExpenses = expenses.filter(e=>e.date&&e.date.startsWith(m)).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+    const fromJournals = expFromJournals(m);
+    // Use whichever source has data; prefer journals if both exist to avoid double-count
+    return fromJournals > 0 ? fromJournals : fromExpenses;
+  };
+
   const tmRev = rev(thisMonth), lmRev = rev(lastMonth);
   const tmExp = exp(thisMonth), lmExp = exp(lastMonth);
   const tmNet = tmRev - tmExp, lmNet = lmRev - lmExp;
@@ -6015,12 +6085,24 @@ function buildFinancialSnapshot(db) {
   const projProfit  = projRev - tmExp;
 
   const expByCategory = {};
-  expenses.filter(e=>e.date&&e.date.startsWith(thisMonth)).forEach(e => {
-    const cat = e.category || 'أخرى';
-    expByCategory[cat] = (expByCategory[cat]||0) + (parseFloat(e.amount)||0);
+  // Build expense-by-category from journal entries (debit side of expense accounts)
+  entries.filter(e=>e.date&&e.date.startsWith(thisMonth)).forEach(entry => {
+    (entry.lines||[]).filter(l => isExpAcc(l.accountId) && (l.debit||0) > 0).forEach(l => {
+      const acc = coa.find(a => a.id === l.accountId);
+      const cat = acc?.name || l.accountName || 'أخرى';
+      expByCategory[cat] = (expByCategory[cat]||0) + (l.debit||0);
+    });
   });
+  // Fallback to raw expenses if no journal entries for this month
+  if (!Object.keys(expByCategory).length) {
+    expenses.filter(e=>e.date&&e.date.startsWith(thisMonth)).forEach(e => {
+      const cat = e.category || 'أخرى';
+      expByCategory[cat] = (expByCategory[cat]||0) + (parseFloat(e.amount)||0);
+    });
+  }
 
   const drRevMap = {};
+  const daily = db.dailyData || [];
   daily.forEach(d => { if(d.doctor){ drRevMap[d.doctor]=(drRevMap[d.doctor]||0)+(parseFloat(d.total)||0); } });
 
   const avgDailyExp = dayOfMonth > 0 ? tmExp / dayOfMonth : 0;
