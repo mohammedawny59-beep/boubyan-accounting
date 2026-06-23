@@ -1623,6 +1623,164 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
 
 /* ── DASHBOARD SPARKLINE SVG ── */
 .kc-sparkline svg { width: 100%; height: 28px; display: block; }
+
+/* ════════════════════════════════════════════════════
+   UX COMFORT & SPEED LAYER v2
+════════════════════════════════════════════════════ */
+
+/* ── FONT SIZE SCALE ── */
+html { --fs-scale: 1; }
+html[data-fs="sm"] { --fs-scale: .88; }
+html[data-fs="md"] { --fs-scale: 1; }
+html[data-fs="lg"] { --fs-scale: 1.13; }
+html[data-fs="xl"] { --fs-scale: 1.26; }
+body { font-size: calc(14px * var(--fs-scale)); }
+.fs-picker { display:flex; align-items:center; gap:3px; }
+.fs-btn {
+  width:26px; height:26px; border-radius:6px; border:1px solid var(--border);
+  background:transparent; color:var(--text2); cursor:pointer;
+  font-weight:700; display:flex; align-items:center; justify-content:center;
+  transition:background .12s, border-color .12s;
+  font-family:'IBM Plex Sans Arabic',sans-serif;
+}
+.fs-btn:hover { background:var(--surface3); border-color:var(--borderAct); }
+.fs-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+/* ── QUICK DATE BUTTONS ── */
+.qd-bar { display:flex; gap:5px; flex-wrap:wrap; align-items:center; }
+.qd-btn {
+  padding:3px 10px; border-radius:var(--r-full); border:1px solid var(--border);
+  background:var(--surface2); color:var(--text2); font-size:10px; font-weight:600;
+  cursor:pointer; transition:background .12s, border-color .12s, color .12s;
+  white-space:nowrap;
+}
+.qd-btn:hover { background:var(--surface3); border-color:var(--borderAct); color:var(--text); }
+.qd-btn.active { background:rgba(99,102,241,.15); border-color:rgba(99,102,241,.5); color:#a5b4fc; }
+
+/* ── STICKY TABLE CONTAINER ── */
+.tw-scroll { overflow-y:auto; max-height:calc(100vh - 280px); }
+.tw-scroll table thead th { position:sticky; top:0; z-index:5; }
+
+/* ── GLOBAL SEARCH OVERLAY ── */
+#gsearch-overlay {
+  position:fixed; inset:0; z-index:8500;
+  background:rgba(4,9,21,.8); backdrop-filter:blur(10px);
+  display:none; align-items:flex-start; justify-content:center;
+  padding-top:10vh;
+}
+#gsearch-overlay.open { display:flex; animation:cmdIn 160ms ease; }
+#gsearch-box {
+  width:640px; max-width:96vw;
+  background:var(--surface); border:1px solid var(--borderAct);
+  border-radius:var(--r-xl); overflow:hidden;
+  box-shadow:var(--shadow-lg);
+  animation:cmdBoxIn 180ms cubic-bezier(.34,1.18,.64,1);
+}
+#gsearch-input-wrap {
+  display:flex; align-items:center; gap:10px;
+  padding:14px 16px; border-bottom:1px solid var(--border);
+}
+#gsearch-input {
+  flex:1; background:none; border:none; outline:none;
+  color:var(--text); font-size:15px; font-family:inherit;
+  direction:rtl;
+}
+#gsearch-input::placeholder { color:var(--text3); }
+#gsearch-results { max-height:420px; overflow-y:auto; }
+#gsearch-results::-webkit-scrollbar { width:4px; }
+#gsearch-results::-webkit-scrollbar-thumb { background:var(--borderAct); border-radius:2px; }
+.gs-section { padding:6px 0; }
+.gs-section-label {
+  font-size:9px; color:var(--text3); font-weight:700;
+  letter-spacing:.08em; text-transform:uppercase;
+  padding:8px 16px 4px;
+}
+.gs-row {
+  display:flex; align-items:center; gap:10px;
+  padding:9px 16px; cursor:pointer;
+  transition:background .1s;
+  border-bottom:1px solid rgba(255,255,255,.03);
+}
+.gs-row:hover { background:rgba(99,102,241,.08); }
+.gs-row-icon { font-size:14px; width:24px; text-align:center; flex-shrink:0; }
+.gs-row-main { flex:1; min-width:0; }
+.gs-row-title { font-size:12px; color:var(--text); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.gs-row-sub { font-size:10px; color:var(--text3); }
+.gs-row-amt { font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--text2); white-space:nowrap; }
+.gs-empty { padding:24px; text-align:center; color:var(--text3); font-size:12px; }
+#gsearch-footer {
+  padding:8px 16px; border-top:1px solid var(--border);
+  font-size:10px; color:var(--text3); display:flex; gap:14px;
+  background:var(--surface2);
+}
+
+/* ── CONNECTION INDICATOR ── */
+#conn-bar {
+  position:fixed; top:0; right:0; left:0; z-index:9500;
+  padding:7px 16px; text-align:center; font-size:11px; font-weight:700;
+  transform:translateY(-100%); transition:transform .3s ease;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+}
+#conn-bar.offline { background:#7f1d1d; color:#fca5a5; transform:translateY(0); }
+#conn-bar.back-online { background:#064e3b; color:#6ee7b7; transform:translateY(0); }
+
+/* ── KEYBOARD SHORTCUTS MODAL ── */
+#shortcuts-modal {
+  position:fixed; inset:0; z-index:8000;
+  background:rgba(4,9,21,.8); backdrop-filter:blur(10px);
+  display:none; align-items:center; justify-content:center;
+}
+#shortcuts-modal.open { display:flex; animation:cmdIn 160ms ease; }
+#shortcuts-box {
+  width:460px; max-width:94vw; max-height:88vh; overflow-y:auto;
+  background:var(--surface); border:1px solid var(--borderAct);
+  border-radius:var(--r-xl); padding:0;
+  box-shadow:var(--shadow-lg);
+}
+.sc-header {
+  padding:16px 20px; border-bottom:1px solid var(--border);
+  font-size:13px; font-weight:700; color:var(--text);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.sc-body { padding:12px 16px; }
+.sc-group { margin-bottom:14px; }
+.sc-group-title { font-size:10px; color:var(--text3); font-weight:700; letter-spacing:.08em; text-transform:uppercase; margin-bottom:8px; }
+.sc-row { display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+.sc-row:last-child { border-bottom:none; }
+.sc-row-label { font-size:12px; color:var(--text2); }
+.sc-keys { display:flex; gap:4px; }
+.sc-key { font-size:10px; background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:2px 8px; color:var(--text2); font-family:monospace; }
+
+/* ── AUTO-SAVE INDICATOR ── */
+#autosave-dot {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:10px; color:var(--text3); margin-right:8px;
+  transition:opacity .3s;
+}
+.as-dot { width:6px; height:6px; border-radius:50%; background:var(--text3); }
+.as-dot.saving { background:#f59e0b; animation:pulse .6s infinite; }
+.as-dot.saved  { background:#10b981; }
+
+/* ── PRINT STYLES ── */
+@media print {
+  body { background:#fff !important; color:#000 !important; }
+  header, .sidebar, .filter-bar, .export-bar, .sh button,
+  .bex, .nav-item, #global-fab, #conn-bar, .fab-main,
+  .kc-sparkline, .kc-trend, .toast-area,
+  button:not(.print-keep) { display:none !important; }
+  .kpi-grid { grid-template-columns: repeat(3,1fr); gap:8px; }
+  .kc { border:1px solid #ccc !important; background:#f8f8f8 !important;
+        box-shadow:none !important; break-inside:avoid; }
+  .kv { color:#000 !important; }
+  .kl, .ks { color:#555 !important; }
+  table { border-collapse:collapse; font-size:11px; }
+  thead th { background:#eee !important; color:#000 !important; border:1px solid #ccc; }
+  tbody td { border:1px solid #ddd; color:#000 !important; }
+  tbody tr:nth-child(even) { background:#f5f5f5 !important; }
+  .tw { border:1px solid #ccc; }
+  .content-wrap { margin-right:0 !important; }
+  @page { margin:15mm; }
+}
 </style>
 </head>
 <body>
@@ -1733,6 +1891,16 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
         <button id="notifBtn" class="hdr-pill-btn notif-bell-btn" onclick="toggleNotifPanel()" aria-label="الإشعارات" title="الإشعارات" aria-expanded="false">
           🔔<span id="notifBadge" class="notif-badge" style="display:none">0</span>
         </button>
+        <!-- Global search -->
+        <button class="hdr-pill-btn" onclick="openGSearch()" title="بحث شامل (/)">🔍</button>
+        <!-- Font size picker -->
+        <div class="fs-picker" title="حجم الخط">
+          <button class="fs-btn" data-fs="sm" onclick="setFontSize('sm')" title="صغير">ص</button>
+          <button class="fs-btn active" data-fs="md" onclick="setFontSize('md')" title="عادي">م</button>
+          <button class="fs-btn" data-fs="lg" onclick="setFontSize('lg')" title="كبير">ك</button>
+        </div>
+        <!-- Shortcuts help -->
+        <button class="hdr-pill-btn" onclick="openShortcuts()" title="اختصارات لوحة المفاتيح (?)">⌨️</button>
         <!-- Theme toggle -->
         <button id="themeBtn" class="hdr-pill-btn" onclick="toggleTheme()" aria-label="تبديل الثيم" title="تبديل الثيم الفاتح/الغامق">☀️</button>
         <!-- Language toggle -->
@@ -1894,6 +2062,12 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
         <span class="fl" data-i18n="lbl.to">إلى</span><input type="date" class="fi" id="fTo">
       </div>
       <button class="btn bp bsm" onclick="loadDashboard()" data-i18n="btn.apply">تطبيق</button>
+      <div class="qd-bar" style="margin-right:6px;">
+        <button class="qd-btn" onclick="qdApply('today')">اليوم</button>
+        <button class="qd-btn" onclick="qdApply('month')">هذا الشهر</button>
+        <button class="qd-btn" onclick="qdApply('quarter')">الربع</button>
+        <button class="qd-btn" onclick="qdApply('year')">هذه السنة</button>
+      </div>
     </div>
     <div class="kpi-grid" id="w-kpi-grid">
       <div class="kc bl" id="w-kTotal"><div class="kl" id="kl-kTotal" data-i18n="kpi.revenue">إجمالي الإيرادات</div><div class="kv" id="kTotal">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-total" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-total"></div></div>
@@ -2449,6 +2623,7 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
       <div><div class="st">القيود اليومية</div><div class="ss">دفتر اليومية — Journal Entries</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn bp bsm" onclick="openJournalModal()">+ قيد يدوي</button>
+        <button class="btn bw bsm" id="repeatEntryBtn" onclick="repeatLastEntry()" title="فتح نسخة من آخر قيد بتاريخ اليوم" style="display:none">↩ كرّر آخر قيد</button>
         <button class="btn bw bsm" onclick="exportJournal()">⬇ تصدير Excel</button>
         <button class="btn bw bsm" onclick="openAnomalyPanel()" id="anomalyNavBtn" style="position:relative">
           ⚠️ الشذوذ <span id="anomalyBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;line-height:18px;text-align:center">0</span>
@@ -2489,6 +2664,12 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
         <option value="inventory">مخزون</option>
       </select>
       <button class="btn bp bsm" onclick="loadJournal()">تطبيق</button>
+      <div class="qd-bar" style="margin-right:6px;">
+        <button class="qd-btn" onclick="qdApplyJournal('today')">اليوم</button>
+        <button class="qd-btn" onclick="qdApplyJournal('month')">هذا الشهر</button>
+        <button class="qd-btn" onclick="qdApplyJournal('quarter')">الربع</button>
+        <button class="qd-btn" onclick="qdApplyJournal('year')">هذه السنة</button>
+      </div>
     </div>
 
     <!-- KPIs -->
@@ -2502,17 +2683,19 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
     <!-- Journal Table -->
     <div class="tw">
       <div class="th2"><div class="tt">دفتر اليومية</div><div style="font-size:10px;color:var(--text3);">اضغط على أي صف لعرض التفاصيل والتعديل</div></div>
-      <table>
-        <thead><tr>
-          <th style="width:96px">التاريخ</th>
-          <th style="width:120px">المرجع</th>
-          <th>البيان</th>
-          <th style="width:110px;text-align:left">مدين</th>
-          <th style="width:110px;text-align:left">دائن</th>
-          <th style="width:90px;text-align:center">إجراءات</th>
-        </tr></thead>
-        <tbody id="journalBody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد قيود</td></tr></tbody>
-      </table>
+      <div class="tw-scroll">
+        <table>
+          <thead><tr>
+            <th style="width:96px">التاريخ</th>
+            <th style="width:120px">المرجع</th>
+            <th>البيان</th>
+            <th style="width:110px;text-align:left">مدين</th>
+            <th style="width:110px;text-align:left">دائن</th>
+            <th style="width:90px;text-align:center">إجراءات</th>
+          </tr></thead>
+          <tbody id="journalBody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد قيود</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -11159,6 +11342,201 @@ async function runMonthClose() {
 }
 
 // ══════════════════════════════════════════════════════════
+// CONNECTION INDICATOR
+// ══════════════════════════════════════════════════════════
+(function() {
+  const bar = document.createElement('div');
+  bar.id = 'conn-bar';
+  document.body.prepend(bar);
+  let backTimer = null;
+  window.addEventListener('offline', () => {
+    bar.className = 'offline';
+    bar.innerHTML = '⚠️ انقطع الاتصال بالإنترنت — سيتم المزامنة عند العودة';
+    if (backTimer) clearTimeout(backTimer);
+  });
+  window.addEventListener('online', () => {
+    bar.className = 'back-online';
+    bar.innerHTML = '✅ عاد الاتصال بالإنترنت';
+    backTimer = setTimeout(() => { bar.className = ''; }, 3500);
+  });
+})();
+
+// ══════════════════════════════════════════════════════════
+// GLOBAL SEARCH OVERLAY
+// ══════════════════════════════════════════════════════════
+(function() {
+  const overlay = document.createElement('div');
+  overlay.id = 'gsearch-overlay';
+  overlay.innerHTML = `
+    <div id="gsearch-box">
+      <div id="gsearch-input-wrap">
+        <span style="font-size:16px;color:var(--text3);flex-shrink:0">🔍</span>
+        <input id="gsearch-input" placeholder="ابحث في القيود، المصاريف، الحسابات..." autocomplete="off"/>
+        <span style="font-size:11px;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;white-space:nowrap">ESC</span>
+      </div>
+      <div id="gsearch-results"><div class="gs-empty">اكتب للبحث...</div></div>
+      <div id="gsearch-footer">
+        <span>↑↓ تنقل</span><span>↵ انتقال</span><span>ESC إغلاق</span>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  let _cache = null, selIdx = 0, _rows = [];
+
+  async function getAll() {
+    if (_cache) return _cache;
+    try {
+      const [je, exp, coa] = await Promise.all([
+        apiFetch('journal').catch(()=>({entries:[]})),
+        apiFetch('expenses').catch(()=>({expenses:[]})),
+        apiFetch('coa').catch(()=>({accounts:[]})),
+      ]);
+      _cache = {
+        journal:  (je.entries  || []).slice(0, 500),
+        expenses: (exp.expenses || []).slice(0, 200),
+        coa:      (coa.accounts || []).slice(0, 200),
+      };
+      setTimeout(() => { _cache = null; }, 60000);
+      return _cache;
+    } catch(e) { return { journal:[], expenses:[], coa:[] }; }
+  }
+
+  function hl(text, q) {
+    if (!q) return text;
+    const idx = (text||'').toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return text;
+    return text.slice(0,idx) + `<mark style="background:rgba(99,102,241,.3);color:inherit;border-radius:2px">${text.slice(idx,idx+q.length)}</mark>` + text.slice(idx+q.length);
+  }
+
+  async function search(q) {
+    const box = document.getElementById('gsearch-results');
+    if (!q.trim()) { box.innerHTML = '<div class="gs-empty">اكتب للبحث...</div>'; _rows = []; return; }
+    box.innerHTML = '<div class="gs-empty">جارٍ البحث...</div>';
+    const data = await getAll();
+    const ql = q.toLowerCase();
+    const jMatches = data.journal.filter(e => (e.description||'').includes(q) || (e.ref||'').toLowerCase().includes(ql) || (e.date||'').includes(q)).slice(0,8);
+    const eMatches = data.expenses.filter(e => (e.desc||'').includes(q) || (e.cat||'').toLowerCase().includes(ql)).slice(0,6);
+    const cMatches = data.coa.filter(a => (a.name||'').includes(q) || String(a.code||'').includes(q)).slice(0,5);
+    _rows = [];
+    let html = '';
+    if (jMatches.length) {
+      html += `<div class="gs-section"><div class="gs-section-label">القيود اليومية</div>`;
+      jMatches.forEach(e => {
+        const idx = _rows.length;
+        _rows.push({ action: () => { closeGSearch(); showTab('journal',null); } });
+        const amt = (e.lines||[]).reduce((s,l)=>s+(parseFloat(l.debit)||0),0);
+        html += `<div class="gs-row" data-idx="${idx}" onclick="gsExec(${idx})">
+          <span class="gs-row-icon">📒</span>
+          <div class="gs-row-main"><div class="gs-row-title">${hl(e.description||'—',q)}</div><div class="gs-row-sub">${e.date||''} · ${e.ref||''}</div></div>
+          <span class="gs-row-amt">${formatNum(amt)}</span></div>`;
+      });
+      html += '</div>';
+    }
+    if (eMatches.length) {
+      html += `<div class="gs-section"><div class="gs-section-label">المصاريف</div>`;
+      eMatches.forEach(e => {
+        const idx = _rows.length;
+        _rows.push({ action: () => { closeGSearch(); showTab('expenses',null); } });
+        html += `<div class="gs-row" data-idx="${idx}" onclick="gsExec(${idx})">
+          <span class="gs-row-icon">💸</span>
+          <div class="gs-row-main"><div class="gs-row-title">${hl(e.desc||'—',q)}</div><div class="gs-row-sub">${e.date||''} · ${e.cat||''}</div></div>
+          <span class="gs-row-amt">${formatNum(parseFloat(e.amount)||0)}</span></div>`;
+      });
+      html += '</div>';
+    }
+    if (cMatches.length) {
+      html += `<div class="gs-section"><div class="gs-section-label">شجرة الحسابات</div>`;
+      cMatches.forEach(a => {
+        const idx = _rows.length;
+        _rows.push({ action: () => { closeGSearch(); showTab('coa',null); } });
+        html += `<div class="gs-row" data-idx="${idx}" onclick="gsExec(${idx})">
+          <span class="gs-row-icon">📋</span>
+          <div class="gs-row-main"><div class="gs-row-title">${hl(a.name||'—',q)}</div><div class="gs-row-sub">${a.code||''} · ${a.type||''}</div></div>
+          </div>`;
+      });
+      html += '</div>';
+    }
+    if (!_rows.length) html = `<div class="gs-empty">لا توجد نتائج لـ "${q}"</div>`;
+    box.innerHTML = html;
+    selIdx = 0;
+    updateGSel();
+  }
+
+  function updateGSel() {
+    document.querySelectorAll('#gsearch-results .gs-row').forEach((el,i) => {
+      el.style.background = i === selIdx ? 'rgba(99,102,241,.12)' : '';
+    });
+  }
+
+  window.gsExec = function(idx) { _rows[idx]?.action?.(); };
+  window.openGSearch  = function() {
+    overlay.classList.add('open');
+    setTimeout(() => document.getElementById('gsearch-input').focus(), 50);
+  };
+  window.closeGSearch = function() { overlay.classList.remove('open'); };
+
+  let debTimer;
+  document.getElementById('gsearch-input').addEventListener('input', e => {
+    clearTimeout(debTimer); debTimer = setTimeout(() => search(e.target.value), 220);
+  });
+  document.getElementById('gsearch-input').addEventListener('keydown', e => {
+    if (e.key==='ArrowDown') { e.preventDefault(); selIdx=Math.min(_rows.length-1,selIdx+1); updateGSel(); }
+    else if (e.key==='ArrowUp') { e.preventDefault(); selIdx=Math.max(0,selIdx-1); updateGSel(); }
+    else if (e.key==='Enter') { e.preventDefault(); gsExec(selIdx); }
+    else if (e.key==='Escape') closeGSearch();
+  });
+  overlay.addEventListener('click', e => { if (e.target===overlay) closeGSearch(); });
+})();
+
+// ══════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS MODAL
+// ══════════════════════════════════════════════════════════
+(function() {
+  const modal = document.createElement('div');
+  modal.id = 'shortcuts-modal';
+  modal.innerHTML = `
+    <div id="shortcuts-box">
+      <div class="sc-header">
+        ⌨️ اختصارات لوحة المفاتيح
+        <button onclick="closeShortcuts()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px">×</button>
+      </div>
+      <div class="sc-body">
+        <div class="sc-group">
+          <div class="sc-group-title">تنقل</div>
+          <div class="sc-row"><span class="sc-row-label">لوحة التحكم</span><div class="sc-keys"><span class="sc-key">G</span><span class="sc-key">D</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">القيود اليومية</span><div class="sc-keys"><span class="sc-key">G</span><span class="sc-key">J</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">المصاريف</span><div class="sc-keys"><span class="sc-key">G</span><span class="sc-key">E</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">السندات</span><div class="sc-keys"><span class="sc-key">G</span><span class="sc-key">V</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">الرواتب</span><div class="sc-keys"><span class="sc-key">G</span><span class="sc-key">P</span></div></div>
+        </div>
+        <div class="sc-group">
+          <div class="sc-group-title">إجراءات</div>
+          <div class="sc-row"><span class="sc-row-label">قيد جديد</span><div class="sc-keys"><span class="sc-key">N</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">بحث شامل</span><div class="sc-keys"><span class="sc-key">/</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">لوحة الأوامر</span><div class="sc-keys"><span class="sc-key">Ctrl</span><span class="sc-key">K</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">كرّر آخر قيد</span><div class="sc-keys"><span class="sc-key">R</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">حفظ (في نافذة مفتوحة)</span><div class="sc-keys"><span class="sc-key">Ctrl</span><span class="sc-key">S</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">إغلاق نافذة</span><div class="sc-keys"><span class="sc-key">Esc</span></div></div>
+        </div>
+        <div class="sc-group">
+          <div class="sc-group-title">حجم الخط</div>
+          <div class="sc-row"><span class="sc-row-label">تصغير</span><div class="sc-keys"><span class="sc-key">Ctrl</span><span class="sc-key">−</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">تكبير</span><div class="sc-keys"><span class="sc-key">Ctrl</span><span class="sc-key">+</span></div></div>
+          <div class="sc-row"><span class="sc-row-label">إعادة ضبط</span><div class="sc-keys"><span class="sc-key">Ctrl</span><span class="sc-key">0</span></div></div>
+        </div>
+        <div class="sc-group">
+          <div class="sc-group-title">مساعدة</div>
+          <div class="sc-row"><span class="sc-row-label">هذه النافذة</span><div class="sc-keys"><span class="sc-key">?</span></div></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target===modal) closeShortcuts(); });
+  window.openShortcuts  = () => modal.classList.add('open');
+  window.closeShortcuts = () => modal.classList.remove('open');
+})();
+
+// ══════════════════════════════════════════════════════════
 // CONFETTI ENGINE
 // ══════════════════════════════════════════════════════════
 (function() {
@@ -11454,6 +11832,331 @@ function triggerKpiStagger(gridId) {
     });
   });
 }
+
+// ══════════════════════════════════════════════════════════
+// NUMBER FORMATTING
+// ══════════════════════════════════════════════════════════
+function formatNum(n, decimals = 3) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return Number(n).toLocaleString('ar-KW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+// ══════════════════════════════════════════════════════════
+// FONT SIZE CONTROL
+// ══════════════════════════════════════════════════════════
+const FS_ORDER = ['sm','md','lg','xl'];
+function setFontSize(size) {
+  document.documentElement.setAttribute('data-fs', size);
+  localStorage.setItem('boubyan-fs', size);
+  document.querySelectorAll('.fs-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.fs === size);
+  });
+}
+(function initFontSize() {
+  const saved = localStorage.getItem('boubyan-fs') || 'md';
+  setFontSize(saved);
+})();
+
+// ══════════════════════════════════════════════════════════
+// QUICK DATE BUTTONS
+// ══════════════════════════════════════════════════════════
+function qdGetRange(period) {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  switch(period) {
+    case 'today':
+      const t = now.toISOString().slice(0,10);
+      return { type:'range', from:t, to:t };
+    case 'month':
+      return { type:'month', month: `${y}-${String(m+1).padStart(2,'0')}` };
+    case 'quarter': {
+      const qStart = new Date(y, Math.floor(m/3)*3, 1);
+      const qEnd   = new Date(y, Math.floor(m/3)*3+3, 0);
+      return { type:'range', from:qStart.toISOString().slice(0,10), to:qEnd.toISOString().slice(0,10) };
+    }
+    case 'year':
+      return { type:'range', from:`${y}-01-01`, to:`${y}-12-31` };
+  }
+}
+
+function qdApply(period) {
+  document.querySelectorAll('.qd-bar .qd-btn').forEach(b => b.classList.remove('active'));
+  event?.target?.classList.add('active');
+  const r = qdGetRange(period);
+  const fType = document.getElementById('fType');
+  const fMonthVal = document.getElementById('fMonthVal');
+  const fFrom = document.getElementById('fFrom');
+  const fTo   = document.getElementById('fTo');
+  if (r.type === 'month') {
+    fType.value = 'month'; toggleFilter?.();
+    fMonthVal.value = r.month;
+  } else {
+    fType.value = 'range'; toggleFilter?.();
+    fFrom.value = r.from; fTo.value = r.to;
+  }
+  saveDashFilter();
+  loadDashboard?.();
+}
+
+function qdApplyJournal(period) {
+  const btns = event?.target?.closest('.qd-bar')?.querySelectorAll('.qd-btn');
+  btns?.forEach(b => b.classList.remove('active'));
+  event?.target?.classList.add('active');
+  const r = qdGetRange(period);
+  const fType = document.getElementById('jFType');
+  if (r.type === 'month') {
+    fType.value = 'month'; toggleJFilter?.();
+    document.getElementById('jFMonthVal').value = r.month;
+  } else {
+    fType.value = 'range'; toggleJFilter?.();
+    document.getElementById('jFFrom').value = r.from;
+    document.getElementById('jFTo').value   = r.to;
+  }
+  saveJournalFilter();
+  loadJournal?.();
+}
+
+// ══════════════════════════════════════════════════════════
+// PERSISTENT FILTER STATE
+// ══════════════════════════════════════════════════════════
+function saveDashFilter() {
+  const state = {
+    type: document.getElementById('fType')?.value,
+    month: document.getElementById('fMonthVal')?.value,
+    from:  document.getElementById('fFrom')?.value,
+    to:    document.getElementById('fTo')?.value,
+  };
+  localStorage.setItem('boubyan-dash-filter', JSON.stringify(state));
+}
+
+function saveJournalFilter() {
+  const state = {
+    type:  document.getElementById('jFType')?.value,
+    type2: document.getElementById('jFType2')?.value,
+    month: document.getElementById('jFMonthVal')?.value,
+    from:  document.getElementById('jFFrom')?.value,
+    to:    document.getElementById('jFTo')?.value,
+  };
+  localStorage.setItem('boubyan-journal-filter', JSON.stringify(state));
+}
+
+function restoreDashFilter() {
+  try {
+    const s = JSON.parse(localStorage.getItem('boubyan-dash-filter') || 'null');
+    if (!s) return;
+    const fType = document.getElementById('fType');
+    if (fType && s.type) { fType.value = s.type; toggleFilter?.(); }
+    if (s.month) { const el = document.getElementById('fMonthVal'); if(el) el.value = s.month; }
+    if (s.from)  { const el = document.getElementById('fFrom');     if(el) el.value = s.from; }
+    if (s.to)    { const el = document.getElementById('fTo');       if(el) el.value = s.to; }
+  } catch(e) {}
+}
+
+function restoreJournalFilter() {
+  try {
+    const s = JSON.parse(localStorage.getItem('boubyan-journal-filter') || 'null');
+    if (!s) return;
+    const fType = document.getElementById('jFType');
+    if (fType && s.type) { fType.value = s.type; toggleJFilter?.(); }
+    if (s.type2) { const el = document.getElementById('jFType2'); if(el) el.value = s.type2; }
+    if (s.month) { const el = document.getElementById('jFMonthVal'); if(el) el.value = s.month; }
+    if (s.from)  { const el = document.getElementById('jFFrom'); if(el) el.value = s.from; }
+    if (s.to)    { const el = document.getElementById('jFTo');   if(el) el.value = s.to; }
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════════════════
+// AUTO-SAVE DRAFTS
+// ══════════════════════════════════════════════════════════
+const DRAFT_KEY = 'boubyan-je-draft';
+
+function saveJeDraft() {
+  const draft = {
+    date: document.getElementById('jDate')?.value,
+    ref:  document.getElementById('jRef')?.value,
+    desc: document.getElementById('jDesc')?.value,
+    ts: Date.now(),
+  };
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  showAutosaveDot('saving');
+  clearTimeout(window._asSaveTimer);
+  window._asSaveTimer = setTimeout(() => showAutosaveDot('saved'), 600);
+}
+
+function showAutosaveDot(state) {
+  const dot = document.getElementById('autosave-dot');
+  if (!dot) return;
+  const d = dot.querySelector('.as-dot');
+  if (!d) return;
+  d.className = 'as-dot ' + state;
+  dot.style.opacity = '1';
+  if (state === 'saved') setTimeout(() => { dot.style.opacity = '0'; }, 2500);
+}
+
+function restoreJeDraft() {
+  try {
+    const s = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (!s || Date.now() - s.ts > 86400000) return;
+    if (s.date) { const el = document.getElementById('jDate'); if(el && !el.value) el.value = s.date; }
+    if (s.ref)  { const el = document.getElementById('jRef');  if(el && !el.value) el.value = s.ref; }
+    if (s.desc) { const el = document.getElementById('jDesc'); if(el && !el.value) el.value = s.desc; }
+  } catch(e) {}
+}
+
+function clearJeDraft() { localStorage.removeItem(DRAFT_KEY); }
+
+// Hook into journal modal open/save
+(function patchJournalModal() {
+  const origOpen = window.openJournalModal;
+  if (origOpen) {
+    window.openJournalModal = function(...args) {
+      origOpen.apply(this, args);
+      setTimeout(() => {
+        restoreJeDraft();
+        // Inject autosave indicator
+        const act = document.querySelector('#journalModal .mact');
+        if (act && !document.getElementById('autosave-dot')) {
+          const dot = document.createElement('div');
+          dot.id = 'autosave-dot';
+          dot.style.opacity = '0';
+          dot.innerHTML = '<div class="as-dot"></div><span>حُفظت مسودة</span>';
+          act.prepend(dot);
+        }
+        ['jDate','jRef','jDesc'].forEach(id => {
+          document.getElementById(id)?.addEventListener('input', saveJeDraft);
+        });
+      }, 100);
+    };
+  }
+  const origSave = window.saveJournal;
+  if (origSave) {
+    window.saveJournal = function(...args) {
+      clearJeDraft();
+      return origSave.apply(this, args);
+    };
+  }
+})();
+
+// ══════════════════════════════════════════════════════════
+// REPEAT LAST ENTRY
+// ══════════════════════════════════════════════════════════
+const LAST_ENTRY_KEY = 'boubyan-last-je';
+
+function saveLastEntry(je) {
+  try { localStorage.setItem(LAST_ENTRY_KEY, JSON.stringify(je)); } catch(e) {}
+  document.getElementById('repeatEntryBtn')?.style && (document.getElementById('repeatEntryBtn').style.display = '');
+}
+
+function repeatLastEntry() {
+  try {
+    const je = JSON.parse(localStorage.getItem(LAST_ENTRY_KEY) || 'null');
+    if (!je) return toast('لا يوجد قيد سابق لتكراره', 'warning');
+    // Open modal and pre-fill
+    window.openJournalModal?.();
+    setTimeout(() => {
+      const today = new Date().toISOString().slice(0,10);
+      const jDate = document.getElementById('jDate');
+      const jDesc = document.getElementById('jDesc');
+      const jRef  = document.getElementById('jRef');
+      if (jDate) jDate.value = today;
+      if (jDesc) jDesc.value = (je.description || je.desc || '');
+      if (jRef)  jRef.value  = '';
+      // Re-add lines if addJLine function exists
+      if (typeof addJLine === 'function' && Array.isArray(je.lines)) {
+        const linesDiv = document.getElementById('jLines');
+        if (linesDiv) linesDiv.innerHTML = '';
+        je.lines.forEach(ln => {
+          addJLine();
+          const rows = linesDiv?.querySelectorAll('.jline-row');
+          const last = rows?.[rows.length - 1];
+          if (!last) return;
+          const selects = last.querySelectorAll('select');
+          const inputs  = last.querySelectorAll('input');
+          if (selects[0]) selects[0].value = ln.account || '';
+          if (inputs[0])  inputs[0].value  = ln.debit   || '';
+          if (inputs[1])  inputs[1].value  = ln.credit  || '';
+        });
+      }
+      toast('تم تحميل آخر قيد — عدّل وأحفظ', 'info');
+    }, 200);
+  } catch(e) { toast('تعذّر تكرار القيد', 'error'); }
+}
+
+// Hook saveJournal to capture last saved entry
+(function hookSaveForRepeat() {
+  const orig = window.saveJournal;
+  if (!orig) return;
+  window.saveJournal = async function(...args) {
+    const date = document.getElementById('jDate')?.value;
+    const desc = document.getElementById('jDesc')?.value;
+    const lines = [...(document.getElementById('jLines')?.querySelectorAll('.jline-row')||[])].map(row => {
+      const sels = row.querySelectorAll('select');
+      const inps = row.querySelectorAll('input');
+      return { account: sels[0]?.value, debit: inps[0]?.value, credit: inps[1]?.value };
+    });
+    const result = await orig.apply(this, args);
+    if (desc || lines.length) saveLastEntry({ date, description: desc, lines });
+    return result;
+  };
+})();
+
+// ══════════════════════════════════════════════════════════
+// GLOBAL KEYBOARD SHORTCUTS
+// ══════════════════════════════════════════════════════════
+(function initKeyboardShortcuts() {
+  let gMode = false;
+  document.addEventListener('keydown', function(e) {
+    const tag = document.activeElement?.tagName?.toLowerCase();
+    const inInput = ['input','textarea','select'].includes(tag);
+    const anyModalOpen = document.querySelector('.modal.open, #cmd-overlay.open, #gsearch-overlay.open, #shortcuts-modal.open');
+
+    // Always-on shortcuts
+    if (e.key === 'Escape') {
+      if (document.getElementById('gsearch-overlay')?.classList.contains('open')) { closeGSearch(); e.preventDefault(); return; }
+      if (document.getElementById('shortcuts-modal')?.classList.contains('open')) { closeShortcuts(); e.preventDefault(); return; }
+    }
+
+    // Ctrl/Cmd shortcuts
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 's' && anyModalOpen) { e.preventDefault(); document.querySelector('.modal.open .btn.bs')?.click(); return; }
+      if (e.key === '=' || e.key === '+') { e.preventDefault(); const cur = FS_ORDER.indexOf(document.documentElement.getAttribute('data-fs')||'md'); setFontSize(FS_ORDER[Math.min(cur+1,FS_ORDER.length-1)]); return; }
+      if (e.key === '-')   { e.preventDefault(); const cur = FS_ORDER.indexOf(document.documentElement.getAttribute('data-fs')||'md'); setFontSize(FS_ORDER[Math.max(cur-1,0)]); return; }
+      if (e.key === '0')   { e.preventDefault(); setFontSize('md'); return; }
+      return;
+    }
+
+    if (inInput || anyModalOpen) return;
+
+    // G + key navigation mode
+    if (e.key === 'g' || e.key === 'G') { gMode = true; setTimeout(()=>{ gMode=false; }, 1200); return; }
+    if (gMode) {
+      gMode = false;
+      const map = { d:'dashboard', j:'journal', e:'expenses', v:'vouchers', p:'payroll', c:'coa', i:'inventory', l:'ledger', r:'reports' };
+      const tab = map[e.key.toLowerCase()];
+      if (tab) { showTab(tab, null); e.preventDefault(); }
+      return;
+    }
+
+    // Single key shortcuts
+    switch(e.key) {
+      case 'n': case 'N': openJournalModal?.(); break;
+      case 'r': case 'R': repeatLastEntry(); break;
+      case '/': e.preventDefault(); openGSearch(); break;
+      case '?': openShortcuts(); break;
+    }
+  });
+})();
+
+// Show repeat button if last entry exists
+(function initRepeatBtn() {
+  if (localStorage.getItem(LAST_ENTRY_KEY)) {
+    const btn = document.getElementById('repeatEntryBtn');
+    if (btn) btn.style.display = '';
+  }
+})();
+
+// Restore filters on page load
+setTimeout(() => { restoreDashFilter(); restoreJournalFilter(); }, 800);
 
 // ══════════════════════════════════════════════════════════
 // PATCH runMonthClose TO LAUNCH CONFETTI
