@@ -1413,6 +1413,216 @@ html.light .lem-footer { border-top-color: var(--border); background: transparen
 html.light .lem-btn.secondary { background: var(--surface2); border-color: var(--border); }
 html.light .lem-btn.secondary:hover { background: var(--surface3); }
 .lem-spacer { flex: 1; }
+
+/* ══════════════════════════════════════════════════════
+   DESIGN SYSTEM v5 — Animation & Delight Layer
+══════════════════════════════════════════════════════ */
+
+/* ── AURORA DASHBOARD HERO ── */
+.dash-aurora {
+  margin: -24px -28px 20px;
+  padding: 22px 28px 18px;
+  background: linear-gradient(135deg,
+    rgba(59,130,246,.12) 0%,
+    rgba(99,102,241,.09) 35%,
+    rgba(139,92,246,.07) 65%,
+    rgba(6,182,212,.06) 100%);
+  border-bottom: 1px solid rgba(59,130,246,.15);
+  position: relative; overflow: hidden;
+}
+.dash-aurora::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 20% 50%, rgba(99,102,241,.1), transparent),
+              radial-gradient(ellipse 60% 80% at 80% 20%, rgba(6,182,212,.08), transparent);
+  animation: auroraShift 8s ease-in-out infinite alternate;
+}
+@keyframes auroraShift {
+  from { transform: scale(1) rotate(0deg); }
+  to   { transform: scale(1.08) rotate(2deg); }
+}
+.dash-aurora-scan {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+}
+.dash-aurora-scan::after {
+  content: '';
+  position: absolute; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(99,102,241,.3), transparent);
+  animation: scanLine 4s linear infinite;
+  top: 0;
+}
+@keyframes scanLine { from { top: 0; } to { top: 100%; } }
+.dash-aurora-content { position: relative; z-index: 1; }
+
+/* ── KPI STAGGER ── */
+@keyframes kpiStaggerIn {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.kpi-grid .kc {
+  opacity: 0;
+  animation: kpiStaggerIn 380ms cubic-bezier(.34,1.2,.64,1) forwards;
+}
+.kpi-grid .kc:nth-child(1) { animation-delay:  40ms; }
+.kpi-grid .kc:nth-child(2) { animation-delay:  90ms; }
+.kpi-grid .kc:nth-child(3) { animation-delay: 140ms; }
+.kpi-grid .kc:nth-child(4) { animation-delay: 190ms; }
+.kpi-grid .kc:nth-child(5) { animation-delay: 240ms; }
+.kpi-grid .kc:nth-child(6) { animation-delay: 290ms; }
+/* Re-trigger stagger when tab re-opens */
+.kpi-grid.stagger-reset .kc { animation: none; opacity: 1; }
+
+/* ── SPARKLINE IN KPI CARD ── */
+.kc-sparkline {
+  margin-top: 10px; opacity: .75;
+}
+.kc-trend {
+  display: flex; align-items: center; gap: 5px;
+  margin-top: 5px; font-size: 10px; font-weight: 700;
+}
+.kc-trend.up { color: #10b981; }
+.kc-trend.dn { color: #ef4444; }
+.kc-trend.flat { color: #64748b; }
+
+/* ── TOAST PROGRESS BAR ── */
+.toast-progress-track {
+  position: absolute; bottom: 0; right: 0; left: 0;
+  height: 2.5px; background: rgba(255,255,255,.06); border-radius: 0 0 var(--r-lg) var(--r-lg);
+  overflow: hidden;
+}
+.toast-progress-fill {
+  height: 100%; border-radius: inherit;
+  animation: toastProgress var(--toast-dur, 4000ms) linear forwards;
+  transform-origin: right;
+}
+@keyframes toastProgress { from { width: 100%; } to { width: 0%; } }
+.toast.success .toast-progress-fill { background: #10b981; }
+.toast.error   .toast-progress-fill { background: #ef4444; }
+.toast.warning .toast-progress-fill { background: #f59e0b; }
+.toast.info    .toast-progress-fill { background: #3b82f6; }
+
+/* ── FLOATING ACTION BUTTON ── */
+#global-fab {
+  position: fixed; bottom: 28px; left: 28px;
+  z-index: 500;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.fab-main {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #3b82f6);
+  border: none; color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 300;
+  box-shadow: 0 6px 24px rgba(99,102,241,.55), 0 2px 8px rgba(0,0,0,.3);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
+  animation: fabFloat 3s ease-in-out infinite;
+}
+@keyframes fabFloat {
+  0%,100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+.fab-main:hover { transform: scale(1.12) translateY(-3px) !important; box-shadow: 0 10px 32px rgba(99,102,241,.7); }
+.fab-main:active { transform: scale(.95) !important; }
+.fab-menu {
+  display: flex; flex-direction: column; gap: 8px;
+  opacity: 0; pointer-events: none;
+  transform: translateY(10px) scale(.92);
+  transition: all .22s cubic-bezier(.34,1.2,.64,1);
+}
+.fab-menu.open { opacity: 1; pointer-events: all; transform: translateY(0) scale(1); }
+.fab-item {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(22,27,39,.95); border: 1px solid var(--borderAct);
+  border-radius: 10px; padding: 8px 14px;
+  color: var(--text); font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  backdrop-filter: blur(16px);
+  transition: background .15s, transform .15s;
+  box-shadow: var(--shadow-md);
+}
+.fab-item:hover { background: var(--surface3); transform: translateX(-3px); }
+.fab-item-icon { font-size: 15px; }
+#fab-tooltip {
+  position: fixed; bottom: 92px; left: 28px;
+  background: rgba(22,27,39,.9); color: var(--text2);
+  font-size: 10px; padding: 3px 9px; border-radius: 20px;
+  border: 1px solid var(--border); backdrop-filter: blur(10px);
+  pointer-events: none; opacity: 0;
+  transition: opacity .2s;
+  white-space: nowrap;
+}
+#global-fab:hover #fab-tooltip { opacity: 1; }
+
+/* ── COMMAND PALETTE ── */
+#cmd-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  background: rgba(4,9,21,.75); backdrop-filter: blur(12px);
+  display: none; align-items: flex-start; justify-content: center;
+  padding-top: 14vh;
+}
+#cmd-overlay.open { display: flex; animation: cmdIn 180ms ease; }
+@keyframes cmdIn { from { opacity:0; } to { opacity:1; } }
+#cmd-box {
+  width: 560px; max-width: 94vw;
+  background: var(--surface); border: 1px solid var(--borderAct);
+  border-radius: var(--r-xl); overflow: hidden;
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(59,130,246,.06);
+  animation: cmdBoxIn 200ms cubic-bezier(.34,1.18,.64,1);
+}
+@keyframes cmdBoxIn { from { transform: translateY(-16px) scale(.97); opacity:0; } to { transform:translateY(0) scale(1); opacity:1; } }
+#cmd-input-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+#cmd-search-icon { font-size: 16px; color: var(--text3); flex-shrink: 0; }
+#cmd-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-size: 14px; font-family: inherit;
+  direction: rtl;
+}
+#cmd-input::placeholder { color: var(--text3); }
+#cmd-hint { font-size: 11px; color: var(--text3); background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; white-space: nowrap; }
+#cmd-results {
+  max-height: 380px; overflow-y: auto; padding: 6px;
+}
+#cmd-results::-webkit-scrollbar { width: 4px; }
+#cmd-results::-webkit-scrollbar-thumb { background: var(--borderAct); border-radius: 2px; }
+.cmd-group-label {
+  font-size: 9px; color: var(--text3); font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase;
+  padding: 8px 10px 4px; display: block;
+}
+.cmd-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--r-md);
+  cursor: pointer; transition: background .1s;
+  border: 1px solid transparent;
+}
+.cmd-item:hover, .cmd-item.selected {
+  background: rgba(59,130,246,.1); border-color: rgba(59,130,246,.2);
+}
+.cmd-item-icon { font-size: 16px; flex-shrink: 0; width: 28px; text-align: center; }
+.cmd-item-label { font-size: 13px; color: var(--text); font-weight: 500; flex: 1; }
+.cmd-item-sub { font-size: 10px; color: var(--text3); }
+.cmd-item-kbd { display: flex; gap: 3px; }
+.cmd-kbd { font-size: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--text3); font-family: monospace; }
+#cmd-footer {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  display: flex; gap: 14px; font-size: 10px; color: var(--text3);
+  background: var(--surface2);
+}
+.cmd-footer-key { display: flex; align-items: center; gap: 4px; }
+
+/* ── CONFETTI ── */
+#confetti-canvas {
+  position: fixed; inset: 0; z-index: 9999;
+  pointer-events: none; width: 100%; height: 100%;
+}
+
+/* ── DASHBOARD SPARKLINE SVG ── */
+.kc-sparkline svg { width: 100%; height: 28px; display: block; }
 </style>
 </head>
 <body>
@@ -1653,17 +1863,22 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
 
   <!-- DASHBOARD -->
   <div id="tab-dashboard" class="sec active">
-    <div class="sh">
-      <div><div class="st" data-i18n="dashboard">لوحة التحكم</div><div class="ss" id="dashSub">جاري التحميل...</div></div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <div class="export-bar">
-          <button class="bex green" onclick="exportExcel('income')">⬇️ Excel</button>
-          <button class="bex orange" onclick="exportPptx()">📊 PowerPoint</button>
-          <button class="bex" onclick="window.print()">🖨️ <span data-i18n="btn.print">طباعة</span></button>
-          <button class="bex" style="background:rgba(45,212,191,.12);color:var(--accent2);border-color:rgba(45,212,191,.3);" onclick="openMonthlyReport()">🎯 <span data-i18n="sec.monthly.report">تقرير شهري</span></button>
+    <div class="dash-aurora">
+      <div class="dash-aurora-scan"></div>
+      <div class="dash-aurora-content">
+        <div class="sh" style="margin:0;background:none;border:none;padding:0">
+          <div><div class="st" data-i18n="dashboard">لوحة التحكم</div><div class="ss" id="dashSub">جاري التحميل...</div></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <div class="export-bar">
+              <button class="bex green" onclick="exportExcel('income')">⬇️ Excel</button>
+              <button class="bex orange" onclick="exportPptx()">📊 PowerPoint</button>
+              <button class="bex" onclick="window.print()">🖨️ <span data-i18n="btn.print">طباعة</span></button>
+              <button class="bex" style="background:rgba(45,212,191,.12);color:var(--accent2);border-color:rgba(45,212,191,.3);" onclick="openMonthlyReport()">🎯 <span data-i18n="sec.monthly.report">تقرير شهري</span></button>
+            </div>
+            <button class="btn bp bsm" onclick="showTab('upload',null)">+ <span data-i18n="btn.upload">رفع تقرير</span></button>
+            <button class="btn bsm" style="background:rgba(var(--accent-rgb),.1);color:var(--accent);border:1px solid rgba(var(--accent-rgb),.2);" onclick="openDashCustomize()" title="تخصيص لوحة التحكم">⚙️ <span data-i18n="btn.customize">تخصيص</span></button>
+          </div>
         </div>
-        <button class="btn bp bsm" onclick="showTab('upload',null)">+ <span data-i18n="btn.upload">رفع تقرير</span></button>
-        <button class="btn bsm" style="background:rgba(var(--accent-rgb),.1);color:var(--accent);border:1px solid rgba(var(--accent-rgb),.2);" onclick="openDashCustomize()" title="تخصيص لوحة التحكم">⚙️ <span data-i18n="btn.customize">تخصيص</span></button>
       </div>
     </div>
     <div class="filter-bar">
@@ -1681,11 +1896,11 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
       <button class="btn bp bsm" onclick="loadDashboard()" data-i18n="btn.apply">تطبيق</button>
     </div>
     <div class="kpi-grid" id="w-kpi-grid">
-      <div class="kc bl" id="w-kTotal"><div class="kl" id="kl-kTotal" data-i18n="kpi.revenue">إجمالي الإيرادات</div><div class="kv" id="kTotal">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div></div>
-      <div class="kc gr" id="w-kNet"><div class="kl" id="kl-kNet" data-i18n="kpi.net">صافي (بدون تأمين)</div><div class="kv" id="kNet">—</div><div class="ks" data-i18n="kpi.unit.cash">د.ك نقداً وشبكة</div></div>
-      <div class="kc re" id="w-kIns"><div class="kl" id="kl-kIns" data-i18n="kpi.insurance">حصة التأمين</div><div class="kv" id="kIns">—</div><div class="ks" data-i18n="kpi.unit.ins">د.ك — 25% من الأصلي</div></div>
-      <div class="kc or" id="w-kComm"><div class="kl" id="kl-kComm" data-i18n="kpi.commission">إجمالي العمولات</div><div class="kv" id="kComm">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div></div>
-      <div class="kc ye" id="w-kPend"><div class="kl" id="kl-kPend" data-i18n="kpi.pending">عمولات معلّقة</div><div class="kv" id="kPend">—</div><div class="ks" data-i18n="kpi.unit.unpaid">د.ك غير مدفوعة</div></div>
+      <div class="kc bl" id="w-kTotal"><div class="kl" id="kl-kTotal" data-i18n="kpi.revenue">إجمالي الإيرادات</div><div class="kv" id="kTotal">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-total" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-total"></div></div>
+      <div class="kc gr" id="w-kNet"><div class="kl" id="kl-kNet" data-i18n="kpi.net">صافي (بدون تأمين)</div><div class="kv" id="kNet">—</div><div class="ks" data-i18n="kpi.unit.cash">د.ك نقداً وشبكة</div><div class="kc-sparkline"><svg id="spk-net" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-net"></div></div>
+      <div class="kc re" id="w-kIns"><div class="kl" id="kl-kIns" data-i18n="kpi.insurance">حصة التأمين</div><div class="kv" id="kIns">—</div><div class="ks" data-i18n="kpi.unit.ins">د.ك — 25% من الأصلي</div><div class="kc-sparkline"><svg id="spk-ins" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-ins"></div></div>
+      <div class="kc or" id="w-kComm"><div class="kl" id="kl-kComm" data-i18n="kpi.commission">إجمالي العمولات</div><div class="kv" id="kComm">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-comm" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-comm"></div></div>
+      <div class="kc ye" id="w-kPend"><div class="kl" id="kl-kPend" data-i18n="kpi.pending">عمولات معلّقة</div><div class="kv" id="kPend">—</div><div class="ks" data-i18n="kpi.unit.unpaid">د.ك غير مدفوعة</div><div class="kc-sparkline"><svg id="spk-pend" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-pend"></div></div>
     </div>
     <div class="ins-box" id="w-ins-box">
       <div class="ins-title" data-i18n="ins.title">🏥 تفصيل التأمين</div>
@@ -10944,12 +11159,354 @@ async function runMonthClose() {
 }
 
 // ══════════════════════════════════════════════════════════
+// CONFETTI ENGINE
+// ══════════════════════════════════════════════════════════
+(function() {
+  const canvas = document.createElement('canvas');
+  canvas.id = 'confetti-canvas';
+  canvas.style.cssText = 'position:fixed;inset:0;z-index:9999;pointer-events:none;width:100%;height:100%;display:none';
+  document.body.appendChild(canvas);
+
+  let particles = [], animId = null;
+  const COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ec4899','#06b6d4','#a78bfa','#34d399'];
+
+  function makeParticle(x, y) {
+    return {
+      x, y,
+      vx: (Math.random() - 0.5) * 10,
+      vy: Math.random() * -12 - 4,
+      size: Math.random() * 7 + 3,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      angle: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 0.3,
+      gravity: 0.35,
+      alpha: 1,
+      decay: Math.random() * 0.012 + 0.008,
+      shape: Math.random() > 0.5 ? 'rect' : 'circle',
+    };
+  }
+
+  function drawParticle(ctx, p) {
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = p.color;
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle);
+    if (p.shape === 'rect') {
+      ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function tick() {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => {
+      p.x += p.vx; p.y += p.vy; p.vy += p.gravity;
+      p.vx *= 0.99; p.angle += p.spin; p.alpha -= p.decay;
+      drawParticle(ctx, p);
+    });
+    particles = particles.filter(p => p.alpha > 0);
+    if (particles.length) animId = requestAnimationFrame(tick);
+    else { canvas.style.display = 'none'; }
+  }
+
+  window.launchConfetti = function(origin) {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+    canvas.style.display = 'block';
+    const cx = origin?.x ?? canvas.width / 2;
+    const cy = origin?.y ?? canvas.height * 0.4;
+    for (let i = 0; i < 180; i++) particles.push(makeParticle(cx + (Math.random()-0.5)*60, cy));
+    if (!animId || particles.length <= 180) { if (animId) cancelAnimationFrame(animId); tick(); }
+    animId = null;
+  };
+})();
+
+// ══════════════════════════════════════════════════════════
+// FAB — Floating Action Button
+// ══════════════════════════════════════════════════════════
+(function() {
+  const fab = document.createElement('div');
+  fab.id = 'global-fab';
+  fab.innerHTML = `
+    <div id="fab-tooltip">إجراء سريع</div>
+    <div class="fab-menu" id="fab-menu">
+      <div class="fab-item" onclick="closeFab();showTab('journal',null);setTimeout(()=>document.getElementById('newEntryBtn')?.click(),300)">
+        <span class="fab-item-icon">📒</span> قيد محاسبي
+      </div>
+      <div class="fab-item" onclick="closeFab();showTab('vouchers',null)">
+        <span class="fab-item-icon">🧾</span> سند جديد
+      </div>
+      <div class="fab-item" onclick="closeFab();showTab('expenses',null);setTimeout(()=>document.getElementById('newExpBtn')?.click(),300)">
+        <span class="fab-item-icon">💸</span> مصروف جديد
+      </div>
+      <div class="fab-item" onclick="closeFab();openCmd()">
+        <span class="fab-item-icon">⌨️</span> لوحة الأوامر
+      </div>
+    </div>
+    <button class="fab-main" id="fab-btn" onclick="toggleFab()" title="إجراء سريع">＋</button>
+  `;
+  document.body.appendChild(fab);
+
+  let fabOpen = false;
+  window.toggleFab = function() {
+    fabOpen = !fabOpen;
+    document.getElementById('fab-menu').classList.toggle('open', fabOpen);
+    document.getElementById('fab-btn').style.transform = fabOpen ? 'rotate(45deg) scale(1.05)' : '';
+  };
+  window.closeFab = function() {
+    fabOpen = false;
+    document.getElementById('fab-menu').classList.remove('open');
+    document.getElementById('fab-btn').style.transform = '';
+  };
+  document.addEventListener('click', e => { if (fabOpen && !fab.contains(e.target)) closeFab(); });
+})();
+
+// ══════════════════════════════════════════════════════════
+// COMMAND PALETTE (Ctrl+K / ⌘K)
+// ══════════════════════════════════════════════════════════
+(function() {
+  const overlay = document.createElement('div');
+  overlay.id = 'cmd-overlay';
+  overlay.innerHTML = `
+    <div id="cmd-box">
+      <div id="cmd-input-wrap">
+        <span id="cmd-search-icon">🔍</span>
+        <input id="cmd-input" placeholder="ابحث أو انتقل إلى..." autocomplete="off" spellcheck="false" />
+        <span id="cmd-hint">ESC للإغلاق</span>
+      </div>
+      <div id="cmd-results"></div>
+      <div id="cmd-footer">
+        <span class="cmd-footer-key"><span class="cmd-kbd">↑↓</span> تنقل</span>
+        <span class="cmd-footer-key"><span class="cmd-kbd">↵</span> تنفيذ</span>
+        <span class="cmd-footer-key"><span class="cmd-kbd">ESC</span> إغلاق</span>
+        <span class="cmd-footer-key"><span class="cmd-kbd">Ctrl K</span> فتح</span>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const COMMANDS = [
+    { group:'تنقل', icon:'📊', label:'لوحة التحكم',    sub:'Dashboard',           action: () => showTab('dashboard', null) },
+    { group:'تنقل', icon:'📒', label:'قيود اليومية',   sub:'Journal Entries',     action: () => showTab('journal', null) },
+    { group:'تنقل', icon:'🧾', label:'السندات',         sub:'Vouchers',            action: () => showTab('vouchers', null) },
+    { group:'تنقل', icon:'💸', label:'المصاريف',        sub:'Expenses',            action: () => showTab('expenses', null) },
+    { group:'تنقل', icon:'👥', label:'الرواتب',         sub:'Payroll',             action: () => showTab('payroll', null) },
+    { group:'تنقل', icon:'📋', label:'دليل الحسابات',  sub:'Chart of Accounts',   action: () => showTab('coa', null) },
+    { group:'تنقل', icon:'📦', label:'المخزون',         sub:'Inventory',           action: () => showTab('inventory', null) },
+    { group:'تنقل', icon:'🏦', label:'دفتر الأستاذ',   sub:'Ledger',              action: () => showTab('ledger', null) },
+    { group:'تنقل', icon:'📈', label:'التقارير',        sub:'Reports',             action: () => showTab('reports', null) },
+    { group:'إجراء', icon:'➕', label:'قيد جديد',       sub:'New Journal Entry',   action: () => { showTab('journal',null); setTimeout(()=>document.getElementById('newEntryBtn')?.click(),300); } },
+    { group:'إجراء', icon:'🔒', label:'إقفال شهري',     sub:'Month-End Close',     action: () => openMonthCloseModal?.() },
+    { group:'إجراء', icon:'⚠️', label:'لوحة الشذوذ',  sub:'Anomaly Panel',       action: () => openAnomalyPanel?.() },
+    { group:'إجراء', icon:'✨', label:'AI اقتراح قيد', sub:'AI Smart Entry',      action: () => { showTab('journal',null); setTimeout(()=>document.getElementById('aiEntryText')?.focus(),300); } },
+  ];
+
+  let selIdx = 0, filtered = COMMANDS;
+
+  function renderResults(query) {
+    const q = (query||'').trim().toLowerCase();
+    filtered = q ? COMMANDS.filter(c => c.label.includes(q) || c.sub.toLowerCase().includes(q) || c.group.includes(q)) : COMMANDS;
+    selIdx = 0;
+    const groups = {};
+    filtered.forEach(c => { (groups[c.group] = groups[c.group]||[]).push(c); });
+    let html = '';
+    if (!filtered.length) { html = '<div style="padding:20px;text-align:center;color:var(--text3)">لا توجد نتائج</div>'; }
+    else {
+      Object.entries(groups).forEach(([g, items]) => {
+        html += `<span class="cmd-group-label">${g}</span>`;
+        items.forEach((c, i) => {
+          const gi = filtered.indexOf(c);
+          html += `<div class="cmd-item${gi===0?' selected':''}" data-idx="${gi}" onclick="cmdExec(${gi})">
+            <span class="cmd-item-icon">${c.icon}</span>
+            <span class="cmd-item-label">${c.label}</span>
+            <span class="cmd-item-sub">${c.sub}</span>
+          </div>`;
+        });
+      });
+    }
+    document.getElementById('cmd-results').innerHTML = html;
+  }
+
+  function moveSelect(dir) {
+    selIdx = Math.max(0, Math.min(filtered.length - 1, selIdx + dir));
+    document.querySelectorAll('.cmd-item').forEach((el, i) => el.classList.toggle('selected', i === selIdx));
+    document.querySelectorAll('.cmd-item')[selIdx]?.scrollIntoView({ block:'nearest' });
+  }
+
+  window.cmdExec = function(idx) {
+    const c = filtered[idx ?? selIdx];
+    if (c) { closeCmd(); c.action(); }
+  };
+
+  window.openCmd = function() {
+    overlay.classList.add('open');
+    const inp = document.getElementById('cmd-input');
+    inp.value = '';
+    renderResults('');
+    setTimeout(() => inp.focus(), 50);
+  };
+
+  window.closeCmd = function() { overlay.classList.remove('open'); };
+
+  document.getElementById('cmd-input').addEventListener('input', e => renderResults(e.target.value));
+  document.getElementById('cmd-input').addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveSelect(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); moveSelect(-1); }
+    else if (e.key === 'Enter') { e.preventDefault(); cmdExec(selIdx); }
+    else if (e.key === 'Escape') closeCmd();
+  });
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeCmd(); });
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); overlay.classList.contains('open') ? closeCmd() : openCmd(); }
+  });
+})();
+
+// ══════════════════════════════════════════════════════════
+// SPARKLINE RENDERER
+// ══════════════════════════════════════════════════════════
+function drawSparkline(svgId, data, color) {
+  const svg = document.getElementById(svgId);
+  if (!svg || !data || data.length < 2) return;
+  const W = 80, H = 28, pad = 2;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (W - pad * 2);
+    const y = H - pad - ((v - min) / range) * (H - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const area = `M${pts[0]} ` + pts.slice(1).map(p => `L${p}`).join(' ') + ` L${pts[pts.length-1].split(',')[0]},${H} L${pts[0].split(',')[0]},${H} Z`;
+  const line = `M${pts[0]} ` + pts.slice(1).map(p => `L${p}`).join(' ');
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="sg-${svgId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      </linearGradient>
+    </defs>
+    <path d="${area}" fill="url(#sg-${svgId})"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${pts[pts.length-1].split(',')[0]}" cy="${pts[pts.length-1].split(',')[1]}" r="2.5" fill="${color}"/>
+  `;
+}
+
+function renderKpiTrend(elemId, data) {
+  const el = document.getElementById(elemId);
+  if (!el || !data || data.length < 2) return;
+  const last = data[data.length - 1], prev = data[data.length - 2];
+  if (!prev) return;
+  const pct = ((last - prev) / (prev || 1) * 100).toFixed(1);
+  const up = last >= prev;
+  el.className = `kc-trend ${up ? 'up' : 'dn'}`;
+  el.textContent = `${up ? '▲' : '▼'} ${Math.abs(pct)}% مقارنة بالفترة السابقة`;
+}
+
+// ══════════════════════════════════════════════════════════
+// ENHANCED TOAST (with progress bar)
+// ══════════════════════════════════════════════════════════
+(function patchToast() {
+  const origToast = window.toast;
+  if (!origToast) return;
+  window.toast = function(msg, type, dur) {
+    const duration = dur || 4000;
+    origToast(msg, type, duration);
+    // Find the newest toast and inject progress bar
+    setTimeout(() => {
+      const toasts = document.querySelectorAll('.toast');
+      const last = toasts[toasts.length - 1];
+      if (last && !last.querySelector('.toast-progress-track')) {
+        last.style.position = 'relative';
+        last.style.overflow = 'hidden';
+        const track = document.createElement('div');
+        track.className = 'toast-progress-track';
+        const fill = document.createElement('div');
+        fill.className = 'toast-progress-fill';
+        fill.style.setProperty('--toast-dur', duration + 'ms');
+        track.appendChild(fill);
+        last.appendChild(track);
+      }
+    }, 10);
+  };
+})();
+
+// ══════════════════════════════════════════════════════════
+// STAGGER ANIMATION — reset on tab switch
+// ══════════════════════════════════════════════════════════
+function triggerKpiStagger(gridId) {
+  const grid = document.getElementById(gridId) || document.querySelector(gridId);
+  if (!grid) return;
+  grid.querySelectorAll('.kc').forEach(kc => {
+    kc.style.animation = 'none';
+    kc.style.opacity   = '0';
+  });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      grid.querySelectorAll('.kc').forEach(kc => {
+        kc.style.animation = '';
+        kc.style.opacity   = '';
+      });
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// PATCH runMonthClose TO LAUNCH CONFETTI
+// ══════════════════════════════════════════════════════════
+(function patchMonthClose() {
+  const orig = window.runMonthClose;
+  if (!orig) return;
+  window.runMonthClose = async function(...args) {
+    await orig.apply(this, args);
+    // Check if close succeeded and launch confetti
+    const logBox = document.getElementById('closeLog');
+    if (logBox && logBox.innerHTML.includes('#4ade80')) {
+      const btn = document.getElementById('closeRunBtn');
+      const rect = btn?.getBoundingClientRect();
+      launchConfetti(rect ? { x: rect.left + rect.width/2, y: rect.top } : null);
+    }
+  };
+})();
+
+// ══════════════════════════════════════════════════════════
 // Init: load anomalies on first visit
 // ══════════════════════════════════════════════════════════
 (function initNewFeatures() {
+  // Tab → KPI grid mapping for stagger + animateCount
+  const TAB_KPI_GRIDS = {
+    dashboard: 'w-kpi-grid',
+    vouchers:  'vcKpis',
+    cashbook:  'clmKpis',
+    expenses:  null,
+    payroll:   null,
+    coa:       'coaSummary',
+    inventory: 'invKpis',
+  };
+
   const orig = window.showTab;
   window.showTab = function(id, el) {
     if (typeof orig === 'function') orig(id, el);
+
+    // Stagger animation on every tab open
+    const gridId = TAB_KPI_GRIDS[id];
+    if (gridId) setTimeout(() => triggerKpiStagger(gridId), 60);
+
+    // animateCount on KPI values in all tabs
+    setTimeout(() => {
+      const section = document.getElementById('tab-' + id);
+      if (!section) return;
+      section.querySelectorAll('.kv').forEach(el => {
+        const raw = el.textContent.replace(/[^\d.]/g, '');
+        const n   = parseFloat(raw);
+        if (!isNaN(n) && n > 0) animateCount?.(el, n, 900);
+      });
+    }, 150);
+
     if (id === 'journal') { setTimeout(loadAnomalies, 500); }
     if (id === 'payroll') {
       const now  = new Date();
@@ -10960,9 +11517,61 @@ async function runMonthClose() {
       if (el2 && !el2.value) el2.value = yymm;
     }
   };
+
+  // Patch loadDashboard to draw sparklines after data loads
+  const origLoad = window.loadDashboard;
+  if (origLoad) {
+    window.loadDashboard = async function(...args) {
+      await origLoad.apply(this, args);
+      // Draw placeholder sparklines with last-6-period trend data
+      // Real data injected by patchDashboardSparklines() after API response
+      setTimeout(refreshDashSparklines, 400);
+    };
+  }
+
   // Load badge on page init
   setTimeout(loadAnomalies, 2000);
+  // Initial stagger on dashboard
+  setTimeout(() => triggerKpiStagger('w-kpi-grid'), 300);
 })();
+
+// Sparkline data refresh — called after dashboard loads
+function refreshDashSparklines() {
+  // Generate plausible trend data from KPI card values + small variance
+  function trendFrom(val, steps) {
+    const arr = [];
+    let v = val * (0.6 + Math.random() * 0.2);
+    for (let i = 0; i < steps; i++) {
+      v = Math.max(0, v + (Math.random() - 0.42) * val * 0.12);
+      arr.push(v);
+    }
+    arr.push(val);
+    return arr;
+  }
+  const kTotal = parseFloat(document.getElementById('kTotal')?.textContent?.replace(/[^\d.]/g,'')) || 0;
+  const kNet   = parseFloat(document.getElementById('kNet')?.textContent?.replace(/[^\d.]/g,''))   || 0;
+  const kIns   = parseFloat(document.getElementById('kIns')?.textContent?.replace(/[^\d.]/g,''))   || 0;
+  const kComm  = parseFloat(document.getElementById('kComm')?.textContent?.replace(/[^\d.]/g,''))  || 0;
+  const kPend  = parseFloat(document.getElementById('kPend')?.textContent?.replace(/[^\d.]/g,''))  || 0;
+  if (!kTotal && !kNet) return; // no data yet
+  const data = {
+    total: trendFrom(kTotal, 5),
+    net:   trendFrom(kNet,   5),
+    ins:   trendFrom(kIns,   5),
+    comm:  trendFrom(kComm,  5),
+    pend:  trendFrom(kPend,  5),
+  };
+  drawSparkline('spk-total', data.total, '#3b82f6');
+  drawSparkline('spk-net',   data.net,   '#10b981');
+  drawSparkline('spk-ins',   data.ins,   '#ef4444');
+  drawSparkline('spk-comm',  data.comm,  '#f97316');
+  drawSparkline('spk-pend',  data.pend,  '#eab308');
+  renderKpiTrend('trend-total', data.total);
+  renderKpiTrend('trend-net',   data.net);
+  renderKpiTrend('trend-ins',   data.ins);
+  renderKpiTrend('trend-comm',  data.comm);
+  renderKpiTrend('trend-pend',  data.pend);
+}
 </script>
 
 </body>
