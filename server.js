@@ -1006,16 +1006,41 @@ app.post('/api/doctors', (req, res) => {
 app.post('/api/commission/pay', (req, res) => {
   const { doctor, month, payMethod, payDate } = req.body;
   const db = loadDB();
-  const entry = db.commissionHistory.find(c => c.doctor === doctor && c.month === month);
-  if (entry) {
-    entry.paid = true;
-    entry.payMethod = payMethod;
-    entry.payDate = payDate;
-    saveDB(db);
-    res.json({ success: true });
+  const entry = (db.commissionHistory||[]).find(c => c.doctor === doctor && c.month === month);
+  if (!entry) return res.status(404).json({ success: false, message: 'لم يتم إيجاد العمولة' });
+
+  entry.paid      = true;
+  entry.payMethod = payMethod;
+  entry.payDate   = payDate || new Date().toISOString().slice(0,10);
+
+  // Journal entry: Dr Commission Expense (5100) / Cr Cash or Bank
+  const accs = db.chartOfAccounts || [];
+  const commExp = accs.find(a=>a.code==='5100')||{id:'5100',code:'5100',name:'عمولات الأطباء'};
+  const m = (payMethod||'').toLowerCase();
+  let payAcc;
+  if(m.includes('بنك')||m.includes('bank')||m.includes('تحويل')){
+    payAcc = accs.find(a=>a.code==='1110')||{id:'1110',code:'1110',name:'البنك'};
   } else {
-    res.status(404).json({ success: false, message: 'لم يتم إيجاد العمولة' });
+    payAcc = accs.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'};
   }
+  const amt = parseFloat(entry.commission) || parseFloat(entry.amount) || 0;
+  if(amt > 0){
+    if(!db.journalEntries) db.journalEntries=[];
+    db.journalEntries.push({
+      id:'JE-COM-'+Date.now(), date:entry.payDate,
+      desc:`عمولة د. ${doctor} — شهر ${month}`,
+      ref:`COM-${month}-${doctor}`, type:'commission',
+      totalDebit:amt, totalCredit:amt,
+      createdAt:new Date().toISOString(),
+      lines:[
+        {accountId:commExp.id,accountCode:'5100',accountName:'عمولات الأطباء',debit:amt, credit:0},
+        {accountId:payAcc.id, accountCode:payAcc.code, accountName:payAcc.name, debit:0,  credit:amt}
+      ]
+    });
+  }
+
+  saveDB(db);
+  res.json({ success: true });
 });
 
 // Add expense — whitelist only known fields
@@ -4692,15 +4717,23 @@ app.get('/api/financial-statements', (req, res) => {
   // ══════════════════════════════════════════════════
   // INCOME STATEMENT (P&L)
   // ══════════════════════════════════════════════════
-  const cashRev     = pDaily.reduce((s,d) => s + (d.cash||0), 0);
-  const knetRev     = pDaily.reduce((s,d) => s + (d.knet||0) + (d.visa||0) + (d.master||0), 0);
-  const linkRev     = pDaily.reduce((s,d) => s + (d.link||0), 0);
-  const insRev      = pDaily.reduce((s,d) => s + (d.insurance||0), 0);
-  const totalRevenue = cashRev + knetRev + linkRev + insRev;
 
-  // ── Build COA balance map from journal entries (real numbers) ──
+  // ── Build ALL-TIME COA balance map from journal entries ──
+  const allJE = db.journalEntries || [];
+  const allCoaBalMap = {};
+  allJE.forEach(je => {
+    (je.lines||[]).forEach(l => {
+      const code = String(l.accountCode || l.account || '');
+      if (!code) return;
+      if (!allCoaBalMap[code]) allCoaBalMap[code] = { debit:0, credit:0 };
+      allCoaBalMap[code].debit  += parseFloat(l.debit)  || 0;
+      allCoaBalMap[code].credit += parseFloat(l.credit) || 0;
+    });
+  });
+
+  // ── Build PERIOD COA balance map from journal entries ──
   const coaBalMap = {};  // accountCode → { debit, credit }
-  const periodJE = (db.journalEntries||[]).filter(je => {
+  const periodJE = allJE.filter(je => {
     if (period === 'month') return (je.date||'').startsWith(monthStr);
     if (period === 'year')  return (je.date||'').startsWith(String(targetYear));
     return true;
@@ -4715,109 +4748,205 @@ app.get('/api/financial-statements', (req, res) => {
     });
   });
 
-  // Sum by COA type from journal entries
+  // Sum by COA type from period journal entries
   const coaAccounts = db.chartOfAccounts || [];
   const coaTypeSum = (type) => {
     return coaAccounts.filter(a=>a.type===type).reduce((s,a) => {
       const b = coaBalMap[a.code];
       if (!b) return s;
-      // For expense/asset: balance = debit - credit; for revenue/liability/equity: credit - debit
+      // expense/asset: balance = debit - credit; revenue/liability/equity: credit - debit
       const bal = (type==='expense'||type==='asset') ? b.debit - b.credit : b.credit - b.debit;
       return s + Math.max(0, bal);
     }, 0);
   };
 
-  // Real expense breakdown from journal entries (expense-type accounts)
+  // Revenue — primary source: COA 4xxx accounts in period JEs (same source as expenses)
+  // Fallback to dailyData aggregates for legacy data that predates JE auto-creation
+  const cashRev = pDaily.reduce((s,d) => s + (d.cash||0), 0);
+  const knetRev = pDaily.reduce((s,d) => s + (d.knet||0) + (d.visa||0) + (d.master||0), 0);
+  const linkRev = pDaily.reduce((s,d) => s + (d.link||0), 0);
+  const insRev  = pDaily.reduce((s,d) => s + (d.insurance||0), 0);
+  const dailyRevTotal = cashRev + knetRev + linkRev + insRev;
+
+  const jeRevTotal   = coaTypeSum('revenue');
+  const totalRevenue = jeRevTotal > 0 ? jeRevTotal : dailyRevTotal;
+
+  // Expense breakdown by category (for display)
   const expByCat = {};
   pExpenses.forEach(e => {
     const cat = e.cat || 'مصاريف عامة';
     expByCat[cat] = (expByCat[cat] || 0) + (e.amount || 0);
   });
 
-  // Real figures from journal entries
-  const salaryExpense  = pPayroll.reduce((s,p) => s + (p.totalNet||0), 0);
-  const totalExpenses  = pExpenses.reduce((s,e) => s + (e.amount||0), 0);
+  // Fallback figures from raw tables (used only if no JEs)
+  const salaryExpense = pPayroll.reduce((s,p) => s + (p.totalGross||p.totalNet||0), 0);
+  const totalExpenses = pExpenses.reduce((s,e) => s + (e.amount||0), 0);
 
-  // Real depreciation from JE (type=depreciation in period)
+  // Real depreciation from JE type=depreciation in period
   const depreciation = periodJE
     .filter(je => je.type==='depreciation')
     .reduce((s,je) => s + (je.lines||[]).filter(l=>l.debit>0).reduce((ss,l)=>ss+(parseFloat(l.debit)||0),0), 0);
 
-  // Real expenses from COA (type=expense accounts in JE) — more accurate than expense array
+  // Expenses — from COA 5xxx accounts in period JEs (primary), fallback to raw tables
   const jeExpenseTotal = coaTypeSum('expense');
   const totalOpEx  = jeExpenseTotal > 0 ? jeExpenseTotal : (totalExpenses + salaryExpense);
-  const totalCOGS  = 0; // dental clinic: no traditional COGS — direct costs already in expenses
+  const totalCOGS  = 0; // dental clinic: direct costs already in operating expenses
 
-  const grossProfit  = totalRevenue - totalCOGS;
-  const grossMargin  = totalRevenue ? (grossProfit / totalRevenue * 100) : 0;
-  const ebitda       = grossProfit - totalOpEx;
-  const ebit         = ebitda - depreciation;
-  const netProfit    = ebit;
-  const netMargin    = totalRevenue ? (netProfit / totalRevenue * 100) : 0;
+  const grossProfit = totalRevenue - totalCOGS;
+  const grossMargin = totalRevenue ? (grossProfit / totalRevenue * 100) : 0;
+  const ebitda      = grossProfit - totalOpEx;
+  const ebit        = ebitda - depreciation;
+  const netProfit   = ebit;
+  const netMargin   = totalRevenue ? (netProfit / totalRevenue * 100) : 0;
 
   // ══════════════════════════════════════════════════
-  // BALANCE SHEET
+  // BALANCE SHEET  (all figures from double-entry JE)
   // ══════════════════════════════════════════════════
+  // allCoaBalMap is already built above (all-time JE balance map)
 
-  // Assets
-  const allDaily   = daily;
-  const allExpenses = expenses;
-  const totalAllRev = allDaily.reduce((s,d) => s + (d.total||0), 0);
-  const totalAllExp = allExpenses.reduce((s,e) => s + (e.amount||0), 0);
-  const totalAllSal = (db.payroll||[]).reduce((s,p) => s + (p.totalNet||0), 0);
+  // Helper: all-time balance for a single account code
+  const accBal = (code) => {
+    const b = allCoaBalMap[String(code)];
+    if (!b) return 0;
+    return b.debit - b.credit; // positive = debit-normal (assets/expenses)
+  };
+  const accBalCr = (code) => {
+    const b = allCoaBalMap[String(code)];
+    if (!b) return 0;
+    return b.credit - b.debit; // positive = credit-normal (liabilities/equity/revenue)
+  };
 
-  // Current Assets
-  const cashBalance    = allDaily.reduce((s,d) => s + (d.cash||0), 0) - allExpenses.reduce((s,e) => s + (e.amount||0)*0.6,0);
-  const bankBalance    = allDaily.reduce((s,d) => s + (d.knet||0)+(d.visa||0)+(d.master||0)+(d.link||0), 0);
-  const insReceivable  = (db.insuranceClaims||[]).filter(c=>c.status!=='received').reduce((s,c)=>s+(c.amount||0),0);
-  const inventory      = (db.invItems||[]).reduce((s,i)=>s+((i.quantity||0)*(i.unitCost||0)),0);
+  // ── Current Assets (display breakdown) ──────────
+  const cashBalance     = accBal('1100');  // may be negative if overdraft
+  const bankBalance     = accBal('1110');
+  const insRecFromJE    = Math.max(0, accBal('1120'));
+  const insRecFromClaims= (db.insuranceClaims||[]).filter(c=>c.status!=='received').reduce((s,c)=>s+(c.amount||0),0);
+  const insReceivable   = insRecFromJE > 0 ? insRecFromJE : insRecFromClaims;
+  const otherReceivable = Math.max(0, accBal('1130')) + Math.max(0, accBal('1140'));
+  const inventory       = (db.invItems||[]).reduce((s,i)=>s+((i.quantity||0)*(i.unitCost||0)),0);
+  const currentAssets   = cashBalance + bankBalance + insReceivable + otherReceivable + inventory;
 
-  const currentAssets  = Math.max(0, cashBalance) + Math.max(0, bankBalance) + insReceivable + inventory;
+  // ── Fixed Assets (display breakdown) ────────────
+  const fixedAssetsGross = (db.fixedAssets||[]).filter(a=>a.status==='active').reduce((s,a)=>s+(parseFloat(a.cost)||0),0);
+  const accumDeprJE      = Math.max(0, accBalCr('1590'));
+  const accumDeprReg     = (db.fixedAssets||[]).reduce((s,a)=>s+(parseFloat(a.accumulatedDep)||0),0);
+  const accumDepr        = accumDeprJE > 0 ? accumDeprJE : accumDeprReg;
+  const netFixedAssets   = Math.max(0, fixedAssetsGross - accumDepr);
 
-  // Fixed Assets — real from db.fixedAssets
-  const fixedAssetsGross = (db.fixedAssets||[]).filter(a=>a.status==='active').reduce((s,a)=>s+(parseFloat(a.cost)||0),0) || 15000;
-  const accumDeprReal    = (db.fixedAssets||[]).reduce((s,a)=>s+(parseFloat(a.accumulatedDep)||0),0);
-  const netFixedAssets   = Math.max(0, fixedAssetsGross - accumDeprReal);
-  const totalAssets    = currentAssets + netFixedAssets;
+  // ── Total Assets — derived from ALL COA asset accounts in JE ────────────────
+  // Sum debit-credit for every asset-type account (contra-assets like 1590 will naturally be negative).
+  // This keeps the accounting equation exact: Assets = Liabilities + Equity.
+  const coaAssetTotalJE = coaAccounts.filter(a=>a.type==='asset').reduce((s,a)=>{
+    const b = allCoaBalMap[a.code]; if (!b) return s;
+    return s + (b.debit - b.credit); // no Math.max — allow contra-asset to subtract
+  }, 0);
+  // For non-JE items (inventory, fixed assets not yet journaled), add their physical values
+  const unjournaledFixed = Math.max(0, fixedAssetsGross - accumDepr -
+    coaAccounts.filter(a=>a.type==='asset'&&a.code>='1500'&&a.code<'1590')
+      .reduce((s,a)=>{ const b=allCoaBalMap[a.code]; return s+(b?b.debit-b.credit:0); },0));
+  const totalAssets = coaAssetTotalJE + inventory + (unjournaledFixed > 0 ? unjournaledFixed : 0);
 
-  // Liabilities — from COA liability accounts via JE (all-time)
-  const allJE = db.journalEntries || [];
-  const allCoaBalMap = {};
-  allJE.forEach(je => {
-    (je.lines||[]).forEach(l => {
-      const code = String(l.accountCode || l.account || '');
-      if (!code) return;
-      if (!allCoaBalMap[code]) allCoaBalMap[code] = { debit:0, credit:0 };
-      allCoaBalMap[code].debit  += parseFloat(l.debit)  || 0;
-      allCoaBalMap[code].credit += parseFloat(l.credit) || 0;
-    });
-  });
+  // Additional non-current assets from COA (intangibles 1600+, investments 1700+)
+  const otherNonCurrent = coaAccounts.filter(a=>a.type==='asset' && a.code>='1600').reduce((s,a)=>{
+    const b = allCoaBalMap[a.code]; if (!b) return s;
+    return s + (b.debit - b.credit);
+  }, 0);
+
+  // ── Liabilities ──────────────────────────────────
+  // All liabilities come from COA 2xxx accounts in JE ledger (no raw-array fallbacks)
   const coaLiabTotal = coaAccounts.filter(a=>a.type==='liability').reduce((s,a) => {
     const b = allCoaBalMap[a.code]; if (!b) return s;
     return s + Math.max(0, b.credit - b.debit);
   }, 0);
-  const unpaidPayroll   = (db.payroll||[]).filter(p=>p.status!=='paid').reduce((s,p)=>s+(p.totalNet||0),0);
-  const totalLiab       = Math.max(coaLiabTotal, unpaidPayroll);
+  const totalLiab = coaLiabTotal;
 
-  // Equity — from COA equity accounts + retained earnings
-  const coaEquityTotal = coaAccounts.filter(a=>a.type==='equity').reduce((s,a) => {
-    const b = allCoaBalMap[a.code]; if (!b) return s;
-    return s + Math.max(0, b.credit - b.debit);
-  }, 0);
-  const retainedEarnings = totalAllRev - totalAllExp - totalAllSal;
-  const ownerEquity      = coaEquityTotal > 0 ? coaEquityTotal : 5000;
-  const totalEquity      = ownerEquity + Math.max(0, retainedEarnings);
-  const balanceCheck     = Math.abs(totalAssets - (totalLiab + totalEquity)) < 50;
+  // ── Equity ───────────────────────────────────────
+  // Paid-in capital and prior retained earnings from COA 3xxx JE ledger
+  const paidInCapital = Math.max(0, accBalCr('3100'));
+  const priorRetained = accBalCr('3200'); // may be negative (accumulated losses)
+  // Current-period net income from P&L (not yet closed to 3200)
+  const currentPeriodNI = netProfit;
+  // Total equity = paid-in capital + prior retained + current period net income
+  const totalEquity = paidInCapital + priorRetained + currentPeriodNI;
+
+  // Balance check — tolerance 0.005 KD (half a fils); any larger gap is a real error
+  const bsDiff      = Math.abs(totalAssets - (totalLiab + totalEquity));
+  const balanceCheck = bsDiff < 0.005;
 
   // ══════════════════════════════════════════════════
-  // CASH FLOW STATEMENT
+  // CASH FLOW STATEMENT — Indirect Method
   // ══════════════════════════════════════════════════
-  const cfOperating = netProfit + depreciation
-    - (insReceivable / 12) // change in AR estimate
-    + (totalLiab / 12);    // change in AP estimate
-  const cfInvesting  = -depreciation;
-  const cfFinancing  = 0;
-  const netCashFlow  = cfOperating + cfInvesting + cfFinancing;
+
+  // Operating: start with net income, add back non-cash items, adjust working capital
+  // Working capital changes derived from period JE movements in current asset/liability accounts
+  const periodInsRecChange = (() => {
+    const periodBal = {};
+    periodJE.forEach(je => {
+      (je.lines||[]).forEach(l => {
+        const code = String(l.accountCode || l.account || '');
+        if (!code) return;
+        if (!periodBal[code]) periodBal[code] = { debit:0, credit:0 };
+        periodBal[code].debit  += parseFloat(l.debit)  || 0;
+        periodBal[code].credit += parseFloat(l.credit) || 0;
+      });
+    });
+    // Increase in receivables = use of cash (negative); decrease = source of cash (positive)
+    const chg1120 = (periodBal['1120']?.debit||0) - (periodBal['1120']?.credit||0);
+    const chg1130 = (periodBal['1130']?.debit||0) - (periodBal['1130']?.credit||0);
+    return chg1120 + chg1130;
+  })();
+
+  // Increase in payables = source of cash; decrease = use of cash
+  const periodLiabChange = (() => {
+    const periodBal = {};
+    periodJE.forEach(je => {
+      (je.lines||[]).forEach(l => {
+        const code = String(l.accountCode || l.account || '');
+        if (!coaAccounts.find(a=>a.code===code && a.type==='liability')) return;
+        if (!periodBal[code]) periodBal[code] = { debit:0, credit:0 };
+        periodBal[code].debit  += parseFloat(l.debit)  || 0;
+        periodBal[code].credit += parseFloat(l.credit) || 0;
+      });
+    });
+    return Object.values(periodBal).reduce((s,b)=>s+(b.credit-b.debit),0);
+  })();
+
+  const cfOperating = netProfit
+    + depreciation            // add back non-cash depreciation
+    - periodInsRecChange      // decrease/(increase) in receivables
+    + periodLiabChange;       // increase/(decrease) in payables
+
+  // Investing: actual capital expenditures in the period (new assets purchased)
+  const periodCapEx = (() => {
+    if (period === 'month') {
+      return (db.fixedAssets||[]).filter(a=>(a.purchaseDate||'').startsWith(monthStr)).reduce((s,a)=>s+(parseFloat(a.cost)||0),0);
+    }
+    if (period === 'year') {
+      return (db.fixedAssets||[]).filter(a=>(a.purchaseDate||'').startsWith(String(targetYear))).reduce((s,a)=>s+(parseFloat(a.cost)||0),0);
+    }
+    return (db.fixedAssets||[]).reduce((s,a)=>s+(parseFloat(a.cost)||0),0);
+  })();
+  const cfInvesting = -periodCapEx; // cash paid for assets = outflow
+
+  // Financing: owner contributions (3100 credits) minus drawings (3100 debits) in period
+  const cfFinancing = (() => {
+    const periodBal = {};
+    periodJE.forEach(je => {
+      (je.lines||[]).forEach(l => {
+        const code = String(l.accountCode || l.account || '');
+        if (!periodBal[code]) periodBal[code] = { debit:0, credit:0 };
+        periodBal[code].debit  += parseFloat(l.debit)  || 0;
+        periodBal[code].credit += parseFloat(l.credit) || 0;
+      });
+    });
+    const b3100 = periodBal['3100'];
+    const b3400 = periodBal['3400']; // drawings account
+    const contributions = b3100 ? b3100.credit - b3100.debit : 0;
+    const drawings      = b3400 ? b3400.debit  - b3400.credit : 0;
+    return contributions - drawings;
+  })();
+
+  const netCashFlow = cfOperating + cfInvesting + cfFinancing;
 
   // ══════════════════════════════════════════════════
   // KEY RATIOS
@@ -4855,26 +4984,30 @@ app.get('/api/financial-statements', (req, res) => {
     balanceSheet: {
       assets: {
         current: {
-          cash: Math.max(0, cashBalance),
-          bank: Math.max(0, bankBalance),
+          cash: cashBalance,
+          bank: bankBalance,
           insuranceReceivable: insReceivable,
+          otherReceivable,
           inventory,
           total: currentAssets,
         },
-        fixed: { gross: fixedAssetsGross, accumulatedDepreciation: accumDeprReal, net: netFixedAssets },
+        fixed: { gross: fixedAssetsGross, accumulatedDepreciation: accumDepr, net: netFixedAssets },
+        otherNonCurrent,
         total: totalAssets,
       },
       liabilities: {
-        current: { unpaidPayroll, total: totalLiab },
+        fromJE: coaLiabTotal,
         total: totalLiab,
       },
       equity: {
-        ownerCapital: ownerEquity,
-        retainedEarnings: Math.max(0, retainedEarnings),
+        paidInCapital,
+        priorRetainedEarnings: priorRetained,
+        currentPeriodNetIncome: currentPeriodNI,
         total: totalEquity,
       },
-      totalLiabAndEquity: totalLiab + totalEquity,
+      totalLiabAndEquity: parseFloat((totalLiab + totalEquity).toFixed(3)),
       balanced: balanceCheck,
+      differenceKD: parseFloat(bsDiff.toFixed(3)),
     },
     cashFlow: {
       operating: cfOperating,
@@ -5198,20 +5331,36 @@ app.put('/api/insurance-claims/:id', (req,res)=>{
   // If marking as received, add journal entry to close the receivable
   if(status==='received' && receivedAmount){
     const accounts=db.chartOfAccounts||[];
-    const cashAcc=accounts.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'};
+    // payAccount: 'bank' (default for insurance — usually wire transfer) or 'cash'
+    const useBank = (req.body.payAccount||'bank') !== 'cash';
+    const recvAcc = useBank
+      ? (accounts.find(a=>a.code==='1110')||{id:'1110',code:'1110',name:'البنك'})
+      : (accounts.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'});
     const insRecAcc=accounts.find(a=>a.code==='1120')||{id:'1120',code:'1120',name:'ذمم التأمين'};
-    const amt=parseFloat(receivedAmount)||0;
+    const amt        = parseFloat(receivedAmount)||0;
+    const claimedAmt = parseFloat(claim.amount)||0;
     if(!db.journalEntries) db.journalEntries=[];
+
+    const jeLines=[
+      {accountId:recvAcc.id,  accountCode:recvAcc.code, accountName:recvAcc.name,  debit:amt,        credit:0},
+      {accountId:insRecAcc.id,accountCode:'1120',        accountName:'ذمم التأمين', debit:0,          credit:claimedAmt}
+    ];
+    // If received less than claimed — write off the shortfall to bad debt expense
+    const shortfall = parseFloat((claimedAmt - amt).toFixed(3));
+    if(shortfall > 0.001){
+      const bdAcc = accounts.find(a=>a.code==='5700')||{id:'5700',code:'5700',name:'ديون مشكوك في تحصيلها'};
+      jeLines.push({accountId:bdAcc.id,accountCode:'5700',accountName:'ديون مشكوك في تحصيلها',debit:shortfall,credit:0});
+    }
+    const totalDr = jeLines.reduce((s,l)=>s+(l.debit||0),0);
+    const totalCr = jeLines.reduce((s,l)=>s+(l.credit||0),0);
+
     db.journalEntries.push({
       id:'JE-CLM-RCV-'+Date.now(), date:receivedDate||new Date().toISOString().slice(0,10),
-      desc:`استلام تأمين ${claim.claimNo} — ${claim.company}`,
+      desc:`استلام تأمين ${claim.claimNo} — ${claim.company}${shortfall>0.001?' (فرق مشطوب: '+shortfall.toFixed(3)+')':''}`,
       ref:claim.claimNo+'-RCV', type:'insurance_received',
-      totalDebit:amt, totalCredit:amt,
+      totalDebit:parseFloat(totalDr.toFixed(3)), totalCredit:parseFloat(totalCr.toFixed(3)),
       createdAt:new Date().toISOString(),
-      lines:[
-        {accountId:cashAcc.id,accountCode:'1100',accountName:'الصندوق',debit:amt,credit:0},
-        {accountId:insRecAcc.id,accountCode:'1120',accountName:'ذمم التأمين',debit:0,credit:amt}
-      ]
+      lines:jeLines
     });
   }
 
@@ -5260,21 +5409,23 @@ app.post('/api/payroll', (req,res)=>{
   if(!db.payroll) db.payroll=[];
   db.payroll.push(record);
 
-  // Auto journal entry for payroll
+  // Auto journal entry for payroll — records gross salary and accrues liability
+  // Step 1: Accrue (Dr Salary Expense / Cr Salary Payable)
+  // Step 2: When status is updated to 'paid' a separate entry clears the payable
   const payDate=`${month}-01`;
   const accounts=db.chartOfAccounts||[];
-  const salaryExp=accounts.find(a=>a.code==='5200')||{id:'5200',code:'5200',name:'مصاريف الرواتب'};
-  const cashAcc=accounts.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'};
+  const salaryExp  =accounts.find(a=>a.code==='5200')||{id:'5200',code:'5200',name:'مصاريف الرواتب'};
+  const salaryPayAcc=accounts.find(a=>a.code==='2100')||{id:'2100',code:'2100',name:'رواتب مستحقة الدفع'};
   if(!db.journalEntries) db.journalEntries=[];
   db.journalEntries.push({
     id:'JE-PAY-'+Date.now(), date:payDate,
-    desc:`رواتب شهر ${month}`,
-    ref:'PAY-'+month, type:'payroll',
-    totalDebit:totalNet, totalCredit:totalNet,
+    desc:`استحقاق رواتب شهر ${month}`,
+    ref:'PAY-ACC-'+month, type:'payroll',
+    totalDebit:totalGross, totalCredit:totalGross,
     createdAt:new Date().toISOString(),
     lines:[
-      {accountId:salaryExp.id,accountCode:'5200',accountName:'مصاريف الرواتب',debit:totalNet,credit:0},
-      {accountId:cashAcc.id,accountCode:'1100',accountName:'الصندوق',debit:0,credit:totalNet}
+      {accountId:salaryExp.id,  accountCode:'5200',accountName:'مصاريف الرواتب',      debit:totalGross,credit:0},
+      {accountId:salaryPayAcc.id,accountCode:'2100',accountName:'رواتب مستحقة الدفع',debit:0,credit:totalGross}
     ]
   });
 
@@ -5286,8 +5437,30 @@ app.put('/api/payroll/:id/status', (req,res)=>{
   const db=loadDB();
   const rec=(db.payroll||[]).find(p=>String(p.id)===String(req.params.id));
   if(!rec) return res.status(404).json({error:'not found'});
-  rec.status=req.body.status||'paid';
-  rec.paidDate=req.body.paidDate||new Date().toISOString().slice(0,10);
+  const prevStatus = rec.status;
+  rec.status   = req.body.status   || 'paid';
+  rec.paidDate = req.body.paidDate || new Date().toISOString().slice(0,10);
+
+  // When marking as paid: clear Salary Payable → Cash/Bank
+  if(rec.status==='paid' && prevStatus!=='paid'){
+    const accs = db.chartOfAccounts||[];
+    const salaryPayAcc = accs.find(a=>a.code==='2100')||{id:'2100',code:'2100',name:'رواتب مستحقة الدفع'};
+    const cashAcc      = accs.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'};
+    const net = rec.totalNet || rec.totalGross || 0;
+    if(!db.journalEntries) db.journalEntries=[];
+    db.journalEntries.push({
+      id:'JE-PAY-PMT-'+Date.now(), date:rec.paidDate,
+      desc:`دفع رواتب شهر ${rec.month}`,
+      ref:'PAY-PMT-'+rec.month, type:'payroll_payment',
+      totalDebit:net, totalCredit:net,
+      createdAt:new Date().toISOString(),
+      lines:[
+        {accountId:salaryPayAcc.id,accountCode:'2100',accountName:'رواتب مستحقة الدفع',debit:net,credit:0},
+        {accountId:cashAcc.id,     accountCode:'1100',accountName:'الصندوق',            debit:0,credit:net}
+      ]
+    });
+  }
+
   saveDB(db);
   res.json({success:true,rec});
 });
@@ -5329,24 +5502,58 @@ app.get('/api/assets', requireAuth, (req, res) => {
 app.post('/api/assets', requireAuth, (req, res) => {
   const db = loadDB();
   if (!db.fixedAssets) db.fixedAssets = [];
+  const coaAcc   = sanitize(req.body.coaAccount    || '1510', 10);
+  const accDep   = sanitize(req.body.accDepAccount || '1590', 10);
+  const depExp   = sanitize(req.body.depExpAccount || '5800', 10);
+  const cost     = parseFloat(req.body.cost) || 0;
+  const pDate    = sanitize(req.body.purchaseDate || '', 10);
+  const payMeth  = sanitize(req.body.payMethod || 'cash', 20); // 'cash' | 'bank' | 'credit'
+
   const asset = {
     id: 'AST-' + Date.now(),
     code: sanitize(req.body.code || '', 20),
     name: sanitize(req.body.name || '', 200),
     category: sanitize(req.body.category || '', 100),
-    purchaseDate: sanitize(req.body.purchaseDate || '', 10),
-    cost: parseFloat(req.body.cost) || 0,
+    purchaseDate: pDate,
+    cost,
     usefulLife: parseInt(req.body.usefulLife) || 5,
     method: req.body.method || 'straight-line',
     salvageValue: parseFloat(req.body.salvageValue) || 0,
-    coaAccount: sanitize(req.body.coaAccount || '1510', 10),
-    accDepAccount: sanitize(req.body.accDepAccount || '1590', 10),
-    depExpAccount: sanitize(req.body.depExpAccount || '5800', 10),
+    coaAccount: coaAcc,
+    accDepAccount: accDep,
+    depExpAccount: depExp,
     accumulatedDep: 0,
     status: 'active',
     createdAt: new Date().toISOString()
   };
   db.fixedAssets.push(asset);
+
+  // Journal entry for asset purchase — links the physical register to double-entry system
+  if(cost > 0){
+    const accs = db.chartOfAccounts || [];
+    const assetAcc  = accs.find(a=>a.code===coaAcc) || {id:coaAcc,code:coaAcc,name:'أصول ثابتة'};
+    let creditAcc;
+    if(payMeth==='bank'){
+      creditAcc = accs.find(a=>a.code==='1110')||{id:'1110',code:'1110',name:'البنك'};
+    } else if(payMeth==='credit'){
+      creditAcc = accs.find(a=>a.code==='2200')||{id:'2200',code:'2200',name:'دائنون — موردون'};
+    } else {
+      creditAcc = accs.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'};
+    }
+    if(!db.journalEntries) db.journalEntries=[];
+    db.journalEntries.push({
+      id:'JE-AST-'+Date.now(), date:pDate||new Date().toISOString().slice(0,10),
+      desc:`شراء أصل: ${asset.name}`,
+      ref:'AST-'+asset.id, type:'asset_purchase',
+      totalDebit:cost, totalCredit:cost,
+      createdAt:new Date().toISOString(),
+      lines:[
+        {accountId:assetAcc.id, accountCode:coaAcc,          accountName:assetAcc.name,  debit:cost, credit:0},
+        {accountId:creditAcc.id,accountCode:creditAcc.code,   accountName:creditAcc.name, debit:0,    credit:cost}
+      ]
+    });
+  }
+
   saveDB(db);
   res.json({ success: true, asset });
 });
@@ -5411,6 +5618,8 @@ app.post('/api/assets/depreciate', requireAuth, (req, res) => {
     desc: 'قيد اهتلاك شهر ' + period,
     ref: 'DEP-' + period,
     type: 'depreciation',
+    totalDebit: parseFloat(totalDep.toFixed(3)),
+    totalCredit: parseFloat(totalDep.toFixed(3)),
     lines,
     createdAt: new Date().toISOString()
   };
