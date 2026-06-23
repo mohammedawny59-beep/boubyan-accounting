@@ -1431,6 +1431,85 @@ function setupBot(bot) {
       return;
     }
 
+    // ── Voice-to-Journal ────────────────────────────────────────────────────
+    if (msg.voice || msg.audio) {
+      bot.sendMessage(chatId, '🎤 جاري تحليل الرسالة الصوتية...');
+      try {
+        const fileId   = (msg.voice || msg.audio).file_id;
+        const fileLink = await bot.getFileLink(fileId);
+        const https    = require('https');
+        const http     = require('http');
+        const proto    = fileLink.startsWith('https') ? https : http;
+        const tmpPath  = path.join(UPLOADS_DIR, `voice_${Date.now()}.ogg`);
+
+        await new Promise((resolve, reject) => {
+          const file = fs.createWriteStream(tmpPath);
+          proto.get(fileLink, r => { r.pipe(file); file.on('finish', resolve); }).on('error', reject);
+        });
+
+        // Claude doesn't transcribe audio directly — send as base64 + ask to interpret
+        // as text describing a financial transaction (user must send voice in Arabic)
+        const audioB64 = fs.readFileSync(tmpPath).toString('base64');
+        fs.removeSync(tmpPath);
+
+        const db    = loadDB();
+        const coa   = (db.chartOfAccounts || [])
+          .filter(a => !a.isGroup && a.status !== 'inactive')
+          .map(a => `${a.code}|${a.name}|${a.type}`).join('\n');
+        const today = new Date().toISOString().slice(0, 10);
+
+        // Use Claude to decode the voice as financial intent
+        const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version':'2023-06-01' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6', max_tokens: 800,
+            messages: [{ role: 'user', content: [
+              { type: 'document', source: { type: 'base64', media_type: 'audio/ogg', data: audioB64 } },
+              { type: 'text', text: `استمع لهذه الرسالة الصوتية وحولها لقيد محاسبي.
+اليوم: ${today}. دليل الحسابات:\n${coa}
+أعد JSON فقط:
+{"transcription":"النص المسموع","date":"YYYY-MM-DD","description":"وصف القيد","lines":[{"accountCode":"","accountName":"","debit":0,"credit":0}],"confidence":0.0}` }
+            ]}]
+          })
+        });
+
+        const rawText = (await aiResp.json()).content?.[0]?.text || '{}';
+        const jMatch  = rawText.match(/\{[\s\S]*\}/);
+        if (!jMatch) throw new Error('فشل تحليل الصوت');
+
+        const result = JSON.parse(jMatch[0]);
+        const lines  = (result.lines || []);
+        const dr     = lines.reduce((s, l) => s + (parseFloat(l.debit)  || 0), 0);
+        const cr     = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+        const bal    = Math.abs(dr - cr) < 0.005;
+
+        // Store pending voice JE for confirmation
+        if (!db.pendingVoiceJE) db.pendingVoiceJE = {};
+        db.pendingVoiceJE[chatId] = { result, dr, cr };
+        saveDB(db);
+
+        const esc = s => String(s||'').replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
+        const linesText = lines.map(l => `  ${esc(l.accountCode)} ${esc(l.accountName)}: مدين ${l.debit||0} / دائن ${l.credit||0}`).join('\n');
+
+        bot.sendMessage(chatId,
+          `🎤 *ما سمعته:* ${esc(result.transcription || '...')}\n\n` +
+          `📅 التاريخ: ${esc(result.date || today)}\n` +
+          `📝 الوصف: ${esc(result.description || '...')}\n\n` +
+          `📋 *القيد المقترح:*\n${linesText}\n\n` +
+          `${bal ? '✅ القيد متوازن' : '⚠️ القيد غير متوازن!'}\n` +
+          `هل تريد حفظ هذا القيد؟`,
+          { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
+            { text: '✅ حفظ القيد', callback_data: 'voice_je_confirm' },
+            { text: '❌ إلغاء',     callback_data: 'voice_je_cancel' }
+          ]]}}
+        );
+      } catch(err) {
+        bot.sendMessage(chatId, '❌ خطأ في تحليل الصوت: ' + err.message);
+      }
+      return;
+    }
+
     // Cancel invoice (text fallback)
     if (text === '/cancel_invoice') {
       const db = loadDB();
@@ -2131,6 +2210,52 @@ function setupBot(bot) {
       saveDB(db);
       bot.answerCallbackQuery(query.id);
       bot.sendMessage(chatId, '❌ تم إلغاء الفاتورة.');
+      return;
+    }
+
+    // Voice-to-Journal: save confirmed JE
+    if (data === 'voice_je_confirm') {
+      const db      = loadDB();
+      const pending = db.pendingVoiceJE?.[chatId];
+      if (!pending) { bot.answerCallbackQuery(query.id, { text: 'انتهت الجلسة' }); return; }
+      const result  = pending.result;
+      const lines   = (result.lines || []).map(l => ({
+        accountId:   l.accountCode,
+        accountCode: l.accountCode,
+        accountName: l.accountName,
+        debit:  parseFloat(l.debit)  || 0,
+        credit: parseFloat(l.credit) || 0,
+      }));
+      const totalDebit  = parseFloat(lines.reduce((s, l) => s + l.debit,  0).toFixed(3));
+      const totalCredit = parseFloat(lines.reduce((s, l) => s + l.credit, 0).toFixed(3));
+      const je = {
+        id: 'JE-VOICE-' + Date.now(),
+        date: result.date || new Date().toISOString().slice(0, 10),
+        desc: result.description || 'قيد صوتي',
+        ref: 'VOICE-TG',
+        type: 'voice_entry',
+        source: 'telegram_voice',
+        transcription: result.transcription || '',
+        confidence: result.confidence || 0,
+        totalDebit, totalCredit,
+        lines,
+        createdAt: new Date().toISOString(),
+      };
+      if (!db.journalEntries) db.journalEntries = [];
+      db.journalEntries.push(je);
+      delete db.pendingVoiceJE[chatId];
+      saveDB(db);
+      bot.answerCallbackQuery(query.id);
+      bot.sendMessage(chatId, `✅ تم حفظ القيد الصوتي!\n📋 ${je.desc}\n💰 ${totalDebit.toFixed(3)} د.ك\n🆔 ${je.id}`);
+      return;
+    }
+
+    if (data === 'voice_je_cancel') {
+      const db = loadDB();
+      if (db.pendingVoiceJE) delete db.pendingVoiceJE[chatId];
+      saveDB(db);
+      bot.answerCallbackQuery(query.id);
+      bot.sendMessage(chatId, '❌ تم إلغاء القيد الصوتي.');
       return;
     }
 
@@ -6678,5 +6803,463 @@ ${recentJE.substring(0,1000)}
   } catch(e) {
     res.status(500).json({ success: false, error: e.message });
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ① AI SMART ENTRY — نص عربي حر → قيد محاسبي مقترح
+// ═══════════════════════════════════════════════════════════════════════════
+app.post('/api/ai/suggest-entry', requireAuth, rateLimit(20), async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'text مطلوب' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY غير مضبوط' });
+
+  const db  = loadDB();
+  const coa = (db.chartOfAccounts || [])
+    .filter(a => !a.isGroup && a.status !== 'inactive')
+    .map(a => `${a.code}|${a.name}|${a.type}`)
+    .join('\n');
+  const today = new Date().toISOString().slice(0, 10);
+
+  try {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      system: `أنت محاسب قانوني للكويت متخصص في القيد المزدوج. العملة: KWD. اليوم: ${today}.
+دليل الحسابات:\n${coa}\nقواعد: القيد يجب أن يتوازن. أعد JSON فقط لا شرح.`,
+      messages: [{ role: 'user', content: `حوّل هذا النص لقيد محاسبي: "${text}"
+أعد JSON:
+{"date":"YYYY-MM-DD","description":"...","type":"...","confidence":0.0,"lines":[{"accountCode":"","accountName":"","debit":0,"credit":0}],"notes":"","ambiguous":false}` }]
+    });
+
+    const raw   = msg.content[0]?.text || '{}';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return res.status(500).json({ error: 'لم يتمكن الذكاء الاصطناعي من فهم النص' });
+
+    const suggestion = JSON.parse(match[0]);
+    const coaMap = {};
+    (db.chartOfAccounts || []).forEach(a => { coaMap[a.code] = a; });
+    const validated = (suggestion.lines || []).map(l => ({
+      ...l,
+      accountName: coaMap[l.accountCode]?.name || l.accountName,
+      valid:  !!coaMap[l.accountCode],
+      debit:  parseFloat(l.debit)  || 0,
+      credit: parseFloat(l.credit) || 0,
+    }));
+    const totalDr = validated.reduce((s, l) => s + l.debit,  0);
+    const totalCr = validated.reduce((s, l) => s + l.credit, 0);
+
+    res.json({
+      success: true,
+      suggestion: { ...suggestion, lines: validated },
+      balanced:    Math.abs(totalDr - totalCr) < 0.005,
+      totalDebit:  parseFloat(totalDr.toFixed(3)),
+      totalCredit: parseFloat(totalCr.toFixed(3)),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/ai/confirm-entry', requireAuth, (req, res) => {
+  const { suggestion, originalText } = req.body;
+  if (!suggestion?.lines) return res.status(400).json({ error: 'suggestion مطلوب' });
+
+  const db    = loadDB();
+  const lines = (suggestion.lines || []).map(l => ({
+    accountId:   l.accountCode,
+    accountCode: l.accountCode,
+    accountName: l.accountName,
+    debit:  parseFloat(l.debit)  || 0,
+    credit: parseFloat(l.credit) || 0,
+  }));
+  const totalDebit  = parseFloat(lines.reduce((s, l) => s + l.debit,  0).toFixed(3));
+  const totalCredit = parseFloat(lines.reduce((s, l) => s + l.credit, 0).toFixed(3));
+
+  if (Math.abs(totalDebit - totalCredit) > 0.005)
+    return res.status(400).json({ error: 'القيد غير متوازن' });
+
+  const je = {
+    id: 'JE-AI-' + Date.now(),
+    date: suggestion.date || new Date().toISOString().slice(0, 10),
+    desc: suggestion.description,
+    ref: 'AI-SMART',
+    type: suggestion.type || 'ai_entry',
+    source: 'ai_smart_entry',
+    originalText: originalText || '',
+    confidence: suggestion.confidence || 0,
+    totalDebit, totalCredit,
+    lines,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!db.journalEntries) db.journalEntries = [];
+  db.journalEntries.push(je);
+  saveDB(db);
+  res.json({ success: true, journalEntry: je });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ② ANOMALY ENGINE — كشف الشذوذ على كل قيد محاسبي
+// ═══════════════════════════════════════════════════════════════════════════
+function detectAnomalies(je, db) {
+  const flags = [];
+  const allJE = db.journalEntries || [];
+  const amt   = parseFloat(je.totalDebit) || 0;
+  const date  = je.date || '';
+
+  // Duplicate: same amount + same date
+  const dupes = allJE.filter(x =>
+    x.id !== je.id &&
+    Math.abs((parseFloat(x.totalDebit) || 0) - amt) < 0.001 &&
+    x.date === date
+  );
+  if (dupes.length)
+    flags.push({ code: 'DUPLICATE', severity: 'high', msg: `مبلغ مكرر (${amt} د.ك) في نفس التاريخ — قيد #${dupes[0].id}` });
+
+  // Round number
+  if (amt >= 500 && amt % 100 === 0)
+    flags.push({ code: 'ROUND_NUMBER', severity: 'medium', msg: `مبلغ مستدير كبير (${amt} د.ك) — يستحق المراجعة` });
+
+  // Statistical outlier (>mean+3σ over last 90 days)
+  const recent = allJE
+    .filter(x => x.date >= new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10))
+    .map(x => parseFloat(x.totalDebit) || 0).filter(v => v > 0);
+  if (recent.length >= 10) {
+    const mean = recent.reduce((s, v) => s + v, 0) / recent.length;
+    const std  = Math.sqrt(recent.reduce((s, v) => s + (v - mean) ** 2, 0) / recent.length);
+    if (amt > mean + 3 * std)
+      flags.push({ code: 'OUTLIER', severity: 'high', msg: `مبلغ خارج النطاق — يتجاوز المتوسط بـ ${((amt - mean) / std).toFixed(1)}σ` });
+  }
+
+  // Backdated into locked period
+  const period = date.slice(0, 7);
+  if ((db.lockedPeriods || {})[period])
+    flags.push({ code: 'LOCKED_PERIOD', severity: 'high', msg: `تاريخ في فترة مقفلة (${period})` });
+
+  // Weekend entry
+  const day = new Date(date).getDay();
+  if (day === 5 || day === 6)
+    flags.push({ code: 'WEEKEND', severity: 'low', msg: `قيد بتاريخ ${day === 5 ? 'جمعة' : 'سبت'}` });
+
+  // Unbalanced
+  const dr = parseFloat(je.totalDebit) || 0, cr = parseFloat(je.totalCredit) || 0;
+  if (Math.abs(dr - cr) > 0.005)
+    flags.push({ code: 'UNBALANCED', severity: 'critical', msg: `قيد غير متوازن! مدين ${dr.toFixed(3)} ≠ دائن ${cr.toFixed(3)}` });
+
+  return flags;
+}
+
+app.get('/api/anomalies', requireAuth, (req, res) => {
+  const db     = loadDB();
+  const result = [];
+  const sev    = { critical: 4, high: 3, medium: 2, low: 1 };
+  (db.journalEntries || []).forEach(je => {
+    const flags = detectAnomalies(je, db);
+    if (flags.length) result.push({ je: { id: je.id, date: je.date, desc: je.desc, totalDebit: je.totalDebit }, flags });
+  });
+  result.sort((a, b) => Math.max(...b.flags.map(f => sev[f.severity] || 0)) - Math.max(...a.flags.map(f => sev[f.severity] || 0)));
+  res.json({ total: result.length, anomalies: result.slice(0, 100) });
+});
+
+app.post('/api/anomalies/dismiss', requireAuth, (req, res) => {
+  const { jeId, code } = req.body;
+  const db = loadDB();
+  if (!db.dismissedAnomalies) db.dismissedAnomalies = [];
+  db.dismissedAnomalies.push({ jeId, code, dismissedAt: new Date().toISOString() });
+  saveDB(db);
+  res.json({ success: true });
+});
+
+app.post('/api/journal/check-anomaly', requireAuth, (req, res) => {
+  const { je } = req.body;
+  if (!je) return res.status(400).json({ error: 'je مطلوب' });
+  const db    = loadDB();
+  const flags = detectAnomalies(je, db);
+  res.json({ flags, count: flags.length, safe: !flags.some(f => f.severity !== 'low') });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ③ PIFSS + END-OF-SERVICE — وفق قانون العمل الكويتي
+// ═══════════════════════════════════════════════════════════════════════════
+function calcPifssForEmployee(emp) {
+  const basic     = parseFloat(emp.basicSalary) || 0;
+  const isKuwaiti = !!(emp.pifssEnrolled || (emp.nationality || '').includes('كويتي'));
+  const rates     = isKuwaiti ? { employee: 0.11, employer: 0.115 } : { employee: 0, employer: 0 };
+  return {
+    basic, isKuwaiti,
+    employeeShare: parseFloat((basic * rates.employee).toFixed(3)),
+    employerShare: parseFloat((basic * rates.employer).toFixed(3)),
+    total: parseFloat((basic * (rates.employee + rates.employer)).toFixed(3)),
+  };
+}
+
+function calcEosForEmployee(emp) {
+  if (!emp.hireDate) return { monthly: 0, accumulated: 0, years: 0 };
+  const years       = Math.max(0, (Date.now() - new Date(emp.hireDate)) / (365.25 * 864e5));
+  const basic       = parseFloat(emp.basicSalary) || 0;
+  const annualDays  = years <= 5 ? 15 : 30;
+  const monthly     = parseFloat((basic / 30 * annualDays / 12).toFixed(3));
+  const accumulated = parseFloat((basic / 30 * annualDays * Math.min(years, 5) + (years > 5 ? basic * (years - 5) : 0)).toFixed(3));
+  return { monthly, accumulated, years: parseFloat(years.toFixed(2)) };
+}
+
+app.post('/api/payroll/pifss-run', requireAuth, (req, res) => {
+  const { month } = req.body;
+  if (!month) return res.status(400).json({ error: 'month مطلوب (YYYY-MM)' });
+  const db   = loadDB();
+  const ref  = `PIFSS-${month}`;
+  if ((db.journalEntries || []).some(j => j.ref === ref))
+    return res.status(409).json({ error: `تم احتساب PIFSS لشهر ${month} مسبقاً` });
+
+  const details = [];
+  let total = 0;
+  (db.employees || []).forEach(emp => {
+    const p = calcPifssForEmployee(emp);
+    if (!p.isKuwaiti || p.total === 0) return;
+    details.push({ name: emp.name || emp.id, ...p });
+    total += p.employerShare;
+  });
+  if (!details.length) return res.json({ success: true, message: 'لا يوجد موظفون كويتيون', details: [] });
+
+  total = parseFloat(total.toFixed(3));
+  const accs    = db.chartOfAccounts || [];
+  const e5250   = accs.find(a => a.code === '5250') || { id:'5250', code:'5250', name:'مصاريف PIFSS' };
+  const e2200   = accs.find(a => a.code === '2200') || { id:'2200', code:'2200', name:'PIFSS مستحق' };
+  const je = {
+    id: 'JE-PIFSS-' + Date.now(), date: month + '-01', desc: `PIFSS شهر ${month}`,
+    ref, type: 'pifss', totalDebit: total, totalCredit: total,
+    createdAt: new Date().toISOString(),
+    lines: [
+      { accountId: e5250.id, accountCode: '5250', accountName: e5250.name, debit: total, credit: 0 },
+      { accountId: e2200.id, accountCode: '2200', accountName: e2200.name, debit: 0, credit: total },
+    ],
+  };
+  if (!db.journalEntries) db.journalEntries = [];
+  db.journalEntries.push(je);
+  saveDB(db);
+  res.json({ success: true, month, details, totalEmployerShare: total, journalEntry: je });
+});
+
+app.post('/api/payroll/eos-run', requireAuth, (req, res) => {
+  const { month } = req.body;
+  if (!month) return res.status(400).json({ error: 'month مطلوب' });
+  const db  = loadDB();
+  const ref = `EOS-${month}`;
+  if ((db.journalEntries || []).some(j => j.ref === ref))
+    return res.status(409).json({ error: `تم احتساب EOS لشهر ${month} مسبقاً` });
+
+  const details = [];
+  let total = 0;
+  (db.employees || []).forEach(emp => {
+    const e = calcEosForEmployee(emp);
+    if (e.monthly <= 0) return;
+    details.push({ name: emp.name || emp.id, basicSalary: emp.basicSalary, years: e.years, monthly: e.monthly, accumulated: e.accumulated });
+    total += e.monthly;
+  });
+  if (!details.length) return res.json({ success: true, message: 'لا توجد مستحقات — تأكد من تسجيل تاريخ التعيين', details: [] });
+
+  total = parseFloat(total.toFixed(3));
+  const accs  = db.chartOfAccounts || [];
+  const e5260 = accs.find(a => a.code === '5260') || { id:'5260', code:'5260', name:'مصاريف نهاية الخدمة' };
+  const e2300 = accs.find(a => a.code === '2300') || { id:'2300', code:'2300', name:'مخصص نهاية الخدمة' };
+  const je = {
+    id: 'JE-EOS-' + Date.now(), date: month + '-01', desc: `مخصص نهاية الخدمة ${month}`,
+    ref, type: 'end_of_service', totalDebit: total, totalCredit: total,
+    createdAt: new Date().toISOString(),
+    lines: [
+      { accountId: e5260.id, accountCode: '5260', accountName: e5260.name, debit: total, credit: 0 },
+      { accountId: e2300.id, accountCode: '2300', accountName: e2300.name, debit: 0, credit: total },
+    ],
+  };
+  if (!db.journalEntries) db.journalEntries = [];
+  db.journalEntries.push(je);
+  saveDB(db);
+  res.json({ success: true, month, details, totalMonthly: total, journalEntry: je });
+});
+
+app.post('/api/payroll/pifss-pay', requireAuth, (req, res) => {
+  const { month, payDate, amount } = req.body;
+  if (!month || !amount) return res.status(400).json({ error: 'month + amount مطلوبان' });
+  const db  = loadDB();
+  const amt = parseFloat(amount);
+  const accs = db.chartOfAccounts || [];
+  const e2200 = accs.find(a => a.code === '2200') || { id:'2200', code:'2200', name:'PIFSS مستحق' };
+  const e1110 = accs.find(a => a.code === '1110') || { id:'1110', code:'1110', name:'البنك' };
+  const je = {
+    id: 'JE-PIFSS-PAY-' + Date.now(), date: payDate || new Date().toISOString().slice(0, 10),
+    desc: `دفع PIFSS شهر ${month}`, ref: `PIFSS-PAY-${month}`, type: 'pifss_payment',
+    totalDebit: amt, totalCredit: amt, createdAt: new Date().toISOString(),
+    lines: [
+      { accountId: e2200.id, accountCode: '2200', accountName: e2200.name, debit: amt, credit: 0 },
+      { accountId: e1110.id, accountCode: '1110', accountName: e1110.name, debit: 0, credit: amt },
+    ],
+  };
+  if (!db.journalEntries) db.journalEntries = [];
+  db.journalEntries.push(je);
+  saveDB(db);
+  res.json({ success: true, journalEntry: je });
+});
+
+app.put('/api/employees/:id/hr', requireAuth, (req, res) => {
+  const db  = loadDB();
+  const emp = (db.employees || []).find(e => String(e.id) === String(req.params.id));
+  if (!emp) return res.status(404).json({ error: 'الموظف غير موجود' });
+  const { hireDate, nationality, basicSalary, pifssEnrolled, position } = req.body;
+  if (hireDate !== undefined)       emp.hireDate       = hireDate;
+  if (nationality !== undefined)    emp.nationality    = nationality;
+  if (basicSalary !== undefined)    emp.basicSalary    = parseFloat(basicSalary) || emp.basicSalary;
+  if (pifssEnrolled !== undefined)  emp.pifssEnrolled  = pifssEnrolled;
+  if (position !== undefined)       emp.position       = position;
+  saveDB(db);
+  res.json({ success: true, employee: emp, pifss: calcPifssForEmployee(emp), eos: calcEosForEmployee(emp) });
+});
+
+app.get('/api/payroll/hr-summary', requireAuth, (req, res) => {
+  const db   = loadDB();
+  const emps = (db.employees || []).map(emp => ({ ...emp, pifss: calcPifssForEmployee(emp), eos: calcEosForEmployee(emp) }));
+  res.json({
+    employees: emps,
+    totals: {
+      pifssEmployer:   parseFloat(emps.reduce((s, e) => s + e.pifss.employerShare, 0).toFixed(3)),
+      pifssEmployee:   parseFloat(emps.reduce((s, e) => s + e.pifss.employeeShare, 0).toFixed(3)),
+      eosMonthly:      parseFloat(emps.reduce((s, e) => s + e.eos.monthly,         0).toFixed(3)),
+      eosAccumulated:  parseFloat(emps.reduce((s, e) => s + e.eos.accumulated,     0).toFixed(3)),
+    },
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ④ MONTH-END CLOSE — إقفال شهري كامل بزر واحد
+// ═══════════════════════════════════════════════════════════════════════════
+app.post('/api/close/run-all', requireAuth, async (req, res) => {
+  const { month, options = {} } = req.body;
+  if (!month) return res.status(400).json({ error: 'month مطلوب (YYYY-MM)' });
+
+  const db  = loadDB();
+  const log = [];
+  const step = (id, label, status, detail = '') =>
+    log.push({ id, label, status, detail, ts: new Date().toISOString() });
+
+  if ((db.lockedPeriods || {})[month])
+    return res.status(409).json({ error: `الفترة ${month} مقفلة بالفعل`, log });
+
+  if (!db.journalEntries) db.journalEntries = [];
+
+  // STEP 1: Depreciation
+  if (options.depreciation !== false) {
+    const depRef     = `DEP-${month}`;
+    const alreadyDep = db.journalEntries.some(j => j.ref === depRef);
+    const active     = (db.fixedAssets || []).filter(a => a.status === 'active');
+    if (alreadyDep) { step('depreciation','قيد الإهلاك','skipped','تم مسبقاً'); }
+    else if (!active.length) { step('depreciation','قيد الإهلاك','skipped','لا أصول ثابتة'); }
+    else {
+      const lines = []; let totalDep = 0;
+      active.forEach(asset => {
+        const ann  = ((parseFloat(asset.cost)||0) - (parseFloat(asset.salvageValue)||0)) / (parseInt(asset.usefulLife)||5);
+        const mon  = ann / 12;
+        const nbv  = (parseFloat(asset.cost)||0) - (parseFloat(asset.accumulatedDep)||0);
+        const sal  = parseFloat(asset.salvageValue)||0;
+        if (nbv <= sal || mon <= 0) return;
+        const dep  = parseFloat(Math.min(mon, nbv - sal).toFixed(3));
+        asset.accumulatedDep = parseFloat(((parseFloat(asset.accumulatedDep)||0) + dep).toFixed(3));
+        totalDep += dep;
+        lines.push({ accountCode: asset.depExpAccount||'5680', accountName:'مصروف اهتلاك — '+asset.name, debit:dep,  credit:0 });
+        lines.push({ accountCode: asset.accDepAccount||'1590', accountName:'مجمع اهتلاك — '+asset.name,  debit:0,   credit:dep });
+      });
+      totalDep = parseFloat(totalDep.toFixed(3));
+      if (lines.length && totalDep > 0) {
+        db.journalEntries.push({ id:'JE-DEP-'+Date.now(), date:month+'-01', desc:`قيد اهتلاك ${month}`, ref:depRef, type:'depreciation', totalDebit:totalDep, totalCredit:totalDep, lines, createdAt:new Date().toISOString() });
+        step('depreciation','قيد الإهلاك','done',`${totalDep.toFixed(3)} د.ك`);
+      }
+    }
+  }
+
+  // STEP 2: PIFSS
+  if (options.pifss !== false) {
+    const pifssRef = `PIFSS-${month}`;
+    if (db.journalEntries.some(j => j.ref === pifssRef)) { step('pifss','PIFSS','skipped','تم مسبقاً'); }
+    else {
+      let tot = 0;
+      (db.employees||[]).forEach(e => { tot += calcPifssForEmployee(e).employerShare; });
+      tot = parseFloat(tot.toFixed(3));
+      if (tot > 0) {
+        const accs = db.chartOfAccounts||[];
+        const e5250 = accs.find(a=>a.code==='5250')||{id:'5250',code:'5250',name:'مصاريف PIFSS'};
+        const e2200 = accs.find(a=>a.code==='2200')||{id:'2200',code:'2200',name:'PIFSS مستحق'};
+        db.journalEntries.push({ id:'JE-PIFSS-'+Date.now(), date:month+'-01', desc:`PIFSS ${month}`, ref:pifssRef, type:'pifss', totalDebit:tot, totalCredit:tot, createdAt:new Date().toISOString(), lines:[{accountId:e5250.id,accountCode:'5250',accountName:e5250.name,debit:tot,credit:0},{accountId:e2200.id,accountCode:'2200',accountName:e2200.name,debit:0,credit:tot}] });
+        step('pifss','PIFSS التأمينات','done',`${tot.toFixed(3)} د.ك`);
+      } else { step('pifss','PIFSS','skipped','لا موظفون كويتيون'); }
+    }
+  }
+
+  // STEP 3: EOS
+  if (options.eos !== false) {
+    const eosRef = `EOS-${month}`;
+    if (db.journalEntries.some(j => j.ref === eosRef)) { step('eos','نهاية الخدمة','skipped','تم مسبقاً'); }
+    else {
+      let tot = 0;
+      (db.employees||[]).forEach(e => { tot += calcEosForEmployee(e).monthly; });
+      tot = parseFloat(tot.toFixed(3));
+      if (tot > 0) {
+        const accs  = db.chartOfAccounts||[];
+        const e5260 = accs.find(a=>a.code==='5260')||{id:'5260',code:'5260',name:'مصاريف نهاية الخدمة'};
+        const e2300 = accs.find(a=>a.code==='2300')||{id:'2300',code:'2300',name:'مخصص نهاية الخدمة'};
+        db.journalEntries.push({ id:'JE-EOS-'+Date.now(), date:month+'-01', desc:`نهاية الخدمة ${month}`, ref:eosRef, type:'end_of_service', totalDebit:tot, totalCredit:tot, createdAt:new Date().toISOString(), lines:[{accountId:e5260.id,accountCode:'5260',accountName:e5260.name,debit:tot,credit:0},{accountId:e2300.id,accountCode:'2300',accountName:e2300.name,debit:0,credit:tot}] });
+        step('eos','مخصص نهاية الخدمة','done',`${tot.toFixed(3)} د.ك`);
+      } else { step('eos','نهاية الخدمة','skipped','لا تواريخ تعيين'); }
+    }
+  }
+
+  // STEP 4: Closing Entry
+  if (options.closing !== false) {
+    const closeRef = `CLOSE-${month}`;
+    if (db.journalEntries.some(j => j.ref === closeRef)) { step('closing','قيد الإقفال','skipped','تم مسبقاً'); }
+    else {
+      const monthJE  = db.journalEntries.filter(j => (j.date||'').startsWith(month));
+      const coaAccs  = db.chartOfAccounts||[];
+      const balMap   = {};
+      monthJE.forEach(je => (je.lines||[]).forEach(l => {
+        const c = String(l.accountCode||l.account||''); if (!c) return;
+        if (!balMap[c]) balMap[c] = {debit:0,credit:0};
+        balMap[c].debit  += parseFloat(l.debit)||0;
+        balMap[c].credit += parseFloat(l.credit)||0;
+      }));
+      const cLines = []; let net = 0;
+      coaAccs.filter(a=>a.type==='revenue').forEach(a => {
+        const b = balMap[a.code]; if (!b) return;
+        const bal = parseFloat((b.credit-b.debit).toFixed(3));
+        if (Math.abs(bal)<0.001) return;
+        cLines.push({accountCode:a.code,accountName:a.name,debit:Math.max(0,bal),credit:0}); net += bal;
+      });
+      coaAccs.filter(a=>a.type==='expense').forEach(a => {
+        const b = balMap[a.code]; if (!b) return;
+        const bal = parseFloat((b.debit-b.credit).toFixed(3));
+        if (Math.abs(bal)<0.001) return;
+        cLines.push({accountCode:a.code,accountName:a.name,debit:0,credit:Math.max(0,bal)}); net -= bal;
+      });
+      if (cLines.length) {
+        const net3300 = parseFloat(net.toFixed(3));
+        const p3300   = coaAccs.find(a=>a.code==='3300')||{code:'3300',name:'أرباح/خسائر الفترة'};
+        cLines.push(net3300>=0 ? {accountCode:'3300',accountName:p3300.name,debit:0,credit:Math.abs(net3300)} : {accountCode:'3300',accountName:p3300.name,debit:Math.abs(net3300),credit:0});
+        const tDr = parseFloat(cLines.reduce((s,l)=>s+(l.debit||0),0).toFixed(3));
+        const tCr = parseFloat(cLines.reduce((s,l)=>s+(l.credit||0),0).toFixed(3));
+        db.journalEntries.push({ id:'JE-CLOSE-'+Date.now(), date:month+'-28', desc:`إقفال شهر ${month}`, ref:closeRef, type:'closing', totalDebit:tDr, totalCredit:tCr, createdAt:new Date().toISOString(), lines:cLines });
+        step('closing','قيد الإقفال','done',`صافي ${net3300>=0?'ربح':'خسارة'} ${Math.abs(net3300).toFixed(3)} د.ك`);
+      } else { step('closing','قيد الإقفال','skipped','لا إيرادات/مصاريف'); }
+    }
+  }
+
+  // STEP 5: Lock period
+  if (options.lock !== false) {
+    if (!db.lockedPeriods) db.lockedPeriods = {};
+    db.lockedPeriods[month] = true;
+    step('lock','قفل الفترة','done',`${month} مقفلة الآن`);
+  }
+
+  saveDB(db);
+  const done    = log.filter(s => s.status === 'done').length;
+  const skipped = log.filter(s => s.status === 'skipped').length;
+  res.json({ success: true, month, log, summary: `${done} خطوة منجزة، ${skipped} متخطاة`, locked: options.lock !== false });
 });
 

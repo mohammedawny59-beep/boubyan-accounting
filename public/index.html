@@ -1588,6 +1588,7 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
     </button>
     <div class="sub-panel" id="cat-accounting">
       <button id="nav-journal" class="nav-item" onclick="showTab('journal',this)"><span class="ni">≡</span><span class="nav-label" data-i18n="journal">القيود اليومية</span></button>
+      <button class="nav-item" onclick="openMonthCloseModal()" style="background:rgba(99,102,241,.08);border-color:rgba(99,102,241,.25)"><span class="ni">🔒</span><span class="nav-label">إقفال شهري</span></button>
       <button class="nav-item" onclick="showTab('coa',this)"><span class="ni">◳</span><span class="nav-label" data-i18n="coa">شجرة الحسابات</span></button>
       <button class="nav-item" onclick="showTab('ledger',this)"><span class="ni">▤</span><span class="nav-label" data-i18n="ledger">كشف الحساب</span></button>
       <button class="nav-item" onclick="showTab('recurring',this)"><span class="ni">↻</span><span class="nav-label" data-i18n="recurring">القيود المتكررة</span></button>
@@ -2033,19 +2034,48 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
   <div id="tab-payroll" class="sec">
     <div class="sh">
       <div><div class="st">👥 كشف الرواتب</div><div class="ss">إدارة رواتب الموظفين مع قيود تلقائية</div></div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn bw bsm" onclick="showTab('payroll-employees',null)" style="display:none">الموظفون</button>
         <button class="btn bp bsm" onclick="openPayrollModal()">+ كشف راتب جديد</button>
       </div>
     </div>
+
+    <!-- PIFSS + EOS Panel -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      <!-- PIFSS Card -->
+      <div class="tw" style="margin-bottom:0;padding:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--accent)">🏛️ PIFSS — التأمينات الاجتماعية</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px">صاحب العمل 11.5% + الموظف 11% (كويتيون فقط)</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="month" id="pifssMonth" class="fi" style="flex:1;min-width:120px" value="">
+          <button class="btn bp bsm" onclick="runPifss()">احتساب PIFSS</button>
+          <button class="btn bw bsm" onclick="openPifssPayModal()">دفع PIFSS</button>
+        </div>
+        <div id="pifssResult" style="margin-top:8px;font-size:12px;display:none"></div>
+      </div>
+      <!-- EOS Card -->
+      <div class="tw" style="margin-bottom:0;padding:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--accent)">🤝 مكافأة نهاية الخدمة (EOS)</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px">15 يوم/سنة (أول 5 سنوات) ثم شهر/سنة — قانون العمل الكويتي</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="month" id="eosMonth" class="fi" style="flex:1;min-width:120px" value="">
+          <button class="btn bp bsm" onclick="runEos()">احتساب EOS</button>
+          <button class="btn bw bsm" onclick="loadHrSummary()">📊 ملخص HR</button>
+        </div>
+        <div id="eosResult" style="margin-top:8px;font-size:12px;display:none"></div>
+      </div>
+    </div>
+
     <!-- Employees sub-section -->
     <div class="tw" style="margin-bottom:14px">
       <div class="th2">
         <div class="tt">👤 الموظفون</div>
-        <button class="btn bw bsm" onclick="openEmpModal()">+ موظف</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn bw bsm" onclick="openEmpModal()">+ موظف</button>
+        </div>
       </div>
-      <table><thead><tr><th>الاسم</th><th>الوظيفة</th><th>الراتب الأساسي</th><th>البدلات</th></tr></thead>
-      <tbody id="empBody"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون — أضف موظفاً أولاً</td></tr></tbody></table>
+      <table><thead><tr><th>الاسم</th><th>الوظيفة</th><th>الراتب الأساسي</th><th>الجنسية</th><th>تاريخ التعيين</th><th>PIFSS</th><th>EOS/شهر</th><th></th></tr></thead>
+      <tbody id="empBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون — أضف موظفاً أولاً</td></tr></tbody></table>
     </div>
     <!-- Payroll records -->
     <div class="tw">
@@ -2205,7 +2235,20 @@ html.light .lem-btn.secondary:hover { background: var(--surface3); }
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn bp bsm" onclick="openJournalModal()">+ قيد يدوي</button>
         <button class="btn bw bsm" onclick="exportJournal()">⬇ تصدير Excel</button>
+        <button class="btn bw bsm" onclick="openAnomalyPanel()" id="anomalyNavBtn" style="position:relative">
+          ⚠️ الشذوذ <span id="anomalyBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;line-height:18px;text-align:center">0</span>
+        </button>
       </div>
+    </div>
+
+    <!-- AI Smart Entry Bar -->
+    <div style="background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.1));border:1px solid rgba(99,102,241,.35);border-radius:12px;padding:14px 16px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px">🤖 AI Smart Entry — قيد ذكي من نص عربي</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="aiEntryText" class="fi" placeholder='مثال: "دفعنا 45 د.ك إيجار للمختبر نقداً"' style="flex:1;font-size:13px" onkeydown="if(event.key==='Enter')suggestJournalEntry()">
+        <button class="btn bp bsm" onclick="suggestJournalEntry()" id="aiEntryBtn">✨ اقتراح قيد</button>
+      </div>
+      <div id="aiEntryResult" style="display:none;margin-top:12px"></div>
     </div>
 
     <!-- Filter -->
@@ -10587,6 +10630,340 @@ showTab = function(id, el) {
     </div>
   </div>
 </div>
+
+<!-- ═══ MONTH-END CLOSE MODAL ═══ -->
+<div id="monthCloseModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mc" style="max-width:520px;width:95%">
+    <div class="mtit">🔒 إقفال شهري — Month-End Close</div>
+    <div style="padding:0 20px 20px">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+        <label style="font-size:13px;white-space:nowrap">الشهر:</label>
+        <input type="month" id="closeMonth" class="fi" style="flex:1">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;font-size:12px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptDep" checked> الإهلاك التلقائي</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptPifss" checked> PIFSS التأمينات</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptEos" checked> نهاية الخدمة EOS</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptClose" checked> قيد الإقفال</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptLock" checked> قفل الفترة</label>
+      </div>
+      <div id="closeLog" style="display:none;background:var(--surface2);border-radius:10px;padding:12px;font-size:12px;max-height:280px;overflow-y:auto"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn bw" onclick="document.getElementById('monthCloseModal').classList.remove('open')">إلغاء</button>
+        <button class="btn bp" id="closeRunBtn" onclick="runMonthClose()">🚀 تشغيل الإقفال</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ANOMALY PANEL MODAL ═══ -->
+<div id="anomalyModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mc" style="max-width:680px;width:95%">
+    <div class="mtit">⚠️ محرك كشف الشذوذ — Anomaly Engine</div>
+    <div style="padding:0 20px 20px">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px">يفحص جميع القيود تلقائياً — قيود مكررة، مبالغ شاذة، فترات مقفلة، وغيرها</div>
+      <div id="anomalyList" style="max-height:400px;overflow-y:auto"></div>
+      <div style="text-align:left;margin-top:12px">
+        <button class="btn bw" onclick="document.getElementById('anomalyModal').classList.remove('open')">إغلاق</button>
+        <button class="btn bp" onclick="loadAnomalies()" style="margin-right:8px">🔄 تحديث</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PIFSS PAY MODAL ═══ -->
+<div id="pifssPayModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mc" style="max-width:380px;width:95%">
+    <div class="mtit">💸 دفع PIFSS</div>
+    <div style="padding:0 20px 20px;display:flex;flex-direction:column;gap:12px">
+      <div><label class="lbl">شهر PIFSS</label><input type="month" id="pifssPayMonth" class="fi" style="width:100%"></div>
+      <div><label class="lbl">تاريخ الدفع</label><input type="date" id="pifssPayDate" class="fi" style="width:100%"></div>
+      <div><label class="lbl">المبلغ (د.ك)</label><input type="number" id="pifssPayAmt" class="fi" style="width:100%" step="0.001" placeholder="0.000"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn bw" onclick="document.getElementById('pifssPayModal').classList.remove('open')">إلغاء</button>
+        <button class="btn bp" onclick="payPifss()">تسجيل الدفع</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ HR SUMMARY MODAL ═══ -->
+<div id="hrModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mc" style="max-width:700px;width:95%">
+    <div class="mtit">📊 ملخص HR — PIFSS + EOS</div>
+    <div style="padding:0 20px 20px">
+      <div id="hrSummaryBody"></div>
+      <div style="text-align:left;margin-top:12px">
+        <button class="btn bw" onclick="document.getElementById('hrModal').classList.remove('open')">إغلاق</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// AI SMART ENTRY
+// ══════════════════════════════════════════════════════════
+async function suggestJournalEntry() {
+  const text = document.getElementById('aiEntryText').value.trim();
+  if (!text) return toast('أدخل نصاً وصفياً للقيد', 'warning');
+  const btn = document.getElementById('aiEntryBtn');
+  btn.disabled = true; btn.textContent = '⏳...';
+  const box = document.getElementById('aiEntryResult');
+  box.style.display = 'none'; box.innerHTML = '';
+  try {
+    const d = await apiFetch('ai/suggest-entry', { method:'POST', body: JSON.stringify({ text }) });
+    if (!d.success) { toast(d.error || 'فشل الاقتراح', 'error'); return; }
+    const s = d.suggestion;
+    const bal = d.balanced;
+    const rows = (s.lines || []).map(l =>
+      `<tr><td>${l.accountCode}</td><td>${l.accountName||''}</td><td style="color:var(--blue)">${l.debit > 0 ? l.debit.toFixed(3) : ''}</td><td style="color:var(--red)">${l.credit > 0 ? l.credit.toFixed(3) : ''}</td></tr>`
+    ).join('');
+    box.innerHTML = `
+      <div style="border:1px solid rgba(99,102,241,.3);border-radius:10px;overflow:hidden">
+        <div style="padding:10px 14px;background:rgba(99,102,241,.1);display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700;font-size:13px">${s.description || text}</div>
+          <div style="font-size:11px;color:${bal?'#4ade80':'#ef4444'}">${bal?'✅ متوازن':'⚠️ غير متوازن'} | ثقة: ${((s.confidence||0)*100).toFixed(0)}%</div>
+        </div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <thead><tr style="background:rgba(255,255,255,.04)"><th style="padding:6px 10px;text-align:right">الحساب</th><th style="text-align:right;padding:6px 10px">الاسم</th><th style="text-align:right;padding:6px 10px">مدين</th><th style="text-align:right;padding:6px 10px">دائن</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${s.notes ? `<div style="padding:8px 14px;font-size:11px;color:var(--text3)">💡 ${s.notes}</div>` : ''}
+        ${bal ? `<div style="padding:10px 14px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn bw bsm" onclick="document.getElementById('aiEntryResult').style.display='none'">إلغاء</button>
+          <button class="btn bp bsm" onclick="confirmAiEntry(${JSON.stringify(JSON.stringify({suggestion:s,originalText:text}))})">💾 حفظ القيد</button>
+        </div>` : `<div style="padding:8px 14px;color:#ef4444;font-size:11px">⚠️ ${s.ambiguous ? 'النص غير واضح، يرجى التوضيح' : 'القيد غير متوازن — راجع المبالغ'}</div>`}
+      </div>`;
+    box.style.display = 'block';
+  } catch(e) { toast('خطأ: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '✨ اقتراح قيد'; }
+}
+
+async function confirmAiEntry(jsonStr) {
+  try {
+    const payload = JSON.parse(jsonStr);
+    const d = await apiFetch('ai/confirm-entry', { method:'POST', body: JSON.stringify(payload) });
+    if (d.success) {
+      toast('✅ تم حفظ القيد الذكي بنجاح!', 'success');
+      document.getElementById('aiEntryText').value = '';
+      document.getElementById('aiEntryResult').style.display = 'none';
+      loadJournal?.();
+    } else { toast(d.error || 'فشل الحفظ', 'error'); }
+  } catch(e) { toast('خطأ: ' + e.message, 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════
+// ANOMALY ENGINE
+// ══════════════════════════════════════════════════════════
+async function loadAnomalies() {
+  try {
+    const d = await apiFetch('anomalies');
+    const badge = document.getElementById('anomalyBadge');
+    const highCount = d.anomalies?.filter(a => a.flags.some(f => f.severity === 'critical' || f.severity === 'high')).length || 0;
+    if (badge) { badge.textContent = highCount; badge.style.display = highCount ? 'block' : 'none'; }
+    const box = document.getElementById('anomalyList');
+    if (!box) return;
+    if (!d.anomalies?.length) { box.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3)">✅ لا توجد شذوذات — جميع القيود طبيعية</div>'; return; }
+    const sevColor = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#6b7280' };
+    const sevLabel = { critical: 'حرج', high: 'عالي', medium: 'متوسط', low: 'منخفض' };
+    box.innerHTML = d.anomalies.map(a => `
+      <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px">
+          <span style="font-weight:700">${a.je.date} — ${a.je.desc || '—'}</span>
+          <span style="color:var(--text3)">${(a.je.totalDebit||0).toFixed(3)} د.ك</span>
+        </div>
+        ${a.flags.map(f => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:${sevColor[f.severity]}22;border-radius:6px;margin-bottom:4px;font-size:11px">
+            <span style="color:${sevColor[f.severity]};font-weight:700;white-space:nowrap">${sevLabel[f.severity]}</span>
+            <span>${f.msg}</span>
+            <button onclick="dismissAnomaly('${a.je.id}','${f.code}',this)" style="margin-right:auto;background:none;border:1px solid var(--border);color:var(--text3);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px">تجاهل</button>
+          </div>`).join('')}
+      </div>`).join('');
+  } catch(e) { console.warn('anomaly load:', e.message); }
+}
+
+function openAnomalyPanel() {
+  document.getElementById('anomalyModal').classList.add('open');
+  loadAnomalies();
+}
+
+async function dismissAnomaly(jeId, code, btn) {
+  await apiFetch('anomalies/dismiss', { method:'POST', body: JSON.stringify({ jeId, code }) });
+  btn.closest('div[style*="border-radius:6px"]').style.opacity = '0.35';
+  toast('تم تجاهل التنبيه', 'info');
+}
+
+// ══════════════════════════════════════════════════════════
+// PIFSS + EOS
+// ══════════════════════════════════════════════════════════
+async function runPifss() {
+  const month = document.getElementById('pifssMonth').value;
+  if (!month) return toast('اختر الشهر', 'warning');
+  const box = document.getElementById('pifssResult');
+  box.style.display = 'none';
+  try {
+    const d = await apiFetch('payroll/pifss-run', { method:'POST', body: JSON.stringify({ month }) });
+    if (d.success) {
+      const rows = (d.details||[]).map(e => `<div style="display:flex;justify-content:space-between"><span>${e.name}</span><span>${e.employerShare.toFixed(3)} د.ك</span></div>`).join('');
+      box.innerHTML = `<div style="background:rgba(16,185,129,.1);border-radius:8px;padding:10px">
+        <div style="font-weight:700;margin-bottom:6px">✅ تم احتساب PIFSS — إجمالي: ${(d.totalEmployerShare||0).toFixed(3)} د.ك</div>
+        ${rows || '<div style="color:var(--text3)">' + (d.message||'') + '</div>'}
+      </div>`;
+      box.style.display = 'block';
+      toast('✅ تم احتساب PIFSS وإنشاء القيد', 'success');
+      loadJournal?.();
+    } else { toast(d.error || 'فشل', 'error'); }
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function runEos() {
+  const month = document.getElementById('eosMonth').value;
+  if (!month) return toast('اختر الشهر', 'warning');
+  const box = document.getElementById('eosResult');
+  box.style.display = 'none';
+  try {
+    const d = await apiFetch('payroll/eos-run', { method:'POST', body: JSON.stringify({ month }) });
+    if (d.success) {
+      const rows = (d.details||[]).map(e => `<div style="display:flex;justify-content:space-between"><span>${e.name} (${e.years} سنة)</span><span>${e.monthly.toFixed(3)} د.ك/شهر</span></div>`).join('');
+      box.innerHTML = `<div style="background:rgba(16,185,129,.1);border-radius:8px;padding:10px">
+        <div style="font-weight:700;margin-bottom:6px">✅ تم احتساب EOS — إجمالي شهري: ${(d.totalMonthly||0).toFixed(3)} د.ك</div>
+        ${rows || '<div style="color:var(--text3)">' + (d.message||'') + '</div>'}
+      </div>`;
+      box.style.display = 'block';
+      toast('✅ تم احتساب نهاية الخدمة وإنشاء القيد', 'success');
+      loadJournal?.();
+    } else { toast(d.error || 'فشل', 'error'); }
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function openPifssPayModal() {
+  const m = document.getElementById('pifssMonth').value || new Date().toISOString().slice(0,7);
+  document.getElementById('pifssPayMonth').value = m;
+  document.getElementById('pifssPayDate').value  = new Date().toISOString().slice(0,10);
+  document.getElementById('pifssPayModal').classList.add('open');
+}
+
+async function payPifss() {
+  const month   = document.getElementById('pifssPayMonth').value;
+  const payDate = document.getElementById('pifssPayDate').value;
+  const amount  = parseFloat(document.getElementById('pifssPayAmt').value);
+  if (!month || !amount) return toast('يرجى ملء جميع الحقول', 'warning');
+  try {
+    const d = await apiFetch('payroll/pifss-pay', { method:'POST', body: JSON.stringify({ month, payDate, amount }) });
+    if (d.success) {
+      toast('✅ تم تسجيل دفع PIFSS', 'success');
+      document.getElementById('pifssPayModal').classList.remove('open');
+      loadJournal?.();
+    } else { toast(d.error || 'فشل', 'error'); }
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadHrSummary() {
+  const modal = document.getElementById('hrModal');
+  modal.classList.add('open');
+  const box = document.getElementById('hrSummaryBody');
+  box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">جارٍ التحميل...</div>';
+  try {
+    const d = await apiFetch('payroll/hr-summary');
+    const t = d.totals || {};
+    const rows = (d.employees||[]).map(e => `
+      <tr>
+        <td>${e.name||e.id||'—'}</td>
+        <td>${e.nationality||'—'}</td>
+        <td>${e.hireDate||'—'}</td>
+        <td>${(e.basicSalary||0).toFixed(3)}</td>
+        <td style="color:${e.pifss.isKuwaiti?'#4ade80':'var(--text3)'}">${e.pifss.isKuwaiti?'✓':'—'}</td>
+        <td>${e.pifss.employerShare.toFixed(3)}</td>
+        <td>${e.eos.monthly.toFixed(3)}</td>
+        <td>${e.eos.years.toFixed(1)} سنة</td>
+      </tr>`).join('');
+    box.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+        <div class="kc bl"><div class="kl">PIFSS صاحب العمل/شهر</div><div class="kv">${t.pifssEmployer?.toFixed(3)||'—'}</div><div class="ks">د.ك</div></div>
+        <div class="kc ye"><div class="kl">PIFSS الموظف/شهر</div><div class="kv">${t.pifssEmployee?.toFixed(3)||'—'}</div><div class="ks">د.ك</div></div>
+        <div class="kc gr"><div class="kl">EOS شهري</div><div class="kv">${t.eosMonthly?.toFixed(3)||'—'}</div><div class="ks">د.ك</div></div>
+        <div class="kc re"><div class="kl">EOS مراكمي</div><div class="kv">${t.eosAccumulated?.toFixed(3)||'—'}</div><div class="ks">د.ك</div></div>
+      </div>
+      <div class="tw" style="margin:0"><table style="width:100%;font-size:12px">
+        <thead><tr><th>الاسم</th><th>الجنسية</th><th>تاريخ التعيين</th><th>الأساسي</th><th>PIFSS</th><th>حصة الشركة</th><th>EOS/شهر</th><th>سنوات الخدمة</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون</td></tr>'}</tbody>
+      </table></div>`;
+  } catch(e) { box.innerHTML = `<div style="color:#ef4444">خطأ: ${e.message}</div>`; }
+}
+
+// ══════════════════════════════════════════════════════════
+// MONTH-END CLOSE
+// ══════════════════════════════════════════════════════════
+function openMonthCloseModal() {
+  const m = new Date();
+  const last = new Date(m.getFullYear(), m.getMonth(), 0);
+  document.getElementById('closeMonth').value = last.toISOString().slice(0,7);
+  document.getElementById('closeLog').style.display = 'none';
+  document.getElementById('closeLog').innerHTML = '';
+  document.getElementById('monthCloseModal').classList.add('open');
+}
+
+async function runMonthClose() {
+  const month = document.getElementById('closeMonth').value;
+  if (!month) return toast('اختر الشهر', 'warning');
+  const options = {
+    depreciation: document.getElementById('closeOptDep').checked,
+    pifss:        document.getElementById('closeOptPifss').checked,
+    eos:          document.getElementById('closeOptEos').checked,
+    closing:      document.getElementById('closeOptClose').checked,
+    lock:         document.getElementById('closeOptLock').checked,
+  };
+  const btn = document.getElementById('closeRunBtn');
+  btn.disabled = true; btn.textContent = '⏳ جارٍ الإقفال...';
+  const logBox = document.getElementById('closeLog');
+  logBox.innerHTML = '<div style="color:var(--text3)">جارٍ تنفيذ خطوات الإقفال...</div>';
+  logBox.style.display = 'block';
+  try {
+    const d = await apiFetch('close/run-all', { method:'POST', body: JSON.stringify({ month, options }) });
+    const statusIcon = { done:'✅', skipped:'⏭️', error:'❌' };
+    logBox.innerHTML = (d.log||[]).map(s => `
+      <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="flex-shrink:0">${statusIcon[s.status]||'•'}</span>
+        <div>
+          <div style="font-weight:700;font-size:12px">${s.label}</div>
+          ${s.detail ? `<div style="font-size:11px;color:var(--text3)">${s.detail}</div>` : ''}
+        </div>
+        <span style="margin-right:auto;font-size:10px;color:var(--text3)">${s.ts?.slice(11,19)||''}</span>
+      </div>`).join('') +
+      `<div style="margin-top:10px;font-weight:700;color:${d.success?'#4ade80':'#ef4444'}">${d.summary||''}</div>`;
+    if (d.success) {
+      toast(`✅ ${d.summary}`, 'success', 5000);
+      loadJournal?.();
+      loadAnomalies();
+    }
+  } catch(e) {
+    logBox.innerHTML = `<div style="color:#ef4444">❌ خطأ: ${e.message}</div>`;
+    toast('فشل الإقفال: ' + e.message, 'error');
+  } finally { btn.disabled = false; btn.textContent = '🚀 تشغيل الإقفال'; }
+}
+
+// ══════════════════════════════════════════════════════════
+// Init: load anomalies on first visit
+// ══════════════════════════════════════════════════════════
+(function initNewFeatures() {
+  const orig = window.showTab;
+  window.showTab = function(id, el) {
+    if (typeof orig === 'function') orig(id, el);
+    if (id === 'journal') { setTimeout(loadAnomalies, 500); }
+    if (id === 'payroll') {
+      const now  = new Date();
+      const yymm = now.toISOString().slice(0,7);
+      const el1  = document.getElementById('pifssMonth');
+      const el2  = document.getElementById('eosMonth');
+      if (el1 && !el1.value) el1.value = yymm;
+      if (el2 && !el2.value) el2.value = yymm;
+    }
+  };
+  // Load badge on page init
+  setTimeout(loadAnomalies, 2000);
+})();
+</script>
 
 </body>
 </html>
