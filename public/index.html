@@ -2137,8 +2137,8 @@ body { font-size: calc(14px * var(--fs-scale)); }
     </div>
     <div class="tw" style="margin-top:16px;">
       <div class="th2"><div class="tt">📁 الملفات المرفوعة</div></div>
-      <table><thead><tr><th>اسم الملف</th><th>النوع</th><th>السجلات</th><th>تاريخ الرفع</th></tr></thead>
-      <tbody id="filesBody"><tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا يوجد ملفات</td></tr></tbody></table>
+      <table><thead><tr><th>اسم الملف</th><th>النوع</th><th>السجلات</th><th>تاريخ الرفع</th><th></th></tr></thead>
+      <tbody id="filesBody"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px;">لا يوجد ملفات</td></tr></tbody></table>
     </div>
   </div>
 
@@ -2531,6 +2531,16 @@ body { font-size: calc(14px * var(--fs-scale)); }
       <div class="th2"><div class="tt">سجل المصاريف</div></div>
       <table><thead><tr><th>التاريخ</th><th>الوصف</th><th>التصنيف</th><th>المبلغ</th><th></th></tr></thead>
       <tbody id="expBody"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px;">لا توجد مصاريف مسجّلة</td></tr></tbody></table>
+    </div>
+
+    <!-- ACCRUED EXPENSES ─────────────────────────────── -->
+    <div class="tw" style="margin-top:20px;">
+      <div class="th2" style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="tt">⏳ المصاريف المستحقة (غير المدفوعة)</div>
+        <button class="btn bp bsm" onclick="openAccruedModal()">+ إضافة مصروف مستحق</button>
+      </div>
+      <table><thead><tr><th>الوصف</th><th>الشهر</th><th>المبلغ</th><th>الحساب</th><th>المورد</th><th>تاريخ الاستحقاق</th><th>الحالة</th><th></th></tr></thead>
+      <tbody id="accruedBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr></tbody></table>
     </div>
   </div>
 
@@ -4220,6 +4230,29 @@ body { font-size: calc(14px * var(--fs-scale)); }
 </div>
 
 <!-- Expense Modal -->
+<!-- Accrued Expenses Modal -->
+<div class="modal" id="accruedModal">
+  <div class="mbox" style="width:480px;max-width:96vw;">
+    <div class="mtit">⏳ إضافة مصروف مستحق</div>
+    <div class="fr"><label class="flbl">الوصف <span style="color:var(--danger)">*</span></label><input class="finp" id="acrDesc" placeholder="إيجار يونيو، رواتب..."></div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">الشهر <span style="color:var(--danger)">*</span></label><input type="month" class="finp" id="acrMonth"></div>
+      <div class="fr" style="margin:0"><label class="flbl">المبلغ (د.ك) <span style="color:var(--danger)">*</span></label><input type="number" class="finp" id="acrAmount" placeholder="0.000" step="0.001"></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">رقم الحساب</label><input class="finp" id="acrCode" placeholder="5100" oninput="onAcrCodeInput()"></div>
+      <div class="fr" style="margin:0"><label class="flbl">تاريخ الاستحقاق</label><input type="date" class="finp" id="acrDue"></div>
+    </div>
+    <div class="fr"><label class="flbl">المورد / الجهة</label><input class="finp" id="acrVendor" placeholder="اسم المورد..."></div>
+    <div class="fr"><label class="flbl">ملاحظات</label><input class="finp" id="acrNotes" placeholder="..."></div>
+    <div id="acrCodeName" style="font-size:11px;color:var(--accent2);min-height:14px;margin-bottom:6px;"></div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="saveAccrued()">💾 حفظ وإنشاء قيد</button>
+      <button class="btn bd" onclick="closeModal('accruedModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="expModal">
   <div class="mbox">
     <div class="mtit">💸 إضافة مصروف</div>
@@ -4549,12 +4582,24 @@ function onLoginSuccess() {
   // Apply permissions to nav
   applyPermissions();
 
+  // Fix template download links to include auth token
+  fixTemplateLinks();
+
   // Load config first, then app data
   loadAndApplyConfig();
   loadAll().then(() => {
     const firstNav = document.querySelector('.nav-item:not([style*="display: none"]):not([style*="display:none"])');
     const firstTab = firstNav?.getAttribute('onclick')?.match(/showTab\('(\w+)'/)?.[1] || 'dashboard';
     showTab(firstTab, firstNav);
+  });
+}
+
+function fixTemplateLinks() {
+  const token = getToken();
+  if (!token) return;
+  document.querySelectorAll('a.btn-dl[href*="/api/templates/"]').forEach(a => {
+    const base = a.getAttribute('href').split('?')[0];
+    a.href = base + '?_token=' + encodeURIComponent(token);
   });
 }
 
@@ -4696,7 +4741,7 @@ function showTab(id, el) {
   if (id === 'dashboard') loadDashboard();
   if (id === 'doctors') loadDoctors();
   if (id === 'upload') loadFiles();
-  if (id === 'expenses') loadExpenses();
+  if (id === 'expenses') { loadExpenses(); loadAccrued(); }
   if (id === 'settings') loadSettings();
   if (id === 'superadmin') loadAndApplyConfig();
   if (id === 'coa') renderCoa();
@@ -4812,13 +4857,135 @@ async function doUpload(file) {
 function loadFiles() {
   const files = DB.uploadedFiles || [];
   document.getElementById('filesBody').innerHTML = files.length ?
-    files.map(f => `<tr>
+    files.map((f,i) => `<tr>
       <td>${f.name}</td>
-      <td><span class="badge bg">${f.type === 'daily' ? 'Daily Income' : 'Payments'}</span></td>
+      <td><span class="badge bg">${f.type === 'daily' ? 'إيرادات يومية' : f.type === 'payments' ? 'مدفوعات' : f.type||'-'}</span></td>
       <td class="num">${f.records}</td>
       <td>${new Date(f.date).toLocaleDateString('ar')}</td>
+      <td>
+        <button onclick="deleteUploadedFile('${f.id||i}')" style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:5px;cursor:pointer;font-size:11px;padding:3px 8px;">🗑 حذف</button>
+      </td>
     </tr>`).join('') :
-    '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا يوجد ملفات</td></tr>';
+    '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px;">لا يوجد ملفات</td></tr>';
+}
+
+async function deleteUploadedFile(fileId) {
+  if (!confirm('حذف هذا الملف وجميع بياناته؟ هذا الإجراء لا يمكن التراجع عنه.')) return;
+  try {
+    const r = await fetch(`${API}/uploaded-files/${fileId}`, { method:'DELETE' });
+    const d = await r.json();
+    if (d.success) {
+      showToast(`تم الحذف — ${d.removed||0} سجل محذوف`, 'success');
+      await loadAll(); loadFiles();
+    } else showToast(d.error||'خطأ في الحذف', 'error');
+  } catch { showToast('خطأ في الاتصال', 'error'); }
+}
+
+// ── ACCRUED EXPENSES ──────────────────────────────────────────────────────
+let _accruedList = [];
+
+function openAccruedModal() {
+  document.getElementById('acrDesc').value = '';
+  document.getElementById('acrMonth').value = new Date().toISOString().slice(0,7);
+  document.getElementById('acrAmount').value = '';
+  document.getElementById('acrCode').value = '';
+  document.getElementById('acrDue').value = '';
+  document.getElementById('acrVendor').value = '';
+  document.getElementById('acrNotes').value = '';
+  document.getElementById('acrCodeName').textContent = '';
+  document.getElementById('accruedModal').classList.add('open');
+}
+
+function onAcrCodeInput() {
+  const code = document.getElementById('acrCode').value.trim();
+  const acc = getCoaAccounts().find(a => a.code === code);
+  const el = document.getElementById('acrCodeName');
+  el.textContent = acc ? `✓ ${acc.name}` : (code ? 'رقم الحساب غير موجود في شجرة الحسابات' : '');
+  el.style.color = acc ? 'var(--accent2)' : 'var(--danger)';
+}
+
+async function saveAccrued() {
+  const desc   = document.getElementById('acrDesc').value.trim();
+  const month  = document.getElementById('acrMonth').value;
+  const amount = document.getElementById('acrAmount').value;
+  if (!desc || !month || !amount) { showToast('الوصف والشهر والمبلغ مطلوبة', 'warning'); return; }
+  const code   = document.getElementById('acrCode').value.trim();
+  const acc    = getCoaAccounts().find(a => a.code === code);
+  const body   = {
+    description: desc, month, amount,
+    accountCode: code || '5800',
+    accountName: acc?.name || 'مصاريف متنوعة',
+    dueDate:  document.getElementById('acrDue').value,
+    vendor:   document.getElementById('acrVendor').value.trim(),
+    notes:    document.getElementById('acrNotes').value.trim(),
+  };
+  try {
+    const r = await fetch(`${API}/accrued-expenses`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    if (d.success) {
+      closeModal('accruedModal');
+      showToast('تم إضافة المصروف المستحق وإنشاء القيد', 'success');
+      await loadAll(); loadAccrued();
+    } else showToast(d.error||'خطأ في الحفظ', 'error');
+  } catch { showToast('خطأ في الاتصال', 'error'); }
+}
+
+async function loadAccrued() {
+  try {
+    const r = await fetch(`${API}/accrued-expenses`);
+    const d = await r.json();
+    _accruedList = d.accruedExpenses || [];
+  } catch { _accruedList = []; }
+  renderAccrued();
+}
+
+function renderAccrued() {
+  const tb = document.getElementById('accruedBody');
+  if (!tb) return;
+  if (!_accruedList.length) {
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr>';
+    return;
+  }
+  tb.innerHTML = _accruedList.map(a => {
+    const statusColor = a.status==='paid' ? 'var(--accent2)' : (a.dueDate && a.dueDate < new Date().toISOString().slice(0,10)) ? 'var(--danger)' : 'var(--warning)';
+    const statusLabel = a.status==='paid' ? '✅ مدفوع' : (a.dueDate && a.dueDate < new Date().toISOString().slice(0,10)) ? '⚠️ متأخر' : '⏳ مستحق';
+    return `<tr>
+      <td>${a.description}</td>
+      <td>${a.month}</td>
+      <td class="num">${parseFloat(a.amount||0).toFixed(3)}</td>
+      <td style="font-size:11px">${a.accountCode} ${a.accountName}</td>
+      <td>${a.vendor||'-'}</td>
+      <td>${a.dueDate||'-'}</td>
+      <td><span style="color:${statusColor};font-size:11px">${statusLabel}</span></td>
+      <td style="display:flex;gap:4px;">
+        ${a.status!=='paid'?`<button onclick="markAccruedPaid('${a.id}')" style="background:rgba(0,255,157,.08);color:var(--accent2);border:1px solid rgba(0,255,157,.2);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 7px;">دفع</button>`:''}
+        <button onclick="deleteAccrued('${a.id}')" style="background:rgba(248,113,113,.08);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 7px;">حذف</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function markAccruedPaid(id) {
+  const paidDate = prompt('تاريخ السداد:', new Date().toISOString().slice(0,10));
+  if (!paidDate) return;
+  const paidAmount = prompt('المبلغ المدفوع (اتركه فارغاً للمبلغ الكامل):', '');
+  try {
+    const body = { status:'paid', paidDate, paidAmount: paidAmount||undefined };
+    const r = await fetch(`${API}/accrued-expenses/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    if (d.success) { showToast('تم تسجيل السداد وإنشاء قيد العكس', 'success'); await loadAll(); loadAccrued(); }
+    else showToast(d.error||'خطأ', 'error');
+  } catch { showToast('خطأ في الاتصال', 'error'); }
+}
+
+async function deleteAccrued(id) {
+  if (!confirm('حذف هذا المصروف المستحق وقيده المحاسبي؟')) return;
+  try {
+    const r = await fetch(`${API}/accrued-expenses/${id}`, { method:'DELETE' });
+    const d = await r.json();
+    if (d.success) { showToast('تم الحذف', 'success'); await loadAll(); loadAccrued(); }
+    else showToast(d.error||'خطأ', 'error');
+  } catch { showToast('خطأ في الاتصال', 'error'); }
 }
 
 // DOCTORS
@@ -5780,26 +5947,72 @@ function toggleJFilter() {
 
 let jLineCount = 0;
 
-function addJLine(debit='', credit='', accountId='', desc='') {
+function addJLine(debit='', credit='', accountId='', desc='', remarks='') {
   const accounts = getCoaAccounts();
   const id = ++jLineCount;
-  // Round to 3dp to avoid floating-point display/balance issues
   const dv = debit  !== '' && debit  !== null && debit  !== undefined ? (Math.round(parseFloat(debit)  * 1000) / 1000 || '') : '';
   const cv = credit !== '' && credit !== null && credit !== undefined ? (Math.round(parseFloat(credit) * 1000) / 1000 || '') : '';
+  const selAcc = accounts.find(a => a.id === accountId);
+  const dispVal = selAcc ? `${selAcc.code} — ${selAcc.name}` : '';
   const div = document.createElement('div');
   div.id = 'jline_' + id;
-  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 32px;gap:6px;margin-bottom:6px;align-items:center;';
+  div.style.cssText = 'margin-bottom:6px;';
   div.innerHTML = `
-    <select class="finp" id="jl_acc_${id}" style="font-size:11px;">
-      <option value="">— اختر الحساب —</option>
-      ${accounts.map(a => `<option value="${a.id}" ${a.id===accountId?'selected':''}>${a.code} — ${a.name}</option>`).join('')}
-    </select>
-    <input class="finp" type="number" id="jl_debit_${id}" placeholder="مدين" value="${dv}" step="0.001" oninput="updateJBalance()">
-    <input class="finp" type="number" id="jl_credit_${id}" placeholder="دائن" value="${cv}" step="0.001" oninput="updateJBalance()">
-    <button onclick="document.getElementById('jline_${id}').remove();updateJBalance();" style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:6px;cursor:pointer;font-size:14px;width:28px;height:28px;">×</button>
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 28px;gap:5px;align-items:center;">
+      <div style="position:relative;">
+        <input class="finp" id="jl_txt_${id}" placeholder="ابحث بالكود أو الاسم..." value="${dispVal.replace(/"/g,'&quot;')}" autocomplete="off"
+          style="font-size:11px;width:100%;box-sizing:border-box;"
+          oninput="filterJLineAccounts(${id})" onfocus="showJLineDropdown(${id})" onblur="setTimeout(()=>hideJLineDropdown(${id}),200)">
+        <input type="hidden" id="jl_acc_${id}" value="${accountId}">
+        <div id="jl_drop_${id}" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:6px;max-height:160px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.4);"></div>
+      </div>
+      <input class="finp" type="number" id="jl_debit_${id}" placeholder="مدين" value="${dv}" step="0.001" oninput="updateJBalance()">
+      <input class="finp" type="number" id="jl_credit_${id}" placeholder="دائن" value="${cv}" step="0.001" oninput="updateJBalance()">
+      <button onclick="document.getElementById('jline_${id}').remove();updateJBalance();" style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:6px;cursor:pointer;font-size:14px;width:28px;height:28px;">×</button>
+    </div>
+    <input class="finp" id="jl_rem_${id}" placeholder="ملاحظات هذا السطر (اختياري)" value="${(remarks||'').replace(/"/g,'&quot;')}"
+      style="font-size:10px;margin-top:3px;width:100%;box-sizing:border-box;padding:4px 8px;color:var(--text3);">
   `;
   document.getElementById('jLines').appendChild(div);
   updateJBalance();
+}
+
+function filterJLineAccounts(id) {
+  const q = (document.getElementById('jl_txt_'+id)?.value||'').toLowerCase();
+  showJLineDropdown(id, q);
+}
+
+function showJLineDropdown(id, q='') {
+  const drop = document.getElementById('jl_drop_'+id);
+  if (!drop) return;
+  const accounts = getCoaAccounts().filter(a => !a.isGroup);
+  const txt = document.getElementById('jl_txt_'+id)?.value||'';
+  const query = q || txt.toLowerCase();
+  const matches = query.length > 0
+    ? accounts.filter(a => a.code.includes(query) || a.name.includes(query)).slice(0,30)
+    : accounts.slice(0,30);
+  drop.innerHTML = matches.map(a =>
+    `<div onclick="selectJLineAccount(${id},'${a.id}','${a.code} — ${a.name.replace(/'/g,"\\'")}');hideJLineDropdown(${id})"
+      style="padding:6px 10px;cursor:pointer;font-size:11px;border-bottom:1px solid rgba(255,255,255,.04);"
+      onmouseover="this.style.background='rgba(79,142,247,.15)'" onmouseout="this.style.background=''">
+      <span style="color:var(--accent);font-family:monospace">${a.code}</span>
+      <span style="color:var(--text);margin-right:6px">${a.name}</span>
+    </div>`
+  ).join('') || '<div style="padding:8px;color:var(--text3);font-size:11px;">لا توجد نتائج</div>';
+  drop.style.display = 'block';
+}
+
+function selectJLineAccount(id, accountId, label) {
+  const hidden = document.getElementById('jl_acc_'+id);
+  const txt    = document.getElementById('jl_txt_'+id);
+  if (hidden) hidden.value = accountId;
+  if (txt)    txt.value   = label;
+  hideJLineDropdown(id);
+}
+
+function hideJLineDropdown(id) {
+  const drop = document.getElementById('jl_drop_'+id);
+  if (drop) drop.style.display = 'none';
 }
 
 function updateJBalance() {
@@ -5885,11 +6098,12 @@ async function saveJournal() {
   document.querySelectorAll('[id^="jl_acc_"]').forEach(el => {
     const lineId = el.id.replace('jl_acc_','');
     const accountId = el.value;
-    const debit  = parseFloat(document.getElementById('jl_debit_'+lineId)?.value)||0;
-    const credit = parseFloat(document.getElementById('jl_credit_'+lineId)?.value)||0;
+    const debit   = parseFloat(document.getElementById('jl_debit_'+lineId)?.value)||0;
+    const credit  = parseFloat(document.getElementById('jl_credit_'+lineId)?.value)||0;
+    const remarks = document.getElementById('jl_rem_'+lineId)?.value?.trim()||'';
     if (accountId && (debit || credit)) {
       const acc = getCoaAccounts().find(a => a.id === accountId);
-      lines.push({ accountId, accountCode: acc?.code||'', accountName: acc?.name||'', debit, credit });
+      lines.push({ accountId, accountCode: acc?.code||'', accountName: acc?.name||'', debit, credit, remarks });
       totalDebit += debit; totalCredit += credit;
     }
   });
@@ -6052,12 +6266,48 @@ function editJournal(id) {
   document.getElementById('jRef').value = e.ref || '';
   document.getElementById('jDesc').value = e.desc;
   document.getElementById('jLines').innerHTML = '';
-  e.lines.forEach(l => addJLine(l.debit||'', l.credit||'', l.accountId||''));
+  e.lines.forEach(l => addJLine(l.debit||'', l.credit||'', l.accountId||'', '', l.remarks||''));
   document.querySelectorAll('#journalModal .finp, #journalModal select').forEach(el => el.disabled = false);
+
+  const learnBtn = e.autoGenerated
+    ? `<button class="btn bsm" style="background:rgba(139,92,246,.12);color:#a78bfa;border:1px solid rgba(139,92,246,.25);" onclick="learnFromJournalEdit('${e.id}')">🧠 تعلّم من هذا التعديل</button>`
+    : '';
   document.getElementById('journalModal').querySelector('.mact').innerHTML = `
     <button class="btn bs" style="flex:1" onclick="saveJournal()">💾 حفظ التعديل</button>
+    ${learnBtn}
     <button class="btn bd" onclick="closeModal('journalModal')">إلغاء</button>`;
   document.getElementById('journalModal').classList.add('open');
+}
+
+async function learnFromJournalEdit(originalId) {
+  const originalEntry = (DB.journalEntries||[]).find(e => e.id === originalId);
+  if (!originalEntry) return;
+
+  // Build corrected entry from current modal state
+  const lines = [];
+  document.querySelectorAll('[id^="jl_acc_"]').forEach(el => {
+    const lineId = el.id.replace('jl_acc_','');
+    const accountId = el.value;
+    const debit   = parseFloat(document.getElementById('jl_debit_'+lineId)?.value)||0;
+    const credit  = parseFloat(document.getElementById('jl_credit_'+lineId)?.value)||0;
+    const remarks = document.getElementById('jl_rem_'+lineId)?.value?.trim()||'';
+    if (accountId && (debit||credit)) {
+      const acc = getCoaAccounts().find(a=>a.id===accountId);
+      lines.push({ accountId, accountCode:acc?.code||'', accountName:acc?.name||'', debit, credit, remarks });
+    }
+  });
+
+  const reason = prompt('سبب التعديل (اختياري) — سيساعد النظام على التعلّم:','') || '';
+
+  try {
+    const r = await fetch(`${API}/journal/learn`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ originalEntry, correctedEntry: {...originalEntry, lines}, reason })
+    });
+    const d = await r.json();
+    if (d.success) showToast('✅ تم حفظ التعديل — النظام سيتذكر هذا القيد', 'success');
+    else showToast('خطأ: '+(d.error||''), 'error');
+  } catch { showToast('خطأ في الاتصال', 'error'); }
 }
 
 async function deleteJournal(id) {
@@ -6310,8 +6560,23 @@ function onCoaTypeChange(){const t=document.getElementById('coaType').value;cons
 function onCoaParentChange(){
   const accounts=getCoaAccounts(),dm=buildCoaDepthMap(accounts);
   const pid=document.getElementById('coaParent').value,lb=document.getElementById('coaLevelBadge');
-  if(pid){const par=accounts.find(a=>a.id===pid);if(lb)lb.textContent='مستوى '+((dm[pid]||1)+1);if(par)document.getElementById('coaType').value=par.type;}
-  else if(lb)lb.textContent='مستوى 1';
+  if(pid){
+    const par=accounts.find(a=>a.id===pid);
+    if(lb)lb.textContent='مستوى '+((dm[pid]||1)+1);
+    if(par)document.getElementById('coaType').value=par.type;
+    // Auto-suggest next code under this parent
+    const isEdit=!!document.getElementById('coaEditId').value;
+    if(!isEdit){
+      fetch(`${API}/coa/next-code?parent=${encodeURIComponent(pid)}`).then(r=>r.json()).then(d=>{
+        if(d.nextCode){
+          document.getElementById('coaCode').value=d.nextCode;
+          const ht=document.getElementById('coaCodeHint');
+          if(ht) ht.innerHTML='<span style="color:var(--accent2)">✨ رقم مقترح تلقائياً: '+d.nextCode+'</span>';
+          onCoaCodeInput();
+        }
+      }).catch(()=>{});
+    }
+  } else if(lb) lb.textContent='مستوى 1';
   checkCoaPlacement();
 }
 function onCoaNameInput(){checkCoaPlacement();}
