@@ -7008,13 +7008,15 @@ async function sendCoaAiMsg(){
     })});
     coaAiMessages=coaAiMessages.filter(m=>!m._t);
     const reply=r.reply||'لم أتمكن من الرد';
-    const jm=reply.match(/{"action":"addAccounts"[sS]*?}/);
-    if(jm){
+    // Extract first complete JSON object (brace-counting, handles nesting)
+    const extractFirstJson=(txt)=>{const s=txt.indexOf('{');if(s<0)return null;let d=0;for(let i=s;i<txt.length;i++){if(txt[i]==='{')d++;else if(txt[i]==='}'){d--;if(d===0)return txt.slice(s,i+1);}}return null;};
+    const rawJson=extractFirstJson(reply);
+    if(rawJson){
       try{
-        const act=JSON.parse(jm[0]);
-        if(act.accounts&&act.accounts.length){
-          const tp=reply.replace(jm[0],'').trim();
-          coaAiMessages.push({role:'assistant',content:tp+'\n\n🔧 سأضيف '+act.accounts.length+' حساب — هل توافق؟'});
+        const act=JSON.parse(rawJson);
+        if(act.action==='addAccounts'&&act.accounts&&act.accounts.length){
+          const tp=reply.replace(rawJson,'').replace(/```json?|```/g,'').trim();
+          coaAiMessages.push({role:'assistant',content:(tp||'اقتراح إضافة حساب:')+'\n\n🔧 سأضيف '+act.accounts.length+' حساب — هل توافق؟'});
           renderCoaAiMessages();
           const es=encodeURIComponent(JSON.stringify(act.accounts));
           const last=document.getElementById('coaAiMessages').lastChild;
@@ -7027,7 +7029,7 @@ async function sendCoaAiMsg(){
         }
       }catch(e){}
     }
-    coaAiMessages.push({role:'assistant',content:reply});renderCoaAiMessages();
+    coaAiMessages.push({role:'assistant',content:reply.replace(/```json?|```/g,'').trim()});renderCoaAiMessages();
   }catch(e){
     coaAiMessages=coaAiMessages.filter(m=>!m._t);
     coaAiMessages.push({role:'assistant',content:'❌ خطأ في الاتصال. تأكد من ضبط ANTHROPIC_API_KEY.'});
@@ -7035,11 +7037,20 @@ async function sendCoaAiMsg(){
   }
 }
 async function applyCoaAiSuggestion(accounts){
-  let added=0;
-  for(const acc of accounts){try{await apiFetch('/coa/account',{method:'POST',body:JSON.stringify(acc)});added++;}catch(e){}}
+  let added=0,failed=0;
+  for(const acc of accounts){
+    try{
+      const r=await apiFetch('/coa/account',{method:'POST',body:JSON.stringify(acc)});
+      if(r&&r.success)added++;
+      else failed++;
+    }catch(e){failed++;}
+  }
   await loadAll();coaBalances={};renderCoa();
-  coaAiMessages.push({role:'assistant',content:'✅ تم إضافة '+added+' حساب بنجاح!'});
-  renderCoaAiMessages();showToast('تمت إضافة '+added+' حساب ✅','success');
+  const msg=added>0?`✅ تم إضافة ${added} حساب بنجاح!`+(failed?` (${failed} فشل)`:''):(`❌ فشلت الإضافة — الأكواد موجودة مسبقاً`);
+  coaAiMessages.push({role:'assistant',content:msg});
+  renderCoaAiMessages();
+  if(added>0)showToast('تمت إضافة '+added+' حساب ✅','success');
+  else showToast('فشلت الإضافة — الكود موجود مسبقاً','error');
 }
 
 
