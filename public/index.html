@@ -1781,6 +1781,172 @@ body { font-size: calc(14px * var(--fs-scale)); }
   .content-wrap { margin-right:0 !important; }
   @page { margin:15mm; }
 }
+
+/* ══════════════════════════════════════════════════════
+   SIDEBAR v3 — Production Redesign
+   Apple HIG · Material 3 · Heroicon SVG icons
+   No emoji, proper spacing, search, tooltips
+══════════════════════════════════════════════════════ */
+
+/* — Sidebar quick search — */
+.sidebar-search {
+  position: relative;
+  margin: 0 0 10px;
+  flex-shrink: 0;
+}
+.sidebar-search input {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 32px 7px 10px;
+  color: var(--text); font-family: inherit; font-size: 11.5px;
+  outline: none; transition: border-color 150ms;
+}
+.sidebar-search input:focus { border-color: var(--borderFoc); }
+.sidebar-search input::placeholder { color: var(--text3); }
+.sidebar-search .ss-icon {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  color: var(--text3); pointer-events: none; display: flex;
+}
+.sidebar.collapsed .sidebar-search { display: none; }
+
+/* — Category buttons redesign — */
+.cat-btn {
+  position: relative;
+  border-radius: 8px !important;
+  padding: 9px 10px !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.01em;
+  border-left: 2px solid transparent;
+  transition: color var(--t-base), background var(--t-base), border-color var(--t-base) !important;
+}
+.cat-btn[aria-expanded="true"] {
+  background: var(--surface2) !important;
+  border-left-color: var(--cat-accent, var(--accent)) !important;
+}
+.cat-btn:hover { border-left-color: rgba(255,255,255,.1); }
+
+/* Per-category accent colors */
+.cat-btn[data-cat="main"]        { --cat-accent: #3b82f6; }
+.cat-btn[data-cat="finance"]     { --cat-accent: #10b981; }
+.cat-btn[data-cat="accounting"]  { --cat-accent: #f59e0b; }
+.cat-btn[data-cat="reports"]     { --cat-accent: #ef4444; }
+.cat-btn[data-cat="inventory"]   { --cat-accent: #8b5cf6; }
+.cat-btn[data-cat="ai"]          { --cat-accent: #06b6d4; }
+.cat-btn[data-cat="admin"]       { --cat-accent: #6366f1; }
+
+/* — Category icon dots redesign — */
+.cat-icon {
+  width: 28px !important; height: 28px !important;
+  border-radius: 8px !important;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 150ms;
+}
+.cat-icon svg { width: 15px; height: 15px; }
+
+/* — Nav items — */
+.nav-item {
+  border-radius: 7px !important;
+  font-size: 12px !important;
+  padding: 8px 10px !important;
+  gap: 10px !important;
+  min-height: 36px !important;
+}
+.nav-item .ni-svg {
+  width: 16px; height: 16px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.7; transition: opacity 150ms;
+}
+.nav-item:hover .ni-svg,
+.nav-item.active .ni-svg { opacity: 1; }
+.nav-item .ni-svg svg { width: 13px; height: 13px; }
+
+/* Hide old .ni text icons */
+.nav-item .ni { display: none !important; }
+
+/* — Sub-panel tree line — */
+.sub-panel {
+  margin-right: 14px !important;
+  padding-right: 10px !important;
+  border-right: 1.5px solid rgba(255,255,255,0.06) !important;
+  gap: 2px !important;
+}
+
+/* — Active state enhancement — */
+.nav-item.active {
+  background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)) !important;
+  border-color: rgba(59,130,246,0.25) !important;
+  color: var(--accentLight) !important;
+}
+.nav-item.active::before {
+  right: -1px !important;
+  width: 3px !important;
+  box-shadow: 0 0 10px rgba(59,130,246,0.5) !important;
+}
+
+/* — Collapsed tooltip — */
+.sidebar.collapsed .nav-item {
+  position: relative;
+}
+.sidebar.collapsed .nav-item::after {
+  content: attr(data-label);
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%; transform: translateY(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px; font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 7px;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  opacity: 0; pointer-events: none;
+  transition: opacity 150ms, transform 150ms;
+  transform: translateY(-50%) translateX(6px);
+  z-index: 9000;
+}
+.sidebar.collapsed .nav-item:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+.sidebar.collapsed .cat-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%; transform: translateY(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px; font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 7px;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  opacity: 0; pointer-events: none;
+  transition: opacity 150ms;
+  z-index: 9000;
+}
+.sidebar.collapsed .cat-btn:hover::after { opacity: 1; }
+
+/* — Search highlight — */
+.nav-item.sb-hidden { display: none !important; }
+.nav-item.sb-match .nav-label { color: var(--accentLight); }
+
+/* — Light mode overrides — */
+html.light .sub-panel {
+  border-right-color: rgba(0,0,0,0.08) !important;
+}
+html.light .cat-btn[aria-expanded="true"] {
+  background: rgba(59,130,246,0.06) !important;
+}
+html.light .sidebar-search input {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.12);
+  color: var(--text);
+}
 </style>
 </head>
 <body>
@@ -1913,115 +2079,133 @@ body { font-size: calc(14px * var(--fs-scale)); }
 </header>
 
 <div class="app-body">
-  <!-- SIDEBAR v2 — Contextual Accordion Navigation -->
+  <!-- SIDEBAR v3 — SVG Icons · Search · Tooltips · Accent Colors -->
   <aside class="sidebar" id="sidebar" aria-label="القائمة الجانبية" role="navigation">
 
     <!-- Brand + Collapse -->
     <div class="sidebar-header">
       <div class="sidebar-brand">
         <div class="sidebar-brand-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M9 3C6.8 3 5 4.8 5 7c0 1.4.5 2.6 1.2 3.8L7.8 21c.3 1 1.4 1 1.7 0L11 15h2l1.5 6c.3 1 1.4 1 1.7 0l1.6-10.2C18.5 9.6 19 8.4 19 7c0-2.2-1.8-4-4-4-1.1 0-2 .4-2.7 1.1A3.9 3.9 0 0 0 10 3H9z" fill="white"/>
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 3C6.8 3 5 4.8 5 7c0 1.4.5 2.6 1.2 3.8L7.8 21c.3 1 1.4 1 1.7 0L11 15h2l1.5 6c.3 1 1.4 1 1.7 0l1.6-10.2C18.5 9.6 19 8.4 19 7c0-2.2-1.8-4-4-4-1.1 0-2 .4-2.7 1.1A3.9 3.9 0 0 0 10 3H9z" fill="white"/></svg>
         </div>
         <span class="sidebar-logo-text" data-i18n="brand">بوبيان</span>
       </div>
       <button class="collapse-btn" id="collapseBtn" onclick="toggleSidebar()" aria-label="طي القائمة" title="طي/توسيع القائمة">‹</button>
     </div>
 
+    <!-- Quick search -->
+    <div class="sidebar-search">
+      <input type="text" id="sidebarSearch" placeholder="بحث سريع..." autocomplete="off" oninput="filterSidebar(this.value)" aria-label="بحث في القائمة">
+      <span class="ss-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+    </div>
+
     <!-- ── Category 1: الرئيسية ── -->
-    <button class="cat-btn" onclick="toggleCat('main')" data-cat="main" aria-expanded="true" aria-controls="cat-main">
-      <span class="cat-icon" style="background:rgba(79,142,247,.15);">🏠</span>
+    <button class="cat-btn" onclick="toggleCat('main')" data-cat="main" data-tooltip="الرئيسية" aria-expanded="true" aria-controls="cat-main">
+      <span class="cat-icon" style="background:rgba(59,130,246,.15);color:#60a5fa;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </span>
       <span class="cat-label" data-i18n="cat.main">الرئيسية</span>
-      <span class="cat-arrow">›</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
     </button>
     <div class="sub-panel open" id="cat-main">
-      <button class="nav-item active" onclick="showTab('dashboard',this)"><span class="ni">◈</span><span class="nav-label" data-i18n="dashboard">لوحة التحكم</span></button>
-      <button class="nav-item" onclick="showTab('upload',this)"><span class="ni">⬆</span><span class="nav-label" data-i18n="upload">رفع البيانات</span></button>
-      <button class="nav-item" onclick="showTab('import',this)"><span class="ni">⇩</span><span class="nav-label" data-i18n="import">استيراد Excel</span></button>
+      <button class="nav-item active" onclick="showTab('dashboard',this)" data-label="لوحة التحكم"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span><span class="nav-label" data-i18n="dashboard">لوحة التحكم</span></button>
+      <button class="nav-item" onclick="showTab('upload',this)" data-label="رفع البيانات"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg></span><span class="nav-label" data-i18n="upload">رفع البيانات</span></button>
+      <button class="nav-item" onclick="showTab('import',this)" data-label="استيراد Excel"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="8 15 12 19 16 15"/></svg></span><span class="nav-label" data-i18n="import">استيراد Excel</span></button>
     </div>
 
     <!-- ── Category 2: العمليات المالية ── -->
-    <button class="cat-btn" onclick="toggleCat('finance')" data-cat="finance" aria-expanded="false" aria-controls="cat-finance">
-      <span class="cat-icon" style="background:rgba(45,212,191,.15);">💼</span>
+    <button class="cat-btn" onclick="toggleCat('finance')" data-cat="finance" data-tooltip="العمليات المالية" aria-expanded="false" aria-controls="cat-finance">
+      <span class="cat-icon" style="background:rgba(16,185,129,.15);color:#34d399;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+      </span>
       <span class="cat-label" data-i18n="cat.finance">العمليات المالية</span>
-      <span class="cat-arrow">›</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
     </button>
     <div class="sub-panel" id="cat-finance">
-      <button class="nav-item" onclick="showTab('manual',this)"><span class="ni">✎</span><span class="nav-label" data-i18n="manual">إدخال يدوي</span></button>
-      <button class="nav-item" onclick="showTab('vouchers',this)"><span class="ni">◻</span><span class="nav-label" data-i18n="vouchers">السندات</span></button>
-      <button class="nav-item" onclick="showTab('cashrecon',this)"><span class="ni">⊕</span><span class="nav-label" data-i18n="cashrecon">تسوية الصندوق</span></button>
-      <button class="nav-item" onclick="showTab('insurance',this)"><span class="ni">✦</span><span class="nav-label" data-i18n="insurance">مطالبات التأمين</span></button>
-      <button class="nav-item" onclick="showTab('payroll',this)"><span class="ni">◑</span><span class="nav-label" data-i18n="payroll">الرواتب</span></button>
-      <button class="nav-item" onclick="showTab('doctors',this)"><span class="ni">⊞</span><span class="nav-label" data-i18n="doctors">دكاترة</span></button>
-      <button class="nav-item" onclick="showTab('expenses',this)"><span class="ni">−</span><span class="nav-label" data-i18n="expenses">المصاريف</span></button>
-      <button class="nav-item" onclick="showTab('vendors',this)"><span class="ni">⊙</span><span class="nav-label" data-i18n="vendors">الموردون</span></button>
+      <button class="nav-item" onclick="showTab('manual',this)" data-label="إدخال يدوي"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span><span class="nav-label" data-i18n="manual">إدخال يدوي</span></button>
+      <button class="nav-item" onclick="showTab('vouchers',this)" data-label="السندات"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span><span class="nav-label" data-i18n="vouchers">السندات</span></button>
+      <button class="nav-item" onclick="showTab('cashrecon',this)" data-label="تسوية الصندوق"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></span><span class="nav-label" data-i18n="cashrecon">تسوية الصندوق</span></button>
+      <button class="nav-item" onclick="showTab('insurance',this)" data-label="مطالبات التأمين"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="nav-label" data-i18n="insurance">مطالبات التأمين</span></button>
+      <button class="nav-item" onclick="showTab('payroll',this)" data-label="الرواتب"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span><span class="nav-label" data-i18n="payroll">الرواتب</span></button>
+      <button class="nav-item" onclick="showTab('doctors',this)" data-label="دكاترة"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span><span class="nav-label" data-i18n="doctors">دكاترة</span></button>
+      <button class="nav-item" onclick="showTab('expenses',this)" data-label="المصاريف"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span><span class="nav-label" data-i18n="expenses">المصاريف</span></button>
+      <button class="nav-item" onclick="showTab('vendors',this)" data-label="الموردون"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span><span class="nav-label" data-i18n="vendors">الموردون</span></button>
     </div>
 
     <!-- ── Category 3: المحاسبة ── -->
-    <button class="cat-btn" onclick="toggleCat('accounting')" data-cat="accounting" aria-expanded="false" aria-controls="cat-accounting">
-      <span class="cat-icon" style="background:rgba(251,191,36,.15);">⚖</span>
+    <button class="cat-btn" onclick="toggleCat('accounting')" data-cat="accounting" data-tooltip="المحاسبة" aria-expanded="false" aria-controls="cat-accounting">
+      <span class="cat-icon" style="background:rgba(245,158,11,.15);color:#fbbf24;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+      </span>
       <span class="cat-label" data-i18n="cat.accounting">المحاسبة</span>
-      <span class="cat-arrow">›</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
     </button>
     <div class="sub-panel" id="cat-accounting">
-      <button id="nav-journal" class="nav-item" onclick="showTab('journal',this)"><span class="ni">≡</span><span class="nav-label" data-i18n="journal">القيود اليومية</span></button>
-      <button class="nav-item" onclick="openMonthCloseModal()" style="background:rgba(99,102,241,.08);border-color:rgba(99,102,241,.25)"><span class="ni">🔒</span><span class="nav-label">إقفال شهري</span></button>
-      <button class="nav-item" onclick="showTab('coa',this)"><span class="ni">◳</span><span class="nav-label" data-i18n="coa">شجرة الحسابات</span></button>
-      <button class="nav-item" onclick="showTab('ledger',this)"><span class="ni">▤</span><span class="nav-label" data-i18n="ledger">كشف الحساب</span></button>
-      <button class="nav-item" onclick="showTab('recurring',this)"><span class="ni">↻</span><span class="nav-label" data-i18n="recurring">القيود المتكررة</span></button>
-      <button class="nav-item" onclick="showTab('trialbalance',this)"><span class="ni">⊜</span><span class="nav-label" data-i18n="trialbalance">ميزان المراجعة</span></button>
-      <button class="nav-item" onclick="showTab('opening',this)"><span class="ni">◎</span><span class="nav-label" data-i18n="opening">الأرصدة الافتتاحية</span></button>
-      <button class="nav-item" onclick="showTab('bankrecon',this)"><span class="ni">⊟</span><span class="nav-label" data-i18n="bankrecon">التسوية البنكية</span></button>
-      <button class="nav-item" onclick="showTab('fixedassets',this)"><span class="ni">◫</span><span class="nav-label" data-i18n="fixedassets">الأصول الثابتة</span></button>
+      <button id="nav-journal" class="nav-item" onclick="showTab('journal',this)" data-label="القيود اليومية"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span><span class="nav-label" data-i18n="journal">القيود اليومية</span></button>
+      <button class="nav-item" onclick="openMonthCloseModal()" data-label="إقفال شهري" style="background:rgba(99,102,241,.08);border-color:rgba(99,102,241,.2)"><span class="ni-svg" style="color:#818cf8;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span><span class="nav-label">إقفال شهري</span></button>
+      <button class="nav-item" onclick="showTab('coa',this)" data-label="شجرة الحسابات"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg></span><span class="nav-label" data-i18n="coa">شجرة الحسابات</span></button>
+      <button class="nav-item" onclick="showTab('ledger',this)" data-label="كشف الحساب"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span><span class="nav-label" data-i18n="ledger">كشف الحساب</span></button>
+      <button class="nav-item" onclick="showTab('recurring',this)" data-label="القيود المتكررة"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></span><span class="nav-label" data-i18n="recurring">القيود المتكررة</span></button>
+      <button class="nav-item" onclick="showTab('trialbalance',this)" data-label="ميزان المراجعة"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><polyline points="8 8 4 12 8 16"/><polyline points="16 8 20 12 16 16"/></svg></span><span class="nav-label" data-i18n="trialbalance">ميزان المراجعة</span></button>
+      <button class="nav-item" onclick="showTab('opening',this)" data-label="الأرصدة الافتتاحية"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 002-2v-4M17 8l-5-5-5 5M12 3v13"/></svg></span><span class="nav-label" data-i18n="opening">الأرصدة الافتتاحية</span></button>
+      <button class="nav-item" onclick="showTab('bankrecon',this)" data-label="التسوية البنكية"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></span><span class="nav-label" data-i18n="bankrecon">التسوية البنكية</span></button>
+      <button class="nav-item" onclick="showTab('fixedassets',this)" data-label="الأصول الثابتة"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span><span class="nav-label" data-i18n="fixedassets">الأصول الثابتة</span></button>
     </div>
 
     <!-- ── Category 4: التقارير ── -->
-    <button class="cat-btn" onclick="toggleCat('reports')" data-cat="reports" aria-expanded="false" aria-controls="cat-reports">
-      <span class="cat-icon" style="background:rgba(248,113,113,.15);">📊</span>
+    <button class="cat-btn" onclick="toggleCat('reports')" data-cat="reports" data-tooltip="التقارير" aria-expanded="false" aria-controls="cat-reports">
+      <span class="cat-icon" style="background:rgba(239,68,68,.15);color:#f87171;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </span>
       <span class="cat-label" data-i18n="cat.reports">التقارير</span>
-      <span class="cat-arrow">›</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
     </button>
     <div class="sub-panel" id="cat-reports">
-      <button class="nav-item" onclick="showTab('financials',this)"><span class="ni">◈</span><span class="nav-label" data-i18n="financials">القوائم المالية</span></button>
-      <button class="nav-item" onclick="showTab('reports',this)"><span class="ni">▦</span><span class="nav-label" data-i18n="reports">تقارير الإيرادات</span></button>
-      <button class="nav-item" onclick="showTab('aging',this)"><span class="ni">◔</span><span class="nav-label" data-i18n="aging">تقادم الذمم</span></button>
+      <button class="nav-item" onclick="showTab('financials',this)" data-label="القوائم المالية"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span><span class="nav-label" data-i18n="financials">القوائم المالية</span></button>
+      <button class="nav-item" onclick="showTab('reports',this)" data-label="تقارير الإيرادات"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="nav-label" data-i18n="reports">تقارير الإيرادات</span></button>
+      <button class="nav-item" onclick="showTab('aging',this)" data-label="تقادم الذمم"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span><span class="nav-label" data-i18n="aging">تقادم الذمم</span></button>
     </div>
 
     <!-- ── Category 5: المخزون ── -->
-    <button class="cat-btn" onclick="toggleCat('inventory')" data-cat="inventory" aria-expanded="false" aria-controls="cat-inventory">
-      <span class="cat-icon" style="background:rgba(79,142,247,.12);">▦</span>
+    <button class="cat-btn" onclick="toggleCat('inventory')" data-cat="inventory" data-tooltip="المخزون" aria-expanded="false" aria-controls="cat-inventory">
+      <span class="cat-icon" style="background:rgba(139,92,246,.15);color:#a78bfa;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+      </span>
       <span class="cat-label" data-i18n="cat.inventory">المخزون</span>
-      <span class="cat-arrow">›</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
     </button>
     <div class="sub-panel" id="cat-inventory">
-      <button class="nav-item" onclick="showTab('inventory',this)"><span class="ni">⊞</span><span class="nav-label" data-i18n="inventory">إدارة المخزون</span></button>
+      <button class="nav-item" onclick="showTab('inventory',this)" data-label="إدارة المخزون"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span><span class="nav-label" data-i18n="inventory">إدارة المخزون</span></button>
     </div>
 
     <!-- ── Category 6: الذكاء الاصطناعي ── -->
-    <button class="cat-btn" onclick="toggleCat('ai')" data-cat="ai" aria-expanded="false" aria-controls="cat-ai">
-      <span class="cat-icon" style="background:rgba(45,212,191,.12);">◉</span>
+    <button class="cat-btn" onclick="toggleCat('ai')" data-cat="ai" data-tooltip="الذكاء الاصطناعي" aria-expanded="false" aria-controls="cat-ai">
+      <span class="cat-icon" style="background:rgba(6,182,212,.15);color:#22d3ee;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </span>
       <span class="cat-label" data-i18n="cat.ai">الذكاء الاصطناعي</span>
-      <span class="cat-arrow">›</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
     </button>
     <div class="sub-panel" id="cat-ai">
-      <button class="nav-item" onclick="showTab('ai',this)"><span class="ni">◉</span><span class="nav-label" data-i18n="ai">المساعد الذكي</span></button>
-      <button class="nav-item" onclick="showTab('audit',this)"><span class="ni">◉</span><span class="nav-label">المحاسب الجنائي</span></button>
-      <button class="nav-item" onclick="showTab('ocr',this)"><span class="ni">◉</span><span class="nav-label">استخراج الفواتير</span></button>
-      <button class="nav-item" onclick="showTab('monthclose',this)"><span class="ni">◉</span><span class="nav-label">إغلاق الشهر</span></button>
+      <button class="nav-item" onclick="showTab('ai',this)" data-label="المساعد الذكي"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span><span class="nav-label" data-i18n="ai">المساعد الذكي</span></button>
+      <button class="nav-item" onclick="showTab('audit',this)" data-label="المحاسب الجنائي"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></span><span class="nav-label">المحاسب الجنائي</span></button>
+      <button class="nav-item" onclick="showTab('ocr',this)" data-label="استخراج الفواتير"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></span><span class="nav-label">استخراج الفواتير</span></button>
+      <button class="nav-item" onclick="showTab('monthclose',this)" data-label="إغلاق الشهر"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span><span class="nav-label">إغلاق الشهر</span></button>
     </div>
 
     <!-- ── Category 7: النظام ── -->
-    <button class="cat-btn" onclick="toggleCat('admin')" data-cat="admin" aria-expanded="false" aria-controls="cat-admin">
-      <span class="cat-icon" style="background:rgba(107,152,255,.12);">⚙</span>
+    <button class="cat-btn" onclick="toggleCat('admin')" data-cat="admin" data-tooltip="النظام" aria-expanded="false" aria-controls="cat-admin">
+      <span class="cat-icon" style="background:rgba(99,102,241,.15);color:#818cf8;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M1 12h2M21 12h2M12 1v2M12 21v2"/></svg>
+      </span>
       <span class="cat-label" data-i18n="cat.admin">النظام</span>
-      <span class="cat-arrow">›</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
     </button>
     <div class="sub-panel" id="cat-admin">
-      <button class="nav-item" id="navUsers" onclick="showTab('users',this)"><span class="ni">◎</span><span class="nav-label" data-i18n="users">المستخدمون</span></button>
-      <button class="nav-item" onclick="showTab('telegram',this)"><span class="ni">⊳</span><span class="nav-label" data-i18n="telegram">تيليجرام</span></button>
-      <button class="nav-item" onclick="showTab('settings',this)"><span class="ni">⚙</span><span class="nav-label" data-i18n="settings">الإعدادات</span></button>
-      <button class="nav-item" id="navSuperAdmin" onclick="showTab('superadmin',this)" style="display:none;"><span class="ni">🔧</span><span class="nav-label">تخصيص النظام</span></button>
+      <button class="nav-item" id="navUsers" onclick="showTab('users',this)" data-label="المستخدمون"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span><span class="nav-label" data-i18n="users">المستخدمون</span></button>
+      <button class="nav-item" onclick="showTab('telegram',this)" data-label="تيليجرام"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></span><span class="nav-label" data-i18n="telegram">تيليجرام</span></button>
+      <button class="nav-item" onclick="showTab('settings',this)" data-label="الإعدادات"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="nav-label" data-i18n="settings">الإعدادات</span></button>
+      <button class="nav-item" id="navSuperAdmin" onclick="showTab('superadmin',this)" data-label="تخصيص النظام" style="display:none;"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></span><span class="nav-label">تخصيص النظام</span></button>
     </div>
 
   </aside>
@@ -11034,6 +11218,56 @@ function toggleCat(id) {
     if (btn) btn.setAttribute('aria-expanded', 'true');
   }
 }
+
+// ── SIDEBAR QUICK SEARCH ──────────────────────────────────────
+function filterSidebar(q) {
+  const query = q.trim().toLowerCase();
+  const items = document.querySelectorAll('.sidebar .nav-item');
+  const panels = document.querySelectorAll('.sidebar .sub-panel');
+  const cats = document.querySelectorAll('.sidebar .cat-btn');
+
+  if (!query) {
+    // Restore all
+    items.forEach(el => el.classList.remove('sb-hidden', 'sb-match'));
+    panels.forEach(p => { /* keep accordion state */ });
+    cats.forEach(c => c.style.display = '');
+    return;
+  }
+
+  // Track which categories have visible items
+  const catHasMatch = {};
+  items.forEach(item => {
+    const label = (item.querySelector('.nav-label')?.textContent || '').toLowerCase();
+    const dataLabel = (item.getAttribute('data-label') || '').toLowerCase();
+    const match = label.includes(query) || dataLabel.includes(query);
+    item.classList.toggle('sb-hidden', !match);
+    item.classList.toggle('sb-match', match);
+
+    if (match) {
+      // Find parent panel and its category
+      const panel = item.closest('.sub-panel');
+      if (panel) {
+        const catId = panel.id.replace('cat-', '');
+        catHasMatch[catId] = true;
+        if (!panel.classList.contains('open')) panel.classList.add('open');
+      }
+    }
+  });
+
+  // Show/hide category buttons based on whether they have matches
+  cats.forEach(btn => {
+    const cat = btn.getAttribute('data-cat');
+    btn.style.display = catHasMatch[cat] ? '' : 'none';
+  });
+}
+
+// Clear search on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const s = document.getElementById('sidebarSearch');
+    if (s && s.value) { s.value = ''; filterSidebar(''); }
+  }
+});
 
 // Apply collapsed state
 if (_sidebarCollapsed) {

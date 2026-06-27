@@ -69,9 +69,10 @@ const DEFAULT_CONFIG = {
   }
 };
 
-// Safe unique ID — timestamp + random suffix to prevent collision under concurrent load
+// Safe unique ID — cryptographically random suffix
+const crypto = require('crypto');
 function genId(prefix = '') {
-  return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `${prefix}${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
 // ===== SECURITY MIDDLEWARE =====
@@ -667,6 +668,7 @@ app.post('/api/users', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'غير مصرح — المدير فقط' });
   const { username, password, email, fullName, role } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان' });
+  if (password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' });
   const db = loadDB();
   if ((db.users || []).find(u => u.username === username)) return res.status(409).json({ error: 'اسم المستخدم موجود مسبقاً' });
   const newUser = {
@@ -729,7 +731,7 @@ app.put('/api/roles/:id', requireAuth, (req, res) => {
 app.post('/api/auth/change-password', requireAuth, (req, res) => {
   const { oldPassword, newPassword } = req.body;
   if (!oldPassword || !newPassword) return res.status(400).json({ error: 'كلمتا المرور مطلوبتان' });
-  if (newPassword.length < 6) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' });
   const db = loadDB();
   const user = db.users.find(u => u.id === req.user.id);
   if (!bcrypt.compareSync(oldPassword, user.passwordHash)) return res.status(401).json({ error: 'كلمة المرور الحالية غير صحيحة' });
@@ -744,7 +746,7 @@ app.use('/api', requireAuth);
 // ===== API ROUTES =====
 
 // Get all data — strip sensitive fields before returning
-app.get('/api/data', (req, res) => {
+app.get('/api/data', requireAuth, (req, res) => {
   const db = loadDB();
   const safe = { ...db };
   // Never expose password hashes
@@ -753,7 +755,7 @@ app.get('/api/data', (req, res) => {
 });
 
 // Upload Excel
-app.post('/api/upload', upload.single('file'), (req, res) => {
+app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
   try {
     const db = loadDB();
     const filePath = req.file.path;
@@ -3294,6 +3296,23 @@ if(expData.length && document.getElementById('expChart')){
   res.send(html);
 });
 
+// ── 404 handler ──────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ error: 'المسار غير موجود' });
+});
+
+// ── Global error handler (must have 4 args) ──────────
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled error:', err.message);
+  res.status(500).json({ error: 'خطأ داخلي في الخادم' });
+});
+
+// ── Catch unhandled promise rejections ───────────────
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Unhandled Promise Rejection:', reason);
+});
+
 initDB({
   mongoUri: MONGO_URI,
   dataFile: DATA_FILE,
@@ -3660,14 +3679,16 @@ app.post('/api/config/recalc-commissions', requireAuth, (req, res) => {
 });
 
 // Company info endpoints
-app.get('/api/company', (req, res) => {
+app.get('/api/company', requireAuth, (req, res) => {
   const db = loadDB();
   res.json(db.companyInfo || {});
 });
 
-app.post('/api/company', (req, res) => {
+app.post('/api/company', requireAuth, (req, res) => {
   const db = loadDB();
-  db.companyInfo = req.body;
+  // Allowlist fields — prevent mass assignment
+  const { name, nameEn, logo, currency, phone, email, address, taxNo, crNo, fiscalYearStart } = req.body;
+  db.companyInfo = { ...db.companyInfo, name, nameEn, logo, currency, phone, email, address, taxNo, crNo, fiscalYearStart };
   saveDB(db);
   res.json({ success: true });
 });
@@ -3750,15 +3771,17 @@ app.get('/api/inv/items', (req, res) => {
   res.json(db.invItems || []);
 });
 
-app.post('/api/inv/items', (req, res) => {
+app.post('/api/inv/items', requireAuth, (req, res) => {
   const db = loadDB();
   if (!db.invItems) db.invItems = [];
-  const body = req.body;
-  const idx = db.invItems.findIndex(i => i.id === body.id);
+  // Allowlist fields — prevent mass assignment
+  const { id, name, code, category, unit, costPrice, salePrice, quantity, minQty, description } = req.body;
+  const safeBody = { id, name, code, category, unit, costPrice, salePrice, quantity, minQty, description };
+  const idx = db.invItems.findIndex(i => i.id === id);
   if (idx !== -1) {
-    db.invItems[idx] = { ...db.invItems[idx], ...body };
+    db.invItems[idx] = { ...db.invItems[idx], ...safeBody };
   } else {
-    db.invItems.push(body);
+    db.invItems.push({ ...safeBody, id: id || genId('inv-'), createdAt: new Date().toISOString() });
   }
   saveDB(db);
   res.json({ success: true });
@@ -3772,9 +3795,11 @@ app.delete('/api/inv/items/:id', (req, res) => {
 });
 
 // Categories
-app.post('/api/inv/categories', (req, res) => {
+app.post('/api/inv/categories', requireAuth, (req, res) => {
   const db = loadDB();
-  db.invCategories = req.body.categories;
+  const cats = req.body.categories;
+  if (!Array.isArray(cats)) return res.status(400).json({ error: 'categories must be an array' });
+  db.invCategories = cats.map(c => ({ id: c.id, name: String(c.name || '').slice(0, 100) }));
   saveDB(db);
   res.json({ success: true });
 });
@@ -4443,10 +4468,18 @@ app.put('/api/accounting-settings', (req, res) => {
 });
 
 // Journal endpoints
-app.post('/api/journal', (req, res) => {
+app.post('/api/journal', requireAuth, (req, res) => {
   const db = loadDB();
   if (!db.journalEntries) db.journalEntries = [];
   const entry = req.body;
+  // Validate debit === credit
+  if (Array.isArray(entry.lines) && entry.lines.length) {
+    const totalD = entry.lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
+    const totalC = entry.lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+    if (Math.abs(totalD - totalC) > 0.005) {
+      return res.status(400).json({ error: `القيد غير متوازن: المدين ${totalD.toFixed(3)} ≠ الدائن ${totalC.toFixed(3)}` });
+    }
+  }
   const existing = db.journalEntries.findIndex(e => e.id === entry.id);
   if (existing >= 0) db.journalEntries[existing] = entry;
   else db.journalEntries.push(entry);
