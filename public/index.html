@@ -9575,9 +9575,22 @@ function aiQuick(text) {
 }
 
 function renderMarkdown(text) {
+  // Parse ⚡ACTION lines into confirm buttons
+  text = text.replace(/⚡ACTION:(\w+)\|([^\n]+)/g, (_, action, params) => {
+    const parts = params.split('|');
+    if (action === 'addAccount') {
+      const [code, name, type, parent] = parts;
+      const safe = JSON.stringify({ code, name, type, parent }).replace(/'/g, '&#39;');
+      return `<div style="margin-top:10px;padding:10px 14px;background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.35);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <span style="font-size:12px;color:var(--text);">📌 <strong>${code}</strong> — ${name} (${type})</span>
+        <button class="btn bp bsm" onclick="aiConfirmAddAccount('${safe.replace(/"/g,'&quot;')}')">✅ تأكيد الإضافة</button>
+      </div>`;
+    }
+    return '';
+  });
   return text
-    .replace(/```json\n?([\s\S]*?)```/g, (_, c) => `<div class="ai-code-block"><div class="ai-code-lang">json</div><pre><code>${c.trim()}</code></pre></div>`)
-    .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, c) => `<div class="ai-code-block">${lang?`<div class="ai-code-lang">${lang}</div>`:''}<pre><code>${c.trim()}</code></pre></div>`)
+    .replace(/```json\n?([\s\S]*?)```/g, '')
+    .replace(/```(\w*)\n?([\s\S]*?)```/g, '')
     .replace(/^### (.+)$/gm, '<h4 class="ai-h4">$1</h4>')
     .replace(/^## (.+)$/gm, '<h3 class="ai-h3">$1</h3>')
     .replace(/^# (.+)$/gm, '<h2 class="ai-h2">$1</h2>')
@@ -9587,6 +9600,17 @@ function renderMarkdown(text) {
     .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
     .replace(/\n{2,}/g, '</p><p>')
     .replace(/\n/g, '<br>');
+}
+
+async function aiConfirmAddAccount(jsonStr) {
+  try {
+    const { code, name, type, parent } = JSON.parse(jsonStr);
+    const db = await fetch('/api/coa').then(r=>r.json());
+    if ((db||[]).find(a => a.code === code)) { showToast('الكود موجود مسبقاً', 'error'); return; }
+    await fetch('/api/coa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code, name, type, parent: parent||null, balance:0 }) });
+    showToast(`✅ تم إضافة الحساب ${code} — ${name}`, 'success');
+    const btn = event.target; btn.textContent = '✅ تم'; btn.disabled = true;
+  } catch(e) { showToast('فشل: ' + e.message, 'error'); }
 }
 
 function copyAiMsg(btn) {
