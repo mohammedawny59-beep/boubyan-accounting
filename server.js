@@ -4741,7 +4741,12 @@ app.post('/api/ai/chat/stream', async (req, res) => {
       depreciation: nextCode(5810,5899), misc: nextCode(5910,5999),
     };
 
-    const systemPrompt = `أنت مساعد محاسبي لعيادة "بوبيان" للأسنان. أجب بالعربي فقط، بدون JSON أو كود.
+    const systemPrompt = `أنت مساعد محاسبي لعيادة "بوبيان" للأسنان. أجب بالعربي فقط.
+
+تعليمات مهمة:
+- لا تكتب JSON أبداً
+- لا تقل "تم الإضافة" أو "تم التسجيل" — أنت لا تضيف الحسابات مباشرة، المستخدم هو من يؤكد الإضافة
+- عند طلب إضافة حساب: استخدم الأداة add_account مباشرةً باستخدام الكود المتاح من جدول الأكواد أدناه
 
 الأكواد الموجودة في شجرة الحسابات (لا تقترح أياً منها):
 ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
@@ -4792,6 +4797,7 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
     let buffer = '';
     let toolInput = '';
     let inTool = false;
+    let fullText = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -4816,10 +4822,61 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
               send('action', { type: 'addAccount', ...params });
             } catch {}
           } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+            fullText += evt.delta.text;
             send('delta', { text: evt.delta.text });
           }
         } catch {}
       }
+    }
+
+    // Fallback: if model output JSON or ADDACCOUNT text instead of using the tool, extract and emit action
+    const usedCoa = new Set((db.chartOfAccounts||[]).map(a => a.code));
+
+    // Auto-correct a code if already used — pick next available in same range
+    const autoCorrectCode = (code, accType) => {
+      if (!usedCoa.has(code)) return code;
+      const n = parseInt(code) || 0;
+      if (n >= 5900) return nextCodes.misc;
+      if (n >= 5800) return nextCodes.depreciation;
+      if (n >= 5700) return nextCodes.admin;
+      if (n >= 5600) return nextCodes.marketing;
+      if (n >= 5500) return nextCodes.maintenance;
+      if (n >= 5400) return nextCodes.utilities;
+      if (n >= 5300) return nextCodes.rent;
+      if (n >= 5200) return nextCodes.supplies;
+      if (n >= 5100) return nextCodes.materials;
+      if (n >= 5000) return nextCodes.salaries;
+      if (n >= 4000) return nextCodes.revenue;
+      if (n >= 3000) return nextCodes.equity;
+      if (n >= 2000) return nextCodes.liability;
+      return nextCodes.asset;
+    };
+
+    const emittedCodes = new Set();
+    const emitAction = (code, name, type, parent) => {
+      const finalCode = autoCorrectCode(code, type);
+      if (!finalCode || emittedCodes.has(finalCode)) return;
+      emittedCodes.add(finalCode);
+      send('action', { type: 'addAccount', code: finalCode, name, type: type||'expense', parent: parent||null });
+    };
+
+    // Try ADDACCOUNT text format
+    const addRe = /ADDACCOUNT:([^:\n]+):([^:\n]+):([^:\n]+):([^\n]*)/g;
+    let m;
+    while ((m = addRe.exec(fullText)) !== null) {
+      const [, code, name, type, parent] = m.map(s => (s||'').trim());
+      if (code && name) emitAction(code, name, type, parent);
+    }
+    // Try JSON blocks — catches cases where model writes JSON despite instructions
+    const jsonBlockRe = /```(?:json)?\s*([\s\S]*?)```/g;
+    while ((m = jsonBlockRe.exec(fullText)) !== null) {
+      try {
+        const parsed = JSON.parse(m[1]);
+        const accounts = Array.isArray(parsed.accounts) ? parsed.accounts : (parsed.code ? [parsed] : []);
+        for (const acc of accounts) {
+          if (acc.code && acc.name) emitAction(acc.code, acc.name, acc.type, acc.parent);
+        }
+      } catch {}
     }
 
     send('done', { success: true });
