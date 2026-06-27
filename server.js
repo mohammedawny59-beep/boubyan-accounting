@@ -575,8 +575,8 @@ function calcCommission(dr, revenue) {
     : revenue;
 
   // Step 2: apply deductions
-  if (deductions.includes('lab'))       amount = amount * (1 - (dr.lab      || 0) / 100);
-  if (deductions.includes('insurance')) amount = amount * (1 - (dr.insurance|| 0) / 100);
+  if (deductions.includes('lab'))       amount = Math.max(0, amount - (dr.lab      || 0));
+  if (deductions.includes('insurance')) amount = Math.max(0, amount - (dr.insurance|| 0));
 
   // Step 3: apply method
   let commission = 0;
@@ -1109,36 +1109,78 @@ function payMethodToAccount(method) {
 
 app.post('/api/expenses', (req, res) => {
   const db = loadDB();
-  const { date, desc, cat, amount, vendor, payMethod, notes } = req.body;
+  const { date, desc, cat, amount, vendor, payMethod, notes,
+          accountCode, accountId, accountName,
+          payMethodCode, vendorId, vendorAccountId } = req.body;
   if (!date || !amount) return res.status(400).json({ error: 'date and amount required' });
   const amt = Math.max(0, parseFloat(amount) || 0);
   const jeId = 'JE-EXP-' + Date.now();
   const newExpense = {
     id: genId('exp-'),
-    date: sanitize(date, 10),
-    desc: sanitize(desc, 300),
-    cat:  sanitize(cat, 100),
-    amount: amt,
-    vendor: sanitize(vendor, 200),
-    payMethod: sanitize(payMethod, 50),
-    notes: sanitize(notes, 500),
+    date:      sanitize(date, 10),
+    desc:      sanitize(desc, 300),
+    cat:       sanitize(cat || accountName, 100),
+    amount:    amt,
+    vendor:    sanitize(vendor, 200),
+    payMethod: sanitize(payMethod || payMethodCode, 50),
+    notes:     sanitize(notes, 500),
+    vendorId:  sanitize(vendorId, 50),
     journalId: jeId
   };
-  // Auto-create balanced journal entry
-  const debitAcc  = expCatToAccount(cat, db.chartOfAccounts);
-  const creditAcc = payMethodToAccount(payMethod);
+
+  // Resolve debit account: prefer explicit accountCode/accountId from new modal
+  let debitAcc;
+  if (accountCode) {
+    const coaAcc = (db.chartOfAccounts||[]).find(a => a.code === accountCode);
+    debitAcc = coaAcc
+      ? { id: coaAcc.id, code: coaAcc.code, name: coaAcc.name }
+      : { id: accountId || accountCode, code: accountCode, name: accountName || accountCode };
+  } else {
+    const fallback = expCatToAccount(cat, db.chartOfAccounts);
+    debitAcc = { code: fallback.code, name: fallback.name };
+  }
+
+  // Resolve credit account
+  let creditAcc;
+  const pm = payMethodCode || payMethod || '';
+  if (pm === 'accrued') {
+    creditAcc = { id: '2900', code: '2900', name: 'مصاريف مستحقة' };
+  } else if (pm && pm.match(/^\d{4}$/)) {
+    const coaCredit = (db.chartOfAccounts||[]).find(a => a.code === pm);
+    creditAcc = coaCredit
+      ? { id: coaCredit.id, code: coaCredit.code, name: coaCredit.name }
+      : { id: pm, code: pm, name: pm };
+  } else {
+    const fallback = payMethodToAccount(pm);
+    creditAcc = { code: fallback.code, name: fallback.name };
+  }
+
+  // Resolve vendor account for journal line (if vendor linked)
+  const vendorAcc = vendorAccountId
+    ? (() => {
+        const va = (db.chartOfAccounts||[]).find(a => a.id === vendorAccountId || a.code === vendorAccountId);
+        return va ? { id: va.id, code: va.code, name: va.name } : { id: vendorAccountId, code: vendorAccountId, name: vendor || vendorAccountId };
+      })()
+    : null;
+
+  const jeDesc = (desc || cat || 'مصروف') + (vendor ? ' — ' + vendor : '');
   const je = {
     id: jeId,
     date: sanitize(date, 10),
-    description: (desc || cat || 'مصروف') + (vendor ? ' — ' + vendor : ''),
+    description: jeDesc,
     reference: 'EXP-AUTO',
     type: 'expense',
     source: 'expenses',
     expenseId: newExpense.id,
-    lines: [
-      { accountCode: debitAcc.code,  accountName: debitAcc.name,  debit: amt, credit: 0 },
-      { accountCode: creditAcc.code, accountName: creditAcc.name, debit: 0,   credit: amt }
-    ],
+    lines: vendorAcc
+      ? [
+          { accountId: debitAcc.id, accountCode: debitAcc.code, accountName: debitAcc.name, debit: amt, credit: 0 },
+          { accountId: vendorAcc.id, accountCode: vendorAcc.code, accountName: vendorAcc.name, debit: 0, credit: amt }
+        ]
+      : [
+          { accountId: debitAcc.id, accountCode: debitAcc.code, accountName: debitAcc.name, debit: amt, credit: 0 },
+          { accountId: creditAcc.id, accountCode: creditAcc.code, accountName: creditAcc.name, debit: 0, credit: amt }
+        ],
     createdAt: new Date().toISOString()
   };
   db.expenses = db.expenses || [];

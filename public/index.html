@@ -4254,18 +4254,46 @@ body { font-size: calc(14px * var(--fs-scale)); }
 </div>
 
 <div class="modal" id="expModal">
-  <div class="mbox">
+  <div class="mbox" style="width:520px;max-width:95vw;">
     <div class="mtit">💸 إضافة مصروف</div>
-    <div class="fr"><label class="flbl">الوصف</label><input class="finp" id="expDesc" placeholder="مواد مختبر..."></div>
+    <div class="fr"><label class="flbl">الوصف</label><input class="finp" id="expDesc" placeholder="مواد مختبر — فاتورة رقم..."></div>
     <div class="fr2">
-      <div class="fr" style="margin:0"><label class="flbl">التصنيف</label>
-        <select class="finp" id="expCat">
-          <option>مواد مختبر</option><option>رواتب</option><option>إيجار</option><option>كهرباء/ماء</option><option>صيانة</option><option>أخرى</option>
+      <div class="fr" style="margin:0">
+        <label class="flbl">حساب المصروف</label>
+        <div style="position:relative;">
+          <input class="finp" id="expAccTxt" placeholder="ابحث عن الحساب..." oninput="filterExpAccounts()" onfocus="filterExpAccounts()" onblur="setTimeout(()=>document.getElementById('expAccDrop').style.display='none',200)">
+          <input type="hidden" id="expAccCode" value="">
+          <div id="expAccDrop" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
+        </div>
+      </div>
+      <div class="fr" style="margin:0"><label class="flbl">المبلغ (د.ك)</label><input type="number" class="finp" id="expAmt" placeholder="0.000" step="0.001"></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">التاريخ</label><input type="date" class="finp" id="expDate"></div>
+      <div class="fr" style="margin:0">
+        <label class="flbl">طريقة الدفع</label>
+        <select class="finp" id="expPayMethod">
+          <option value="1100">نقد — الصندوق</option>
+          <option value="1110">بنك — تحويل</option>
+          <option value="1115">K-Net / Visa / Master</option>
+          <option value="accrued">مستحق (آجل) — 2900</option>
         </select>
       </div>
-      <div class="fr" style="margin:0"><label class="flbl">المبلغ (د.ك)</label><input type="number" class="finp" id="expAmt" placeholder="0.000"></div>
     </div>
-    <div class="fr"><label class="flbl">التاريخ</label><input type="date" class="finp" id="expDate"></div>
+    <div class="fr2">
+      <div class="fr" style="margin:0">
+        <label class="flbl">المورد (اختياري)</label>
+        <select class="finp" id="expVendor">
+          <option value="">— بدون مورد —</option>
+        </select>
+      </div>
+      <div class="fr" style="margin:0;display:flex;align-items:flex-end;gap:8px;padding-bottom:4px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);cursor:pointer;">
+          <input type="checkbox" id="expAccrued" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>قيد مستحق (لم يُدفع)</span>
+        </label>
+      </div>
+    </div>
     <div class="mact">
       <button class="btn bs" style="flex:1" onclick="saveExp()">✅ حفظ</button>
       <button class="btn bd" onclick="closeModal('expModal')">إلغاء</button>
@@ -5121,8 +5149,35 @@ async function loadExpenses() {
     '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا توجد مصاريف</td></tr>';
 }
 
+function filterExpAccounts() {
+  const q = (document.getElementById('expAccTxt').value || '').toLowerCase();
+  const coa = (DB.chartOfAccounts || []).filter(a => a.status !== 'inactive' && a.type === 'expense');
+  const drop = document.getElementById('expAccDrop');
+  const matches = coa.filter(a => !q || (a.code||'').includes(q) || (a.name||'').toLowerCase().includes(q)).slice(0, 30);
+  if (!matches.length) { drop.style.display = 'none'; return; }
+  drop.innerHTML = matches.map(a =>
+    `<div style="padding:7px 10px;cursor:pointer;font-size:13px;" onmousedown="selectExpAccount('${a.code}','${a.name.replace(/'/g,'\\\'')}')">${a.code} — ${a.name}</div>`
+  ).join('');
+  drop.style.display = 'block';
+}
+function selectExpAccount(code, name) {
+  document.getElementById('expAccTxt').value  = code + ' — ' + name;
+  document.getElementById('expAccCode').value = code;
+  document.getElementById('expAccDrop').style.display = 'none';
+}
+
 function openExpModal() {
-  document.getElementById('expDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('expDate').value    = new Date().toISOString().split('T')[0];
+  document.getElementById('expDesc').value    = '';
+  document.getElementById('expAccTxt').value  = '';
+  document.getElementById('expAccCode').value = '';
+  document.getElementById('expAmt').value     = '';
+  document.getElementById('expPayMethod').value = '1100';
+  document.getElementById('expAccrued').checked = false;
+  // populate vendor dropdown
+  const vSel = document.getElementById('expVendor');
+  vSel.innerHTML = '<option value="">— بدون مورد —</option>' +
+    (DB.vendors||[]).map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
   document.getElementById('expModal').classList.add('open');
 }
 
@@ -5140,8 +5195,29 @@ function goToExpenseJournal(journalId) {
 }
 
 async function saveExp() {
-  const body = { desc: document.getElementById('expDesc').value, cat: document.getElementById('expCat').value, amount: document.getElementById('expAmt').value, date: document.getElementById('expDate').value };
-  if (!body.desc || !body.amount) { alert('أدخل الوصف والمبلغ'); return; }
+  const desc       = document.getElementById('expDesc').value.trim();
+  const accCode    = document.getElementById('expAccCode').value.trim();
+  const amount     = document.getElementById('expAmt').value;
+  const date       = document.getElementById('expDate').value;
+  const payMethod  = document.getElementById('expPayMethod').value;
+  const vendorId   = document.getElementById('expVendor').value;
+  const accrued    = document.getElementById('expAccrued').checked;
+  if (!desc || !amount || !date) { alert('أدخل الوصف والمبلغ والتاريخ'); return; }
+  if (!accCode) { alert('اختر حساب المصروف'); return; }
+  const coa = DB.chartOfAccounts || [];
+  const accObj = coa.find(a => a.code === accCode) || { code: accCode, name: accCode };
+  const vendor = (DB.vendors||[]).find(v => v.id === vendorId);
+  const body = {
+    desc, date, amount,
+    accountCode:     accCode,
+    accountId:       accObj.id || accCode,
+    accountName:     accObj.name,
+    payMethodCode:   accrued ? 'accrued' : payMethod,
+    vendorId:        vendorId || '',
+    vendorAccountId: vendor?.accountId || '',
+    cat:             accObj.name,
+    notes:           vendor ? 'مورد: ' + vendor.name : '',
+  };
   await fetch(`${API}/expenses`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   closeModal('expModal'); await loadAll(); loadExpenses();
 }
@@ -7175,14 +7251,14 @@ function calcVendorBalance(accountId) {
   const entries = DB.journalEntries || [];
   let balance = 0;
   entries.forEach(e => e.lines.forEach(l => {
-    if (l.accountId === accountId) balance += (l.credit||0) - (l.debit||0);
+    if (l.accountId === accountId || l.accountCode === accountId) balance += (l.credit||0) - (l.debit||0);
   }));
   return balance;
 }
 
 function getVendorLastTxn(accountId) {
   const entries = DB.journalEntries || [];
-  const hits = entries.filter(e => e.lines.some(l => l.accountId === accountId));
+  const hits = entries.filter(e => e.lines.some(l => l.accountId === accountId || l.accountCode === accountId));
   if (!hits.length) return null;
   return hits.sort((a,b) => b.date.localeCompare(a.date))[0];
 }
@@ -7333,7 +7409,7 @@ function loadVendorStatement() {
   let balance = 0;
   const rows = [];
   filtered.sort((a,b)=>a.date.localeCompare(b.date)).forEach(e => {
-    e.lines.filter(l => l.accountId === accountId).forEach(l => {
+    e.lines.filter(l => l.accountId === accountId || l.accountCode === accountId).forEach(l => {
       balance += (l.credit||0) - (l.debit||0);
       rows.push({ date:e.date, ref:e.ref||e.id, desc:e.desc, debit:l.debit||0, credit:l.credit||0, balance });
     });
