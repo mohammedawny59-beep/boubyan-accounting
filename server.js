@@ -4095,34 +4095,79 @@ app.post('/api/coa/ai-analyze', requireAuth, rateLimit(5), async (req, res) => {
 // POST — AI chat builder for COA
 app.post('/api/coa/ai-chat', requireAuth, rateLimit(10), async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.json({ reply:'❌ ANTHROPIC_API_KEY غير مضبوط. أضفه في ملف .env لتفعيل مساعد الذكاء الاصطناعي.' });
-  const { messages, currentCoa } = req.body;
+  const { messages } = req.body;
   try {
     const Anthropic = require('@anthropic-ai/sdk');
     const client = new Anthropic();
-    const coaSummary = (currentCoa||[]).slice(0,30).map(a=>`${a.code}: ${a.name}`).join(', ');
-    const systemPrompt = `أنت مساعد محاسبة ذكي متخصص في بناء شجرة الحسابات لعيادات الأسنان وفق معايير IFRS الدولية. مهمتك مساعدة المستخدم (الذي قد لا يكون محاسباً) في بناء شجرة حسابات مناسبة.
 
-الشجرة الحالية تحتوي على: ${coaSummary || 'فارغة'}
+    // Always load fresh from DB — don't trust currentCoa from client
+    const db = loadDB();
+    const coa = db.chartOfAccounts || [];
+    const usedCodes = new Set(coa.map(a => a.code));
+    const nxt = (from, to) => { for (let i=from;i<=to;i++){const c=String(i);if(!usedCodes.has(c))return c;} return String(to); };
+    const nextCodes = {
+      asset:nxt(1100,1999), liability:nxt(2100,2999), equity:nxt(3100,3999), revenue:nxt(4100,4999),
+      salaries:nxt(5010,5099), materials:nxt(5110,5199), supplies:nxt(5210,5299),
+      rent:nxt(5310,5399), utilities:nxt(5410,5499), maintenance:nxt(5510,5599),
+      marketing:nxt(5610,5699), admin:nxt(5710,5799), depreciation:nxt(5810,5899), misc:nxt(5910,5999),
+    };
 
-قواعد مهمة:
-- الحسابات من 1000-1999 = أصول (asset)
-- الحسابات من 2000-2999 = التزامات (liability)
-- الحسابات من 3000-3999 = حقوق الملكية (equity)
-- الحسابات من 4000-4999 = إيرادات (revenue)
-- الحسابات من 5000-5999 = مصاريف (expense)
-- المستويات الخمسة: رئيسي > مجموعة > حساب > تفصيلي > تحليلي
+    const systemPrompt = `أنت مساعد لبناء شجرة الحسابات لعيادة "بوبيان" للأسنان.
 
-عندما يطلب المستخدم إضافة حسابات، أعطه JSON على شكل:
-{"action":"addAccounts","accounts":[{"code":"XXXX","name":"...","type":"asset/liability/equity/revenue/expense","parent":"PARENT_CODE_OR_NULL","isGroup":false}]}
+الحسابات الموجودة (كود: اسم):
+${coa.map(a=>`${a.code}:${a.name}`).join(' | ')}
 
-تحدث بالعربية الفصحى وكن مختصراً وعملياً.`;
+الكود التالي المتاح لكل نطاق:
+أصول=${nextCodes.asset} | خصوم=${nextCodes.liability} | إيرادات=${nextCodes.revenue}
+مصاريف متنوعة=${nextCodes.misc} | إداري=${nextCodes.admin} | صيانة=${nextCodes.maintenance}
+مواد=${nextCodes.materials} | مستلزمات=${nextCodes.supplies} | رواتب=${nextCodes.salaries}
+
+قواعد:
+1. لا تستخدم أكواداً من قائمة الحسابات الموجودة أعلاه
+2. استخدم الكود التالي المتاح بالضبط من الجدول أعلاه
+3. أضف حساباً واحداً فقط ما لم يطلب المستخدم صراحةً أكثر
+4. عند إضافة حساب أعطِ JSON: {"action":"addAccounts","accounts":[{"code":"XXXX","name":"...","type":"expense","parent":null,"isGroup":false}]}
+5. تحدث بالعربي فقط`;
 
     const resp = await client.messages.create({
-      model:'claude-haiku-4-5-20251001', max_tokens:800,
+      model:'claude-haiku-4-5-20251001', max_tokens:600,
       system: systemPrompt,
       messages: (messages||[]).map(m => ({ role:m.role, content:m.content }))
     });
-    res.json({ reply: resp.content[0].text });
+    let reply = resp.content[0].text;
+
+    // Server-side: correct any codes the AI picked that are already taken
+    try {
+      const jsonMatch = reply.match(/\{[^{}]*"action"\s*:\s*"addAccounts"[\s\S]*?\}/);
+      if (jsonMatch) {
+        const act = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(act.accounts)) {
+          act.accounts = act.accounts.map(acc => {
+            if (!acc.code || usedCodes.has(acc.code)) {
+              const t = acc.type || 'expense';
+              const p = parseInt(acc.parent) || 0;
+              let fixed;
+              if (t !== 'expense') fixed = nextCodes[t] || nextCodes.misc;
+              else if (!p || p >= 5900) fixed = nextCodes.misc;
+              else if (p >= 5800) fixed = nextCodes.depreciation;
+              else if (p >= 5700) fixed = nextCodes.admin;
+              else if (p >= 5600) fixed = nextCodes.marketing;
+              else if (p >= 5500) fixed = nextCodes.maintenance;
+              else if (p >= 5400) fixed = nextCodes.utilities;
+              else if (p >= 5300) fixed = nextCodes.rent;
+              else if (p >= 5200) fixed = nextCodes.supplies;
+              else if (p >= 5100) fixed = nextCodes.materials;
+              else fixed = nextCodes.misc;
+              acc.code = fixed;
+            }
+            return acc;
+          });
+          reply = reply.replace(jsonMatch[0], JSON.stringify(act));
+        }
+      }
+    } catch {}
+
+    res.json({ reply });
   } catch(e) {
     res.status(500).json({ reply: 'حدث خطأ: ' + e.message });
   }
