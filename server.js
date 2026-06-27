@@ -7923,3 +7923,326 @@ app.get('/api/audit-log', requireAuth, (req, res) => {
 
 console.log('✅ Fix Layer: COA-next-code, Journal-learn, File-delete, Accrued-Expenses, P&L, BS, CF, Budget, Audit-Log loaded');
 
+// ══════════════════════════════════════════════════════════════════════
+// DATA ENTRY LAYER v1 — 13 أداة لتسريع وتحسين إدخال البيانات
+// ══════════════════════════════════════════════════════════════════════
+
+// ── 1. JOURNAL TEMPLATES — قوالب القيود ─────────────────────────────
+app.get('/api/journal-templates', requireAuth, (req, res) => {
+  const db = loadDB();
+  res.json({ templates: db.journalMappings || [] });
+});
+
+app.post('/api/journal-templates', requireAuth, (req, res) => {
+  const db = loadDB();
+  const { name, description, lines } = req.body;
+  if (!name || !Array.isArray(lines) || !lines.length)
+    return res.status(400).json({ error: 'name و lines مطلوبة' });
+  const template = {
+    id: genId('TPL-'), name, description: description || '', lines,
+    createdAt: new Date().toISOString(), createdBy: req.user?.username
+  };
+  if (!db.journalMappings) db.journalMappings = [];
+  db.journalMappings.unshift(template);
+  if (db.journalMappings.length > 100) db.journalMappings = db.journalMappings.slice(0, 100);
+  saveDB(db);
+  res.json({ success: true, template });
+});
+
+app.delete('/api/journal-templates/:id', requireAuth, (req, res) => {
+  const db = loadDB();
+  if (!db.journalMappings) return res.json({ success: true });
+  db.journalMappings = db.journalMappings.filter(t => t.id !== req.params.id);
+  saveDB(db);
+  res.json({ success: true });
+});
+
+// ── 2. SMART SUGGEST — إكمال تلقائي ذكي ──────────────────────────
+app.get('/api/smart-suggest', requireAuth, (req, res) => {
+  const db = loadDB();
+  const q = (req.query.q || '').toLowerCase().trim();
+  const limit = Math.min(parseInt(req.query.limit || 10), 20);
+
+  // Build frequency + keyword→account map from last 500 entries
+  const accFreq = {}, descMap = {};
+  for (const je of (db.journalEntries || []).slice(-500)) {
+    const desc = (je.description || je.desc || '').toLowerCase();
+    for (const ln of (je.lines || [])) {
+      const code = ln.accountCode;
+      if (!code) continue;
+      accFreq[code] = (accFreq[code] || 0) + 1;
+      const words = desc.split(/\s+/).filter(w => w.length > 2);
+      for (const w of words) {
+        if (!descMap[w]) descMap[w] = {};
+        descMap[w][code] = (descMap[w][code] || 0) + 1;
+      }
+    }
+  }
+
+  const coa = db.chartOfAccounts || [];
+  const accounts = coa.map(acc => {
+    let score = 0;
+    if (!q) { score = accFreq[acc.code] || 0; }
+    else {
+      if (acc.code.startsWith(q)) score += 25;
+      if (acc.code.includes(q)) score += 15;
+      if (acc.name.includes(q)) score += 20;
+      const qWords = q.split(/\s+/).filter(w => w.length > 2);
+      for (const w of qWords) score += (descMap[w]?.[acc.code] || 0) * 3;
+      score += (accFreq[acc.code] || 0) * 0.5;
+    }
+    return { code: acc.code, name: acc.name, type: acc.type, score };
+  }).filter(a => !q || a.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
+
+  const vendors = (db.vendors || []).filter(v => {
+    if (!q) return true;
+    return (v.name||'').toLowerCase().includes(q) || (v.code||'').toLowerCase().includes(q);
+  }).slice(0, 5).map(v => ({ id: v.id, name: v.name }));
+
+  res.json({ accounts, vendors });
+});
+
+// ── 3. BANK CSV/EXCEL IMPORT ─────────────────────────────────────
+app.post('/api/bank/import-csv', requireAuth, upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
+    const buf = req.file.buffer || require('fs').readFileSync(req.file.path);
+    const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    if (rows.length < 2) return res.status(400).json({ error: 'الملف لا يحتوي بيانات' });
+
+    const hdr = rows[0].map(h => String(h || '').trim().toLowerCase());
+    const idx = key => hdr.findIndex(h => h.includes(key));
+    const dateI  = [idx('date'), idx('تاريخ'), 0].find(i => i >= 0);
+    const descI  = [idx('desc'), idx('narr'), idx('detail'), idx('بيان'), idx('وصف'), 1].find(i => i >= 0);
+    const amtI   = [idx('amount'), idx('مبلغ'), idx('value')].find(i => i >= 0);
+    const drI    = [idx('debit'), idx('مدين'), idx('out'), idx('withdraw')].find(i => i >= 0);
+    const crI    = [idx('credit'), idx('دائن'), idx('in'), idx('deposit')].find(i => i >= 0);
+
+    const lines = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row.some(c => c !== '')) continue;
+      const raw = row[dateI];
+      let date = '';
+      if (raw instanceof Date) date = raw.toISOString().slice(0, 10);
+      else if (typeof raw === 'number') {
+        const d = XLSX.SSF.parse_date_code(raw);
+        if (d) date = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+      } else {
+        const m = String(raw).match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+        if (m) {
+          const yr = m[3].length === 2 ? '20'+m[3] : m[3];
+          date = `${yr}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        } else date = String(raw).slice(0, 10);
+      }
+      const desc = String(row[descI] || '').trim();
+      let amount = 0;
+      if (drI >= 0 && crI >= 0) {
+        const dr = parseFloat(String(row[drI]).replace(/,/g,'')) || 0;
+        const cr = parseFloat(String(row[crI]).replace(/,/g,'')) || 0;
+        amount = parseFloat((cr - dr).toFixed(3));
+      } else if (amtI >= 0) {
+        amount = parseFloat(String(row[amtI]).replace(/,/g,'')) || 0;
+      }
+      if (!date) continue;
+      lines.push({ date, desc, amount });
+    }
+    if (req.file.path) require('fs').unlink(req.file.path, () => {});
+    res.json({ success: true, lines, count: lines.length });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── 4. BANK AUTO-CATEGORIZE — تصنيف ذكي ─────────────────────────
+app.post('/api/bank/categorize', requireAuth, async (req, res) => {
+  const { transactions } = req.body;
+  if (!Array.isArray(transactions) || !transactions.length)
+    return res.status(400).json({ error: 'transactions[] مطلوبة' });
+
+  const db = loadDB();
+  const rules = [
+    { re: /راتب|salary|payroll|رواتب/i,              debitAcc:'5100', creditAcc:'2100', label:'رواتب' },
+    { re: /إيجار|rent|اجار/i,                         debitAcc:'5200', creditAcc:'1100', label:'إيجار' },
+    { re: /كهرباء|electric|mew|moo/i,                 debitAcc:'5300', creditAcc:'1100', label:'كهرباء' },
+    { re: /هاتف|تلفون|telephone|mobile|zain|viva|ooredoo/i, debitAcc:'5350', creditAcc:'1100', label:'اتصالات' },
+    { re: /تأمين|insurance/i,                         debitAcc:'5400', creditAcc:'2100', label:'تأمين' },
+    { re: /مختبر|lab|laboratory/i,                    debitAcc:'5500', creditAcc:'2100', label:'مختبر' },
+    { re: /pifss|تأمينات|تامينات/i,                   debitAcc:'5150', creditAcc:'2200', label:'PIFSS' },
+    { re: /اهتلاك|depreciation/i,                     debitAcc:'5600', creditAcc:'1500', label:'اهتلاك' },
+    { re: /صيانة|maintenance|repair/i,                debitAcc:'5700', creditAcc:'1100', label:'صيانة' },
+    { re: /تسوية|transfer|تحويل/i,                    debitAcc:'1110', creditAcc:'1120', label:'تحويل بنكي' },
+  ];
+
+  const categorized = transactions.map(tx => {
+    const desc = tx.desc || '';
+    for (const r of rules) {
+      if (r.re.test(desc)) {
+        const acct = tx.amount >= 0 ? r.creditAcc : r.debitAcc;
+        return { ...tx, suggestedAccount: acct, category: r.label, confidence: 0.85, method: 'rule' };
+      }
+    }
+    const defaultAcc = tx.amount >= 0 ? '4900' : '5900';
+    return { ...tx, suggestedAccount: defaultAcc, category: tx.amount >= 0 ? 'إيراد أخرى' : 'مصروف أخرى', confidence: 0.3, method: 'default' };
+  });
+
+  // Upgrade low-confidence via AI (batch, haiku for speed)
+  const lowConf = categorized.filter(t => t.confidence < 0.6).slice(0, 15);
+  if (lowConf.length && process.env.ANTHROPIC_API_KEY) {
+    try {
+      const coa = (db.chartOfAccounts||[]).slice(0,50).map(a=>`${a.code} ${a.name}`).join('\n');
+      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version':'2023-06-01' },
+        body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:512,
+          messages:[{role:'user',content:`صنّف المعاملات على حسابات من دليل الحسابات. أجب JSON فقط.
+معاملات:
+${lowConf.map((t,i)=>`${i+1}. "${t.desc}" ${t.amount} KD`).join('\n')}
+حسابات متاحة:
+${coa}
+تنسيق الإجابة: [{"i":1,"code":"XXXX","name":"اسم","conf":0.9},...]`}]
+        })
+      });
+      if (aiRes.ok) {
+        const data = await aiRes.json();
+        const m = (data.content?.[0]?.text||'').match(/\[[\s\S]*?\]/);
+        if (m) JSON.parse(m[0]).forEach(s => {
+          const t = categorized.find(c => c === lowConf[s.i-1]);
+          if (t) { t.suggestedAccount = s.code; t.category = s.name; t.confidence = s.conf; t.method = 'ai'; }
+        });
+      }
+    } catch(_) {}
+  }
+  res.json({ success: true, transactions: categorized });
+});
+
+// ── 5. PRO EXPORT — HTML / Print-ready PDF ────────────────────────
+app.get('/api/export/report-html', requireAuth, (req, res) => {
+  const db = loadDB();
+  const { type = 'journal', from = '', to = new Date().toISOString().slice(0,10) } = req.query;
+  const company = db.companyInfo || {};
+  const cName = company.name || 'بوبيان';
+  const cur = company.currency || 'د.ك';
+
+  const titles = { journal:'دفتر اليومية', trial:'ميزان المراجعة', pnl:'قائمة الدخل', balance:'الميزانية العمومية' };
+  const title = titles[type] || 'تقرير';
+
+  let body = '';
+  if (type === 'journal') {
+    let jes = (db.journalEntries||[]);
+    if (from) jes = jes.filter(e=>e.date>=from);
+    if (to)   jes = jes.filter(e=>e.date<=to);
+    jes.sort((a,b)=>a.date.localeCompare(b.date));
+    const rows = jes.flatMap(e=>(e.lines||[]).map(l=>`<tr>
+      <td>${e.date}</td><td>${e.ref||e.id||''}</td><td>${e.description||e.desc||''}</td>
+      <td>${l.accountCode||''}</td><td>${l.accountName||''}</td>
+      <td class="num">${parseFloat(l.debit||0)>0?parseFloat(l.debit).toFixed(3):''}</td>
+      <td class="num">${parseFloat(l.credit||0)>0?parseFloat(l.credit).toFixed(3):''}</td></tr>`)).join('');
+    const totD = jes.flatMap(e=>e.lines||[]).reduce((s,l)=>s+parseFloat(l.debit||0),0);
+    const totC = jes.flatMap(e=>e.lines||[]).reduce((s,l)=>s+parseFloat(l.credit||0),0);
+    body = `<table><thead><tr><th>التاريخ</th><th>المرجع</th><th>البيان</th><th>كود</th><th>الحساب</th><th>مدين</th><th>دائن</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="5" style="font-weight:bold">الإجمالي</td><td class="num bold">${totD.toFixed(3)}</td><td class="num bold">${totC.toFixed(3)}</td></tr></tfoot></table>`;
+  } else if (type === 'trial') {
+    const bm = {};
+    for (const je of (db.journalEntries||[])) {
+      if (from&&je.date<from) continue; if (to&&je.date>to) continue;
+      for (const ln of (je.lines||[])) {
+        if (!ln.accountCode) continue;
+        if (!bm[ln.accountCode]) bm[ln.accountCode]={dr:0,cr:0,name:''};
+        bm[ln.accountCode].dr+=parseFloat(ln.debit||0);
+        bm[ln.accountCode].cr+=parseFloat(ln.credit||0);
+        if (ln.accountName) bm[ln.accountCode].name=ln.accountName;
+      }
+    }
+    const rows = Object.entries(bm).sort((a,b)=>a[0].localeCompare(b[0])).map(([code,b])=>`<tr>
+      <td>${code}</td><td>${b.name}</td>
+      <td class="num">${b.dr>0?b.dr.toFixed(3):''}</td>
+      <td class="num">${b.cr>0?b.cr.toFixed(3):''}</td></tr>`).join('');
+    const tD=Object.values(bm).reduce((s,b)=>s+b.dr,0);
+    const tC=Object.values(bm).reduce((s,b)=>s+b.cr,0);
+    body = `<table><thead><tr><th>كود الحساب</th><th>اسم الحساب</th><th>مدين</th><th>دائن</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="2" class="bold">الإجمالي</td><td class="num bold">${tD.toFixed(3)}</td><td class="num bold">${tC.toFixed(3)}</td></tr></tfoot></table>`;
+  }
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
+<title>${title} — ${cName}</title>
+<style>
+*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1e293b;margin:0;padding:24px;direction:rtl}
+.header{text-align:center;border-bottom:3px solid #2563eb;padding-bottom:16px;margin-bottom:20px}
+.header h1{font-size:22px;margin:0 0 4px;color:#1e293b}.header .sub{color:#64748b;font-size:12px;margin:2px 0}
+table{width:100%;border-collapse:collapse}.th{background:#2563eb;color:#fff;padding:8px 10px;font-size:11px;text-align:right;border:1px solid #1d4ed8}
+td{border:1px solid #e2e8f0;padding:6px 8px;font-size:11px}tr:nth-child(even){background:#f8fafc}
+.num{text-align:left;font-variant-numeric:tabular-nums}.bold{font-weight:700}
+tfoot tr{background:#f0f4f8;font-weight:700}
+.footer{margin-top:20px;text-align:center;font-size:10px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:10px}
+.printbtn{background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;margin-bottom:16px}
+@media print{.printbtn{display:none}@page{margin:15mm}body{padding:0}}
+</style></head><body>
+<div style="text-align:center"><button class="printbtn" onclick="window.print()">🖨️ طباعة / حفظ PDF</button></div>
+<div class="header"><h1>${cName}</h1><p class="sub">${title}</p>
+<p class="sub">الفترة: ${from||'كل الفترات'} — ${to} | العملة: ${cur}</p>
+<p class="sub">تاريخ الإصدار: ${new Date().toLocaleDateString('ar-KW',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p></div>
+${body}
+<div class="footer">بوبيان للمحاسبة الذكية · تم الإنشاء تلقائياً · ${new Date().toISOString()}</div>
+</body></html>`);
+});
+
+// ── 6. SAVE JOURNAL FROM TEMPLATE ─────────────────────────────────
+app.post('/api/journal-from-template', requireAuth, (req, res) => {
+  const db = loadDB();
+  const { templateId, date, description, amounts } = req.body;
+  const template = (db.journalMappings||[]).find(t=>t.id===templateId);
+  if (!template) return res.status(404).json({ error: 'القالب غير موجود' });
+  const lines = template.lines.map((l,i) => ({
+    accountCode: l.accountCode, accountName: l.accountName,
+    debit:  parseFloat(amounts?.[i]?.debit  ?? l.debit  ?? 0),
+    credit: parseFloat(amounts?.[i]?.credit ?? l.credit ?? 0),
+    notes: l.notes || ''
+  }));
+  const totD = lines.reduce((s,l)=>s+l.debit,0);
+  const totC = lines.reduce((s,l)=>s+l.credit,0);
+  if (Math.abs(totD-totC) > 0.005)
+    return res.status(400).json({ error: `القيد غير متوازن: ${totD.toFixed(3)} ≠ ${totC.toFixed(3)}` });
+  const entry = {
+    id: genId('JE-'), date: date||new Date().toISOString().slice(0,10),
+    description: description||template.name, ref: `TPL-${template.id.slice(-6)}`,
+    type: 'template', lines, createdAt: new Date().toISOString(), createdBy: req.user?.username
+  };
+  if (!db.journalEntries) db.journalEntries=[];
+  db.journalEntries.unshift(entry);
+  saveDB(db);
+  res.json({ success: true, entry });
+});
+
+// ── 7. EXCEL GRID — BULK JOURNAL SAVE ─────────────────────────────
+app.post('/api/journal/bulk', requireAuth, (req, res) => {
+  const db = loadDB();
+  const { entries } = req.body;
+  if (!Array.isArray(entries)||!entries.length)
+    return res.status(400).json({ error: 'entries[] مطلوبة' });
+  const saved = [], errors = [];
+  for (const e of entries) {
+    const lines = e.lines||[];
+    const totD=lines.reduce((s,l)=>s+parseFloat(l.debit||0),0);
+    const totC=lines.reduce((s,l)=>s+parseFloat(l.credit||0),0);
+    if (Math.abs(totD-totC)>0.005) { errors.push({ ref:e.ref||'?', error:'غير متوازن' }); continue; }
+    const entry = {
+      id: genId('JE-'), date: e.date||new Date().toISOString().slice(0,10),
+      description: e.description||e.desc||'', ref: e.ref||'', type: 'grid',
+      lines, createdAt: new Date().toISOString(), createdBy: req.user?.username
+    };
+    if (!db.journalEntries) db.journalEntries=[];
+    db.journalEntries.unshift(entry);
+    saved.push(entry.id);
+  }
+  if (saved.length) saveDB(db);
+  res.json({ success: true, saved: saved.length, errors });
+});
+
+console.log('✅ Data Entry Layer v1: Templates, SmartSuggest, BankImport, AutoCategorize, ProExport, BulkJournal loaded');
+

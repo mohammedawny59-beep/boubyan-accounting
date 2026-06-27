@@ -1947,6 +1947,91 @@ html.light .sidebar-search input {
   border-color: rgba(0,0,0,0.12);
   color: var(--text);
 }
+
+/* ══════════════════════════════════════════════════════
+   DATA ENTRY LAYER v1 — 13-Tool CSS
+══════════════════════════════════════════════════════ */
+
+/* ── Grid Entry ── */
+.grid-entry-table { width:100%; border-collapse:collapse; font-size:12px; }
+.grid-entry-table thead th { background:var(--surface2); padding:8px 10px; text-align:right; font-size:11px; font-weight:600; color:var(--text2); border-bottom:1px solid var(--border); white-space:nowrap; }
+.grid-entry-table tbody td { padding:3px 4px; border-bottom:1px solid var(--border); }
+.grid-entry-table tbody td input, .grid-entry-table tbody td select {
+  width:100%; background:transparent; border:1px solid transparent; border-radius:4px;
+  padding:6px 8px; color:var(--text); font-family:inherit; font-size:12px; outline:none;
+  transition:border-color 0.12s, background 0.12s;
+}
+.grid-entry-table tbody td input:focus, .grid-entry-table tbody td select:focus {
+  border-color:var(--accent); background:var(--surface2);
+}
+.grid-entry-table tbody tr:hover td { background:var(--surfaceHov); }
+.grid-entry-table .num-cell input { text-align:left; font-variant-numeric:tabular-nums; font-family:'IBM Plex Mono',monospace; }
+.grid-entry-table .del-cell button { background:none; border:none; color:var(--rose-400); cursor:pointer; font-size:14px; padding:4px; border-radius:4px; }
+.grid-entry-table .del-cell button:hover { background:rgba(239,68,68,.15); }
+.gel-footer { display:flex; gap:8px; align-items:center; padding:10px 0 0; border-top:1px solid var(--border); margin-top:4px; }
+.gel-balance { font-size:11px; font-weight:700; }
+.gel-balance.ok { color:var(--emerald-400); }
+.gel-balance.err { color:var(--rose-400); }
+.gel-tab-tip { font-size:10px; color:var(--text3); margin-right:auto; }
+
+/* ── Templates Panel ── */
+.tpl-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px; }
+.tpl-card { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px; cursor:pointer; transition:border-color .15s, background .15s; }
+.tpl-card:hover { border-color:var(--accent); background:var(--surfaceHov); }
+.tpl-card .tc-name { font-size:13px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.tpl-card .tc-desc { font-size:11px; color:var(--text3); margin-bottom:8px; line-height:1.5; }
+.tpl-card .tc-lines { font-size:10px; color:var(--text3); }
+.tpl-card .tc-del { float:left; background:none; border:none; color:var(--rose-400); cursor:pointer; font-size:12px; padding:2px 4px; }
+.tpl-empty { text-align:center; padding:40px; color:var(--text3); font-size:13px; }
+
+/* ── Smart Autocomplete Dropdown ── */
+.sac-dropdown { position:absolute; z-index:1000; background:var(--surface); border:1px solid var(--borderAct); border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,.4); min-width:280px; max-width:380px; overflow:hidden; }
+.sac-dropdown .sac-item { padding:8px 12px; cursor:pointer; font-size:12px; display:flex; align-items:center; gap:10px; }
+.sac-dropdown .sac-item:hover, .sac-dropdown .sac-item.active { background:var(--accentGlow); }
+.sac-item .sac-code { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--accent); min-width:48px; }
+.sac-item .sac-name { color:var(--text); flex:1; }
+.sac-item .sac-type { font-size:10px; color:var(--text3); }
+.sac-section { padding:4px 10px; font-size:10px; font-weight:700; color:var(--text3); background:var(--surface2); text-transform:uppercase; letter-spacing:.05em; }
+
+/* ── Voice Button ── */
+.voice-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text2); cursor:pointer; font-size:12px; font-family:inherit; transition:all .15s; }
+.voice-btn:hover { border-color:var(--accent); color:var(--accent); }
+.voice-btn.recording { background:rgba(239,68,68,.15); border-color:#ef4444; color:#ef4444; animation:pulse-rec 1s infinite; }
+@keyframes pulse-rec { 0%,100%{opacity:1} 50%{opacity:.6} }
+.voice-result-box { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin-top:8px; font-size:12px; color:var(--text2); display:none; }
+
+/* ── Bank CSV Import ── */
+.bci-panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+.bci-panel .bci-header { font-size:13px; font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+.bci-drop { border:2px dashed var(--border); border-radius:10px; padding:32px; text-align:center; cursor:pointer; transition:border-color .15s; }
+.bci-drop:hover, .bci-drop.dragover { border-color:var(--accent); }
+.bci-drop .bci-icon { font-size:32px; margin-bottom:8px; }
+.bci-table-wrap { overflow-x:auto; max-height:360px; overflow-y:auto; }
+.bci-table { width:100%; border-collapse:collapse; font-size:11px; }
+.bci-table th { background:var(--surface2); padding:6px 8px; text-align:right; font-weight:600; color:var(--text2); position:sticky; top:0; }
+.bci-table td { padding:5px 8px; border-bottom:1px solid var(--border); }
+.bci-table tr:hover td { background:var(--surfaceHov); }
+.bci-table .conf-high { color:var(--emerald-400); }
+.bci-table .conf-med { color:var(--amber-400); }
+.bci-table .conf-low { color:var(--rose-400); }
+
+/* ── Pro Export ── */
+.export-panel { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:16px; }
+.export-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; margin-top:12px; }
+.export-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center; cursor:pointer; transition:all .15s; }
+.export-card:hover { border-color:var(--accent); transform:translateY(-2px); }
+.export-card .ec-icon { font-size:28px; margin-bottom:8px; }
+.export-card .ec-name { font-size:12px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.export-card .ec-desc { font-size:10px; color:var(--text3); }
+
+/* ── Paste Import ── */
+.paste-zone { border:2px dashed var(--border); border-radius:10px; padding:20px; transition:border-color .15s; }
+.paste-zone:focus-within { border-color:var(--accent); }
+.paste-zone textarea { width:100%; background:transparent; border:none; outline:none; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:11px; resize:vertical; min-height:80px; }
+.paste-preview { max-height:200px; overflow:auto; margin-top:8px; }
+.paste-preview table { width:100%; border-collapse:collapse; font-size:11px; }
+.paste-preview th { background:var(--surface2); padding:4px 6px; text-align:right; }
+.paste-preview td { padding:3px 6px; border-bottom:1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -2816,13 +2901,72 @@ html.light .sidebar-search input {
   <div id="tab-journal" class="sec">
     <div class="sh">
       <div><div class="st">القيود اليومية</div><div class="ss">دفتر اليومية — Journal Entries</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button class="btn bp bsm" onclick="openJournalModal()">+ قيد يدوي</button>
-        <button class="btn bw bsm" id="repeatEntryBtn" onclick="repeatLastEntry()" title="فتح نسخة من آخر قيد بتاريخ اليوم" style="display:none">↩ كرّر آخر قيد</button>
-        <button class="btn bw bsm" onclick="exportJournal()">⬇ تصدير Excel</button>
-        <button class="btn bw bsm" onclick="openAnomalyPanel()" id="anomalyNavBtn" style="position:relative">
-          ⚠️ الشذوذ <span id="anomalyBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;line-height:18px;text-align:center">0</span>
+        <button class="btn bw bsm" onclick="toggleGridEntry()" id="gridEntryBtn" title="شبكة إدخال سريع — Excel Style">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> شبكة سريعة
         </button>
+        <button class="btn bw bsm" onclick="openTemplatesPanel()" title="قوالب القيود المحفوظة">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> قوالب
+        </button>
+        <button class="btn bw bsm" onclick="openPasteImport()" title="لصق من Excel / CSV">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> لصق
+        </button>
+        <button class="btn bw bsm" onclick="toggleVoiceEntry()" id="journalVoiceBtn" class="voice-btn" title="إدخال صوتي">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> صوت
+        </button>
+        <button class="btn bw bsm" id="repeatEntryBtn" onclick="repeatLastEntry()" title="فتح نسخة من آخر قيد بتاريخ اليوم" style="display:none">↩ كرّر</button>
+        <button class="btn bw bsm" onclick="openProExport()" title="تصدير احترافي PDF / Excel">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> تصدير
+        </button>
+        <button class="btn bw bsm" onclick="openAnomalyPanel()" id="anomalyNavBtn" style="position:relative">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> شذوذ
+          <span id="anomalyBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;line-height:18px;text-align:center">0</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Voice Entry Bar (collapsible) -->
+    <div id="voiceEntryBar" style="display:none;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.3);border-radius:10px;padding:12px 16px;margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;color:#a78bfa;margin-bottom:8px;">🎙️ الإدخال الصوتي — قل القيد بالعربي</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button id="micBtn" class="voice-btn" onclick="startVoiceEntry()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/></svg>
+          <span id="micBtnText">🎙️ ابدأ التسجيل</span>
+        </button>
+        <input type="text" id="voiceTextInput" class="fi" placeholder='أو اكتب: "دفعنا 50 دينار إيجار يناير نقداً"' style="flex:1;font-size:12px;" onkeydown="if(event.key==='Enter')processVoiceText()">
+        <button class="btn bp bsm" onclick="processVoiceText()">✨ تحليل وإنشاء قيد</button>
+      </div>
+      <div id="voiceResultBox" class="voice-result-box"></div>
+    </div>
+
+    <!-- Excel Grid Entry Panel (collapsible) -->
+    <div id="gridEntryPanel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">⚡ شبكة الإدخال السريع — Excel Style</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <div id="gelBalance" class="gel-balance ok">متوازن ✓</div>
+          <button class="btn bp bsm" onclick="saveGridEntries()" id="gelSaveBtn">💾 حفظ الكل</button>
+          <button class="btn bw bsm" onclick="addGridRow()">+ سطر</button>
+          <button class="btn bw bsm" style="color:var(--text3)" onclick="clearGrid()">مسح</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="grid-entry-table">
+          <thead><tr>
+            <th style="width:110px">التاريخ</th>
+            <th style="width:130px">المرجع</th>
+            <th style="min-width:180px">البيان</th>
+            <th style="min-width:160px">الحساب</th>
+            <th style="width:110px">مدين</th>
+            <th style="width:110px">دائن</th>
+            <th style="width:38px"></th>
+          </tr></thead>
+          <tbody id="gridEntryBody"></tbody>
+        </table>
+      </div>
+      <div class="gel-footer">
+        <span class="gel-tab-tip">Tab للانتقال · Enter لسطر جديد · Ctrl+S للحفظ</span>
       </div>
     </div>
 
@@ -4023,7 +4167,48 @@ html.light .sidebar-search input {
   <div id="tab-bankrecon" class="sec">
     <div class="sh">
       <div><div class="st">🏦 التسوية البنكية</div><div class="sd">مطابقة كشف البنك مع الدفاتر — Bank Reconciliation</div></div>
-      <button class="btn bp bsm" onclick="saveBankRecon()">💾 حفظ التسوية</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn bw bsm" onclick="toggleBankImport()" title="استيراد كشف البنك من CSV/Excel">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> استيراد CSV
+        </button>
+        <button class="btn bp bsm" onclick="saveBankRecon()">💾 حفظ التسوية</button>
+      </div>
+    </div>
+
+    <!-- Bank CSV Import Panel -->
+    <div id="bankImportPanel" style="display:none;" class="bci-panel">
+      <div class="bci-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        استيراد كشف البنك — CSV / Excel
+        <button onclick="toggleBankImport()" style="margin-right:auto;background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;">×</button>
+      </div>
+      <div id="bciDropZone" class="bci-drop" onclick="document.getElementById('bciFile').click()"
+        ondragover="event.preventDefault();this.classList.add('dragover')"
+        ondragleave="this.classList.remove('dragover')"
+        ondrop="handleBankCsvDrop(event)">
+        <div class="bci-icon">📥</div>
+        <div style="font-weight:600;margin-bottom:4px;">اسحب ملف CSV / Excel هنا أو اضغط للاختيار</div>
+        <div style="font-size:11px;color:var(--text3);">يدعم ملفات البنوك الكويتية — NBK, Gulf Bank, KFH, Boubyan</div>
+      </div>
+      <input type="file" id="bciFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadBankCsv(this.files[0])">
+      <div id="bciStatus" style="display:none;text-align:center;padding:12px;font-size:12px;color:var(--text2);"></div>
+      <!-- Results table -->
+      <div id="bciResults" style="display:none;margin-top:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+          <div style="font-size:12px;font-weight:700;" id="bciResultCount"></div>
+          <button class="btn bp bsm" onclick="runAutoCategorizeBci()">🤖 تصنيف AI تلقائي</button>
+          <button class="btn bw bsm" onclick="applyBciToRecon()">✅ أضف لكشف البنك</button>
+          <button class="btn bw bsm" onclick="saveBciAsJournals()">📖 حفظ كقيود يومية</button>
+        </div>
+        <div class="bci-table-wrap">
+          <table class="bci-table">
+            <thead><tr>
+              <th>التاريخ</th><th>البيان</th><th>المبلغ</th><th>التصنيف المقترح</th><th>الحساب</th><th>ثقة</th>
+            </tr></thead>
+            <tbody id="bciTableBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- فلاتر -->
@@ -13532,6 +13717,751 @@ window.animateCount = function(el, targetVal, decimals = 3, duration = 900) {
 };
 
 console.log('%c✅ Motion.dev v11 — Boubyan Animation Layer active', 'color:#3b82f6;font-weight:700');
+</script>
+
+<!-- ═══════════════════════════════════════════════════════
+     DATA ENTRY MODALS
+════════════════════════════════════════════════════════ -->
+
+<!-- Templates Modal -->
+<div id="templatesModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9000;backdrop-filter:blur(6px);overflow-y:auto;" onclick="if(event.target===this)closeTemplatesModal()">
+  <div style="margin:40px auto;max-width:760px;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:16px;font-weight:700;">📄 قوالب القيود المحفوظة</div>
+      <button onclick="closeTemplatesModal()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;">×</button>
+    </div>
+    <div style="padding:20px;">
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn bp bsm" onclick="openSaveTemplateForm()">+ حفظ القيد الحالي كقالب</button>
+        <div style="font-size:11px;color:var(--text3);margin:auto 0;">اضغط على أي قالب لتطبيقه مباشرة</div>
+      </div>
+      <div id="saveTemplateForm" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:700;margin-bottom:10px;">💾 حفظ كقالب جديد</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="tplName" class="fi" placeholder="اسم القالب (مثال: إيجار شهري)" style="flex:1;min-width:180px;">
+          <input id="tplDesc" class="fi" placeholder="وصف (اختياري)" style="flex:1;min-width:180px;">
+          <button class="btn bp bsm" onclick="saveCurrentAsTemplate()">حفظ</button>
+          <button class="btn bw bsm" onclick="document.getElementById('saveTemplateForm').style.display='none'">إلغاء</button>
+        </div>
+      </div>
+      <div id="templatesList" class="tpl-grid"><div class="tpl-empty">لا توجد قوالب محفوظة بعد</div></div>
+    </div>
+    <!-- Apply template form -->
+    <div id="applyTemplateBox" style="display:none;padding:0 20px 20px;">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px;" id="applyTemplateName"></div>
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:140px;"><label style="font-size:11px;color:var(--text3);">التاريخ</label><input type="date" id="tplApplyDate" class="fi" style="width:100%;margin-top:4px;"></div>
+          <div style="flex:2;min-width:200px;"><label style="font-size:11px;color:var(--text3);">البيان</label><input type="text" id="tplApplyDesc" class="fi" style="width:100%;margin-top:4px;" placeholder="وصف القيد"></div>
+        </div>
+        <div id="tplApplyLines" style="font-size:12px;margin-bottom:12px;"></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn bp" onclick="applyTemplate()" style="font-size:12px;padding:8px 20px;">💾 حفظ القيد</button>
+          <button class="btn bw bsm" onclick="document.getElementById('applyTemplateBox').style.display='none'">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Paste Import Modal -->
+<div id="pasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9000;backdrop-filter:blur(6px);overflow-y:auto;" onclick="if(event.target===this)closePasteModal()">
+  <div style="margin:40px auto;max-width:800px;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:16px;font-weight:700;">📋 لصق بيانات من Excel / CSV</div>
+      <button onclick="closePasteModal()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;">×</button>
+    </div>
+    <div style="padding:20px;">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">انسخ خلايا من Excel ثم الصق هنا (Ctrl+V) — أو اكتب/الصق بيانات CSV</div>
+      <div class="paste-zone">
+        <textarea id="pasteTextarea" placeholder="الصق بياناتك هنا..." oninput="parsePasteData(this.value)" onpaste="setTimeout(()=>parsePasteData(document.getElementById('pasteTextarea').value),50)"></textarea>
+      </div>
+      <div id="pastePreview" style="margin-top:12px;display:none;">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px;" id="pastePreviewHeader"></div>
+        <div class="paste-preview"><table id="pastePreviewTable"></table></div>
+        <!-- Column mapping -->
+        <div id="pasteMappingBox" style="margin-top:12px;background:var(--surface2);border-radius:8px;padding:12px;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:8px;">خصّص الأعمدة</div>
+          <div id="pasteMappingCols" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn bp" onclick="importPasteData()" style="font-size:12px;padding:8px 20px;">📥 استيراد كقيود</button>
+          <button class="btn bw bsm" onclick="clearPaste()">مسح</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pro Export Modal -->
+<div id="proExportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9000;backdrop-filter:blur(6px);" onclick="if(event.target===this)closeProExport()">
+  <div style="margin:80px auto;max-width:620px;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:16px;font-weight:700;">📤 تصدير احترافي</div>
+      <button onclick="closeProExport()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;">×</button>
+    </div>
+    <div style="padding:20px;">
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">
+          <label style="font-size:11px;color:var(--text3);">من تاريخ</label>
+          <input type="date" id="exportFrom" class="fi" style="width:100%;margin-top:4px;">
+        </div>
+        <div style="flex:1;min-width:140px;">
+          <label style="font-size:11px;color:var(--text3);">إلى تاريخ</label>
+          <input type="date" id="exportTo" class="fi" style="width:100%;margin-top:4px;" value="">
+        </div>
+      </div>
+      <div class="export-grid">
+        <div class="export-card" onclick="doProExport('journal','pdf')">
+          <div class="ec-icon">📋</div>
+          <div class="ec-name">دفتر اليومية PDF</div>
+          <div class="ec-desc">تقرير احترافي مع شعار الشركة</div>
+        </div>
+        <div class="export-card" onclick="doProExport('trial','pdf')">
+          <div class="ec-icon">⚖️</div>
+          <div class="ec-name">ميزان المراجعة PDF</div>
+          <div class="ec-desc">كل الحسابات مع المجاميع</div>
+        </div>
+        <div class="export-card" onclick="doProExport('journal','excel')">
+          <div class="ec-icon">📊</div>
+          <div class="ec-name">اليومية Excel</div>
+          <div class="ec-desc">ملف Excel مع صيغ SUM</div>
+        </div>
+        <div class="export-card" onclick="doProExport('trial','excel')">
+          <div class="ec-icon">📈</div>
+          <div class="ec-name">ميزان المراجعة Excel</div>
+          <div class="ec-desc">تنسيق محاسبي احترافي</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     DATA ENTRY LAYER v1 — JAVASCRIPT
+════════════════════════════════════════════════════════ -->
+<script>
+// ══════════════════════════════════════════════════════════════
+// 1. SMART AUTOCOMPLETE — إكمال تلقائي ذكي للحسابات
+// ══════════════════════════════════════════════════════════════
+let _sacCache = null, _sacTimer = null, _sacEl = null, _sacIdx = -1;
+
+function initSmartAutocomplete(inputEl, onSelect) {
+  inputEl.setAttribute('autocomplete', 'off');
+  inputEl.addEventListener('input', () => {
+    clearTimeout(_sacTimer);
+    const q = inputEl.value.trim();
+    if (!q) { destroySac(); return; }
+    _sacTimer = setTimeout(() => fetchSacSuggestions(inputEl, q, onSelect), 180);
+  });
+  inputEl.addEventListener('keydown', sacKeyNav);
+  inputEl.addEventListener('blur', () => setTimeout(destroySac, 200));
+}
+
+async function fetchSacSuggestions(inp, q, onSelect) {
+  try {
+    const d = await apiFetch(`smart-suggest?q=${encodeURIComponent(q)}&limit=8`);
+    const items = [...(d.accounts||[]).map(a=>({code:a.code,name:a.name,sub:a.type||'',kind:'account'})),
+                   ...(d.vendors||[]).map(v=>({code:v.id,name:v.name,sub:'مورد',kind:'vendor'}))];
+    if (!items.length) { destroySac(); return; }
+    showSacDropdown(inp, items, onSelect);
+  } catch(_) {}
+}
+
+function showSacDropdown(inp, items, onSelect) {
+  destroySac();
+  const rect = inp.getBoundingClientRect();
+  const dd = document.createElement('div');
+  dd.className = 'sac-dropdown';
+  dd.style.cssText = `position:fixed;top:${rect.bottom+4}px;right:${window.innerWidth-rect.right}px;width:${Math.max(rect.width,280)}px;`;
+  dd.innerHTML = items.map((it,i)=>`
+    <div class="sac-item" data-i="${i}" onclick="sacSelect(${i})">
+      <span class="sac-code">${it.code}</span>
+      <span class="sac-name">${it.name}</span>
+      <span class="sac-type">${it.sub}</span>
+    </div>`).join('');
+  document.body.appendChild(dd);
+  _sacEl = dd; _sacIdx = -1;
+  dd._items = items; dd._onSelect = onSelect; dd._inp = inp;
+}
+
+function sacKeyNav(e) {
+  if (!_sacEl) return;
+  const rows = _sacEl.querySelectorAll('.sac-item');
+  if (e.key === 'ArrowDown') { e.preventDefault(); _sacIdx = (_sacIdx+1)%rows.length; rows.forEach((r,i)=>r.classList.toggle('active',i===_sacIdx)); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _sacIdx = (_sacIdx-1+rows.length)%rows.length; rows.forEach((r,i)=>r.classList.toggle('active',i===_sacIdx)); }
+  else if (e.key === 'Tab' || e.key === 'Enter') {
+    if (_sacIdx >= 0) { e.preventDefault(); sacSelect(_sacIdx); }
+    else destroySac();
+  } else if (e.key === 'Escape') destroySac();
+}
+
+function sacSelect(i) {
+  if (!_sacEl) return;
+  const item = _sacEl._items[i];
+  if (_sacEl._onSelect) _sacEl._onSelect(item, _sacEl._inp);
+  destroySac();
+}
+
+function destroySac() {
+  if (_sacEl) { _sacEl.remove(); _sacEl = null; }
+  _sacIdx = -1;
+}
+
+// ══════════════════════════════════════════════════════════════
+// 2. EXCEL GRID ENTRY — شبكة الإدخال السريع
+// ══════════════════════════════════════════════════════════════
+let _gridRows = [];
+
+function toggleGridEntry() {
+  const panel = document.getElementById('gridEntryPanel');
+  const isVisible = panel.style.display !== 'none';
+  panel.style.display = isVisible ? 'none' : 'block';
+  if (!isVisible && !_gridRows.length) { addGridRow(); addGridRow(); addGridRow(); }
+  document.getElementById('gridEntryBtn').classList.toggle('active', !isVisible);
+}
+
+function addGridRow(data = {}) {
+  const today = new Date().toISOString().slice(0,10);
+  const id = 'gr_' + Date.now() + Math.random().toString(36).slice(2,5);
+  _gridRows.push(id);
+  const tbody = document.getElementById('gridEntryBody');
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-gid', id);
+  tr.innerHTML = `
+    <td><input type="date" value="${data.date||today}" class="grid-date" oninput="updateGridBalance()"></td>
+    <td><input type="text" value="${data.ref||''}" placeholder="مرجع" class="grid-ref"></td>
+    <td><input type="text" value="${data.desc||''}" placeholder="البيان" class="grid-desc" style="min-width:160px;"></td>
+    <td style="position:relative;">
+      <input type="text" value="${data.acc||''}" placeholder="كود أو اسم الحساب" class="grid-acc" style="min-width:150px;"
+        oninput="triggerGridSac(this)" onkeydown="handleGridKey(event,this)">
+    </td>
+    <td class="num-cell"><input type="number" value="${data.debit||''}" placeholder="0.000" class="grid-debit" step="0.001" min="0" oninput="updateGridBalance()"></td>
+    <td class="num-cell"><input type="number" value="${data.credit||''}" placeholder="0.000" class="grid-credit" step="0.001" min="0" oninput="updateGridBalance()"></td>
+    <td class="del-cell"><button onclick="deleteGridRow('${id}')" title="حذف السطر">×</button></td>`;
+  tbody.appendChild(tr);
+  // Init autocomplete on account field
+  const accInp = tr.querySelector('.grid-acc');
+  initSmartAutocomplete(accInp, (item) => {
+    accInp.value = `${item.code} - ${item.name}`;
+    accInp.setAttribute('data-code', item.code);
+    accInp.setAttribute('data-name', item.name);
+  });
+  // Tab-through: Enter on last field adds new row
+  const lastInput = tr.querySelector('.grid-credit');
+  lastInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addGridRow(); } });
+  if (window._motionInsertRow) window._motionInsertRow(tr);
+  return tr;
+}
+
+function handleGridKey(e, inp) {
+  if (e.key === 'Enter' && !_sacEl) {
+    e.preventDefault();
+    const row = inp.closest('tr');
+    const next = row.nextElementSibling;
+    if (next) next.querySelector('.grid-acc')?.focus();
+    else addGridRow();
+  }
+}
+
+function triggerGridSac(inp) { /* SAC handles itself via initSmartAutocomplete */ }
+
+function deleteGridRow(id) {
+  document.querySelector(`tr[data-gid="${id}"]`)?.remove();
+  _gridRows = _gridRows.filter(r => r !== id);
+  updateGridBalance();
+}
+
+function clearGrid() {
+  document.getElementById('gridEntryBody').innerHTML = '';
+  _gridRows = [];
+  addGridRow(); addGridRow(); addGridRow();
+  updateGridBalance();
+}
+
+function updateGridBalance() {
+  const rows = document.querySelectorAll('#gridEntryBody tr');
+  let totD = 0, totC = 0;
+  rows.forEach(r => {
+    totD += parseFloat(r.querySelector('.grid-debit')?.value || 0);
+    totC += parseFloat(r.querySelector('.grid-credit')?.value || 0);
+  });
+  const diff = Math.abs(totD - totC);
+  const el = document.getElementById('gelBalance');
+  if (!el) return;
+  const ok = diff < 0.005;
+  el.className = 'gel-balance ' + (ok ? 'ok' : 'err');
+  el.textContent = ok ? `متوازن ✓ (${totD.toFixed(3)})` : `⚠️ فرق: ${diff.toFixed(3)} | مدين: ${totD.toFixed(3)} | دائن: ${totC.toFixed(3)}`;
+}
+
+async function saveGridEntries() {
+  const rows = document.querySelectorAll('#gridEntryBody tr');
+  // Group rows by date+ref+desc into entries
+  const groups = {};
+  rows.forEach(r => {
+    const date = r.querySelector('.grid-date')?.value || new Date().toISOString().slice(0,10);
+    const ref  = r.querySelector('.grid-ref')?.value.trim() || '';
+    const desc = r.querySelector('.grid-desc')?.value.trim() || '';
+    const accInp = r.querySelector('.grid-acc');
+    const code = accInp?.getAttribute('data-code') || accInp?.value.split(' ')[0] || '';
+    const name = accInp?.getAttribute('data-name') || accInp?.value.replace(/^\S+\s*-?\s*/,'') || '';
+    const debit  = parseFloat(r.querySelector('.grid-debit')?.value || 0);
+    const credit = parseFloat(r.querySelector('.grid-credit')?.value || 0);
+    if (!code && !debit && !credit) return;
+    const key = `${date}||${ref}||${desc}`;
+    if (!groups[key]) groups[key] = { date, ref, desc, lines: [] };
+    groups[key].lines.push({ accountCode:code, accountName:name, debit, credit });
+  });
+  const entries = Object.values(groups).filter(e => e.lines.length);
+  if (!entries.length) return toast('لا يوجد بيانات لحفظها', 'warning');
+  try {
+    const d = await apiFetch('journal/bulk', { method:'POST', body: JSON.stringify({ entries }) });
+    if (d.saved > 0) {
+      toast(`✅ تم حفظ ${d.saved} قيد بنجاح${d.errors?.length ? ` (${d.errors.length} خطأ)` : ''}`, 'success');
+      clearGrid();
+      if (typeof loadJournal === 'function') loadJournal();
+    } else {
+      toast(`❌ فشل الحفظ: ${(d.errors||[]).map(e=>e.error).join(', ')}`, 'error');
+    }
+  } catch(e) { toast('خطأ: ' + e.message, 'error'); }
+}
+
+// Ctrl+S shortcut for grid save
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 's' && document.getElementById('gridEntryPanel')?.style.display !== 'none') {
+    e.preventDefault(); saveGridEntries();
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// 3. JOURNAL TEMPLATES — قوالب القيود
+// ══════════════════════════════════════════════════════════════
+let _templates = [], _selectedTemplate = null;
+
+async function openTemplatesPanel() {
+  document.getElementById('templatesModal').style.display = 'block';
+  await loadTemplates();
+}
+
+function closeTemplatesModal() {
+  document.getElementById('templatesModal').style.display = 'none';
+}
+
+async function loadTemplates() {
+  try {
+    const d = await apiFetch('journal-templates');
+    _templates = d.templates || [];
+    renderTemplates();
+  } catch(e) { toast('خطأ في تحميل القوالب', 'error'); }
+}
+
+function renderTemplates() {
+  const el = document.getElementById('templatesList');
+  if (!_templates.length) { el.innerHTML = '<div class="tpl-empty">لا توجد قوالب محفوظة بعد<br><small>احفظ القيود الشهرية المتكررة كقوالب لتوفير الوقت</small></div>'; return; }
+  el.innerHTML = _templates.map(t => `
+    <div class="tpl-card" onclick="selectTemplate('${t.id}')">
+      <button class="tc-del" onclick="event.stopPropagation();deleteTemplate('${t.id}')" title="حذف">×</button>
+      <div class="tc-name">${t.name}</div>
+      ${t.description ? `<div class="tc-desc">${t.description}</div>` : ''}
+      <div class="tc-lines">${(t.lines||[]).length} سطر | ${new Date(t.createdAt).toLocaleDateString('ar')}</div>
+    </div>`).join('');
+}
+
+function openSaveTemplateForm() {
+  const f = document.getElementById('saveTemplateForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  document.getElementById('tplName').focus();
+}
+
+async function saveCurrentAsTemplate() {
+  const name = document.getElementById('tplName').value.trim();
+  const desc = document.getElementById('tplDesc').value.trim();
+  if (!name) return toast('أدخل اسماً للقالب', 'warning');
+  // Collect lines from the open journal modal if any, else from grid
+  let lines = [];
+  const gridRows = document.querySelectorAll('#gridEntryBody tr');
+  if (gridRows.length) {
+    gridRows.forEach(r => {
+      const accInp = r.querySelector('.grid-acc');
+      const code = accInp?.getAttribute('data-code') || accInp?.value.split(' ')[0] || '';
+      const aName = accInp?.getAttribute('data-name') || '';
+      const debit = parseFloat(r.querySelector('.grid-debit')?.value||0);
+      const credit= parseFloat(r.querySelector('.grid-credit')?.value||0);
+      if (code || debit || credit) lines.push({ accountCode:code, accountName:aName, debit, credit });
+    });
+  }
+  if (!lines.length) return toast('أضف سطوراً في شبكة الإدخال أولاً', 'warning');
+  try {
+    await apiFetch('journal-templates', { method:'POST', body: JSON.stringify({ name, description:desc, lines }) });
+    toast('✅ تم حفظ القالب!', 'success');
+    document.getElementById('saveTemplateForm').style.display = 'none';
+    document.getElementById('tplName').value = '';
+    document.getElementById('tplDesc').value = '';
+    await loadTemplates();
+  } catch(e) { toast('خطأ: ' + e.message, 'error'); }
+}
+
+async function deleteTemplate(id) {
+  if (!confirm('حذف هذا القالب؟')) return;
+  await apiFetch(`journal-templates/${id}`, { method:'DELETE' });
+  await loadTemplates();
+}
+
+function selectTemplate(id) {
+  _selectedTemplate = _templates.find(t => t.id === id);
+  if (!_selectedTemplate) return;
+  const box = document.getElementById('applyTemplateBox');
+  document.getElementById('applyTemplateName').textContent = `📄 ${_selectedTemplate.name}`;
+  document.getElementById('tplApplyDate').value = new Date().toISOString().slice(0,10);
+  document.getElementById('tplApplyDesc').value = _selectedTemplate.description || _selectedTemplate.name;
+  const linesHtml = (_selectedTemplate.lines||[]).map((l,i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;">
+      <span style="color:var(--text3);min-width:120px;">${l.accountCode} ${l.accountName||''}</span>
+      <input type="number" id="tplAmt_dr_${i}" value="${l.debit||''}" placeholder="مدين" step="0.001"
+        class="fi" style="width:100px;font-size:11px;" oninput="syncTplBalance()">
+      <input type="number" id="tplAmt_cr_${i}" value="${l.credit||''}" placeholder="دائن" step="0.001"
+        class="fi" style="width:100px;font-size:11px;" oninput="syncTplBalance()">
+    </div>`).join('');
+  document.getElementById('tplApplyLines').innerHTML = linesHtml;
+  box.style.display = 'block';
+  box.scrollIntoView({ behavior:'smooth' });
+}
+
+function syncTplBalance() { /* optional: show balance preview */ }
+
+async function applyTemplate() {
+  if (!_selectedTemplate) return;
+  const date = document.getElementById('tplApplyDate').value;
+  const desc = document.getElementById('tplApplyDesc').value;
+  const amounts = (_selectedTemplate.lines||[]).map((_,i) => ({
+    debit:  parseFloat(document.getElementById(`tplAmt_dr_${i}`)?.value||0),
+    credit: parseFloat(document.getElementById(`tplAmt_cr_${i}`)?.value||0),
+  }));
+  try {
+    const d = await apiFetch('journal-from-template', { method:'POST', body: JSON.stringify({ templateId:_selectedTemplate.id, date, description:desc, amounts }) });
+    if (d.success) {
+      toast(`✅ تم حفظ القيد من القالب "${_selectedTemplate.name}"!`, 'success');
+      closeTemplatesModal();
+      if (typeof loadJournal === 'function') loadJournal();
+    } else toast(d.error||'فشل', 'error');
+  } catch(e) { toast('خطأ: '+e.message,'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 4. PASTE IMPORT — لصق من Excel / CSV
+// ══════════════════════════════════════════════════════════════
+let _pasteData = [], _pasteMapping = { date:0, ref:-1, desc:1, account:-1, debit:2, credit:3 };
+
+function openPasteImport() {
+  document.getElementById('pasteModal').style.display = 'block';
+  setTimeout(() => document.getElementById('pasteTextarea').focus(), 100);
+}
+
+function closePasteModal() {
+  document.getElementById('pasteModal').style.display = 'none';
+  clearPaste();
+}
+
+function clearPaste() {
+  document.getElementById('pasteTextarea').value = '';
+  document.getElementById('pastePreview').style.display = 'none';
+  _pasteData = [];
+}
+
+function parsePasteData(text) {
+  if (!text.trim()) { document.getElementById('pastePreview').style.display = 'none'; return; }
+  const lines = text.trim().split('\n').filter(l => l.trim());
+  if (lines.length < 2) return;
+  const sep = lines[0].includes('\t') ? '\t' : lines[0].includes(',') ? ',' : '\t';
+  _pasteData = lines.map(l => l.split(sep).map(c => c.trim().replace(/^["']|["']$/g,'')));
+  const headers = _pasteData[0];
+  const rows = _pasteData.slice(1);
+  // Preview table
+  const tbl = document.getElementById('pastePreviewTable');
+  tbl.innerHTML = `<thead><tr>${headers.map((h,i)=>`<th>${h||'عمود '+(i+1)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.slice(0,5).map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  document.getElementById('pastePreviewHeader').textContent = `${rows.length} سطر — معاينة أول 5 صفوف`;
+  // Mapping selects
+  const fields = [
+    {key:'date',label:'التاريخ'},{key:'ref',label:'المرجع'},{key:'desc',label:'البيان'},
+    {key:'account',label:'الحساب'},{key:'debit',label:'مدين'},{key:'credit',label:'دائن'}
+  ];
+  document.getElementById('pasteMappingCols').innerHTML = fields.map(f=>`
+    <div style="flex:1;min-width:120px;">
+      <label style="font-size:10px;color:var(--text3);">${f.label}</label>
+      <select class="fi" style="width:100%;font-size:11px;margin-top:2px;" onchange="_pasteMapping['${f.key}']=parseInt(this.value)">
+        <option value="-1">— لا يوجد</option>
+        ${headers.map((h,i)=>`<option value="${i}" ${_autoGuessCol(h,f.key)?'selected':''}>${h||'عمود '+(i+1)}</option>`).join('')}
+      </select>
+    </div>`).join('');
+  document.getElementById('pastePreview').style.display = 'block';
+}
+
+function _autoGuessCol(header, field) {
+  const h = header.toLowerCase();
+  const m = {date:/date|تاريخ/,ref:/ref|مرجع|رقم/,desc:/desc|بيان|وصف|narr/,account:/acc|حساب|code/,debit:/debit|مدين|dr/,credit:/credit|دائن|cr/};
+  return m[field]?.test(h);
+}
+
+async function importPasteData() {
+  if (!_pasteData.length) return;
+  const rows = _pasteData.slice(1);
+  const entries = [];
+  const today = new Date().toISOString().slice(0,10);
+  for (const row of rows) {
+    const get = i => (i >= 0 && i < row.length) ? row[i] : '';
+    const date = get(_pasteMapping.date) || today;
+    const ref  = get(_pasteMapping.ref);
+    const desc = get(_pasteMapping.desc);
+    const acc  = get(_pasteMapping.account);
+    const debit = parseFloat(String(get(_pasteMapping.debit)).replace(/,/g,'')) || 0;
+    const credit= parseFloat(String(get(_pasteMapping.credit)).replace(/,/g,'')) || 0;
+    if (!debit && !credit) continue;
+    // Add as grid rows
+    addGridRow({ date, ref, desc, acc, debit, credit });
+  }
+  closePasteModal();
+  if (document.getElementById('gridEntryPanel').style.display === 'none') toggleGridEntry();
+  toast(`✅ تم استيراد ${rows.length} سطر في شبكة الإدخال`, 'success');
+}
+
+// ══════════════════════════════════════════════════════════════
+// 5. VOICE ENTRY — الإدخال الصوتي
+// ══════════════════════════════════════════════════════════════
+let _mediaRecorder = null, _audioChunks = [], _recording = false;
+
+function toggleVoiceEntry() {
+  const bar = document.getElementById('voiceEntryBar');
+  bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+}
+
+async function startVoiceEntry() {
+  if (_recording) { stopRecording(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    _mediaRecorder = new MediaRecorder(stream);
+    _audioChunks = [];
+    _mediaRecorder.ondataavailable = e => _audioChunks.push(e.data);
+    _mediaRecorder.onstop = processRecordedAudio;
+    _mediaRecorder.start();
+    _recording = true;
+    const btn = document.getElementById('micBtn');
+    btn.classList.add('recording');
+    document.getElementById('micBtnText').textContent = '⏹ إيقاف التسجيل';
+  } catch(e) {
+    toast('لا يمكن الوصول للميكروفون — جرب الإدخال النصي', 'warning');
+  }
+}
+
+function stopRecording() {
+  _mediaRecorder?.stop();
+  _recording = false;
+  const btn = document.getElementById('micBtn');
+  btn?.classList.remove('recording');
+  if (document.getElementById('micBtnText')) document.getElementById('micBtnText').textContent = '🎙️ ابدأ التسجيل';
+}
+
+async function processRecordedAudio() {
+  if (!_audioChunks.length) return;
+  const blob = new Blob(_audioChunks, { type:'audio/webm' });
+  const fd = new FormData();
+  fd.append('audio', blob, 'voice.webm');
+  const box = document.getElementById('voiceResultBox');
+  box.style.display = 'block';
+  box.textContent = '⏳ جاري تحليل الصوت...';
+  try {
+    const r = await fetch('/api/voice-entry', {
+      method:'POST', body:fd,
+      headers:{ Authorization:'Bearer '+((typeof getToken==='function'?getToken():null)||sessionStorage.getItem('bou_token')||localStorage.getItem('bou_token')) }
+    });
+    const d = await r.json();
+    if (d.text) { document.getElementById('voiceTextInput').value = d.text; processVoiceText(); }
+    else box.textContent = '❌ لم يتم التعرف على الصوت — حاول الكتابة';
+  } catch(_) { box.textContent = '❌ فشل تحليل الصوت — حاول الكتابة'; }
+}
+
+async function processVoiceText() {
+  const text = document.getElementById('voiceTextInput').value.trim();
+  if (!text) return toast('أدخل نصاً أو سجّل صوتاً', 'warning');
+  const box = document.getElementById('voiceResultBox');
+  box.style.display = 'block';
+  box.innerHTML = '⏳ جاري تحليل النص وإنشاء القيد...';
+  try {
+    const d = await apiFetch('ai/suggest-entry', { method:'POST', body: JSON.stringify({ text }) });
+    if (!d.success) { box.innerHTML = `❌ ${d.error||'فشل التحليل'}`; return; }
+    const s = d.suggestion;
+    const bal = d.balanced;
+    box.innerHTML = `
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;">${s.description||text}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px;">
+        ${(s.lines||[]).map(l=>`<tr><td style="padding:3px 6px;color:var(--accent)">${l.accountCode}</td><td style="padding:3px 6px;">${l.accountName||''}</td><td style="padding:3px 6px;color:#60a5fa;">${l.debit>0?l.debit.toFixed(3):''}</td><td style="padding:3px 6px;color:#f87171;">${l.credit>0?l.credit.toFixed(3):''}</td></tr>`).join('')}
+      </table>
+      <div style="display:flex;gap:6px;">
+        ${bal?`<button class="btn bp bsm" onclick="confirmAiEntry(${JSON.stringify(JSON.stringify({suggestion:s,originalText:text}))})">💾 حفظ القيد</button>`:'<span style="color:#ef4444;font-size:11px;">⚠️ غير متوازن</span>'}
+        <button class="btn bw bsm" onclick="addVoiceToGrid(${JSON.stringify(JSON.stringify(s))})">➕ أضف لشبكة الإدخال</button>
+      </div>`;
+  } catch(e) { box.innerHTML = `❌ خطأ: ${e.message}`; }
+}
+
+function addVoiceToGrid(jsonStr) {
+  const s = JSON.parse(jsonStr);
+  if (document.getElementById('gridEntryPanel').style.display === 'none') toggleGridEntry();
+  (s.lines||[]).forEach(l => addGridRow({ desc:s.description, acc:`${l.accountCode} - ${l.accountName||''}`, debit:l.debit||0, credit:l.credit||0 }));
+  toast('✅ تمت إضافة القيد الصوتي لشبكة الإدخال', 'success');
+}
+
+// ══════════════════════════════════════════════════════════════
+// 6. BANK CSV IMPORT — استيراد كشف البنك
+// ══════════════════════════════════════════════════════════════
+let _bciLines = [];
+
+function toggleBankImport() {
+  const panel = document.getElementById('bankImportPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function handleBankCsvDrop(e) {
+  e.preventDefault();
+  document.getElementById('bciDropZone').classList.remove('dragover');
+  const file = e.dataTransfer?.files[0];
+  if (file) uploadBankCsv(file);
+}
+
+async function uploadBankCsv(file) {
+  if (!file) return;
+  const status = document.getElementById('bciStatus');
+  status.style.display = 'block';
+  status.textContent = `⏳ جاري قراءة الملف "${file.name}"...`;
+  document.getElementById('bciResults').style.display = 'none';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const token = (typeof getToken==='function'?getToken():null)||sessionStorage.getItem('bou_token')||localStorage.getItem('bou_token');
+    const r = await fetch('/api/bank/import-csv', { method:'POST', body:fd, headers:{ Authorization:'Bearer '+token } });
+    const d = await r.json();
+    if (!d.success) { status.textContent = '❌ '+d.error; return; }
+    _bciLines = d.lines.map(l => ({ ...l, suggestedAccount:'', category:'', confidence:0, checked:true }));
+    status.textContent = `✅ تم قراءة ${d.count} معاملة`;
+    renderBciTable();
+  } catch(e) { status.textContent = '❌ خطأ: ' + e.message; }
+}
+
+function renderBciTable() {
+  const results = document.getElementById('bciResults');
+  results.style.display = 'block';
+  document.getElementById('bciResultCount').textContent = `${_bciLines.length} معاملة — حدد التصنيف`;
+  const tbody = document.getElementById('bciTableBody');
+  tbody.innerHTML = _bciLines.map((l,i) => `
+    <tr>
+      <td>${l.date}</td>
+      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${l.desc}">${l.desc}</td>
+      <td class="${l.amount>=0?'conf-high':'conf-low'}" style="text-align:left;font-family:monospace;">${l.amount>=0?'+':''}${l.amount.toFixed(3)}</td>
+      <td><span id="bci_cat_${i}" style="font-size:11px;">${l.category||'—'}</span></td>
+      <td><input type="text" value="${l.suggestedAccount||''}" class="fi" style="width:90px;font-size:11px;padding:3px 6px;" id="bci_acc_${i}" placeholder="كود"></td>
+      <td><span class="${l.confidence>=0.8?'conf-high':l.confidence>=0.5?'conf-med':'conf-low'}" style="font-size:10px;">${l.confidence?(l.confidence*100).toFixed(0)+'%':'—'}</span></td>
+    </tr>`).join('');
+}
+
+async function runAutoCategorizeBci() {
+  if (!_bciLines.length) return;
+  const status = document.getElementById('bciStatus');
+  status.style.display = 'block';
+  status.textContent = '🤖 جاري التصنيف الذكي...';
+  try {
+    const d = await apiFetch('bank/categorize', { method:'POST', body: JSON.stringify({ transactions: _bciLines }) });
+    _bciLines = d.transactions;
+    renderBciTable();
+    status.textContent = `✅ تم التصنيف — ${_bciLines.filter(l=>l.confidence>=0.8).length} عالية الثقة`;
+  } catch(e) { status.textContent = '❌ خطأ: '+e.message; }
+}
+
+function applyBciToRecon() {
+  _bciLines.forEach(l => {
+    const date = l.date, desc = l.desc || '', amount = l.amount;
+    if (typeof addBankLine === 'function') addBankLine();
+    // Fill last bank line in the recon table
+    const lines = document.querySelectorAll('#reconBankLines > div');
+    const last = lines[lines.length-1];
+    if (last) {
+      last.querySelector('input[type="date"]')?.setAttribute('value', date);
+      last.querySelector('input[type="text"]')?.setAttribute('value', desc);
+      last.querySelector('input[type="number"]')?.setAttribute('value', Math.abs(amount).toFixed(3));
+    }
+  });
+  toggleBankImport();
+  toast(`✅ تمت إضافة ${_bciLines.length} معاملة لكشف البنك`, 'success');
+}
+
+async function saveBciAsJournals() {
+  if (!_bciLines.length) return;
+  const entries = _bciLines.map((l,i) => {
+    const acc = document.getElementById(`bci_acc_${i}`)?.value.trim() || l.suggestedAccount || '1100';
+    const cashAcc = '1100';
+    return {
+      date: l.date, description: l.desc||'معاملة بنكية', ref: 'BANK',
+      lines: l.amount >= 0
+        ? [{ accountCode:cashAcc, accountName:'النقدية', debit:Math.abs(l.amount), credit:0 },
+           { accountCode:acc, accountName:l.category||'', debit:0, credit:Math.abs(l.amount) }]
+        : [{ accountCode:acc, accountName:l.category||'', debit:Math.abs(l.amount), credit:0 },
+           { accountCode:cashAcc, accountName:'النقدية', debit:0, credit:Math.abs(l.amount) }]
+    };
+  });
+  try {
+    const d = await apiFetch('journal/bulk', { method:'POST', body: JSON.stringify({ entries }) });
+    toast(`✅ تم حفظ ${d.saved} قيد من كشف البنك`, 'success');
+    toggleBankImport();
+    if (typeof loadJournal === 'function') loadJournal();
+  } catch(e) { toast('خطأ: '+e.message, 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 7. PRO EXPORT — تصدير احترافي
+// ══════════════════════════════════════════════════════════════
+function openProExport() {
+  document.getElementById('proExportModal').style.display = 'block';
+  const today = new Date().toISOString().slice(0,10);
+  const firstDay = today.slice(0,8)+'01';
+  document.getElementById('exportFrom').value = firstDay;
+  document.getElementById('exportTo').value = today;
+}
+
+function closeProExport() {
+  document.getElementById('proExportModal').style.display = 'none';
+}
+
+async function doProExport(type, format) {
+  const from = document.getElementById('exportFrom').value;
+  const to   = document.getElementById('exportTo').value;
+  if (format === 'pdf') {
+    const url = `/api/export/report-html?type=${type}&from=${from}&to=${to}`;
+    const token = (typeof getToken==='function'?getToken():null)||sessionStorage.getItem('bou_token')||localStorage.getItem('bou_token');
+    const r = await fetch(url, { headers:{ Authorization:'Bearer '+token } });
+    const html = await r.text();
+    const win = window.open('', '_blank', 'width=900,height=700');
+    win.document.write(html);
+    win.document.close();
+  } else {
+    // Excel export using existing exportExcel helper or apiFetch
+    if (type === 'journal' && typeof exportJournal === 'function') {
+      exportJournal(); closeProExport();
+    } else {
+      toast('تصدير Excel للتقارير سيتوفر قريباً', 'info');
+    }
+  }
+  closeProExport();
+}
+
+// ══════════════════════════════════════════════════════════════
+// 8. INIT — تهيئة أدوات الإدخال عند تحميل الصفحة
+// ══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  // Set today's date for export
+  const today = new Date().toISOString().slice(0,10);
+  const exportTo = document.getElementById('exportTo');
+  if (exportTo && !exportTo.value) exportTo.value = today;
+});
+
+console.log('%c✅ Data Entry Layer v1 — 13 tools active', 'color:#10b981;font-weight:700;font-size:13px');
 </script>
 
 </body>
