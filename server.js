@@ -46,6 +46,7 @@ const DEFAULT_CONFIG = {
     users:'المستخدمون', telegram:'تيليجرام', settings:'الإعدادات' },
   commissionFormula: { base:'above_target', deductions:['lab'], method:'percentage',
     tiers:[{from:0,to:3000,rate:15},{from:3000,to:6000,rate:20},{from:6000,to:null,rate:25}] },
+  insDeductionRate: 0.13,
   dashboard: { kpi: {
     kTotal:'إجمالي الإيرادات', kNet:'صافي (بدون تأمين)', kIns:'حصة التأمين',
     kComm:'إجمالي العمولات', kPend:'عمولات معلّقة'
@@ -203,6 +204,7 @@ const DEFAULT_COA = [
   { id:'1100', code:'1100', name:'الصندوق — نقدي',      type:'asset',    parent:'1000', balance:0 },
   { id:'1110', code:'1110', name:'البنك — الحساب الجاري',             type:'asset', parent:'1000', balance:0 },
   { id:'1120', code:'1120', name:'K-Net / Visa / Master — مستحقات',  type:'asset', parent:'1000', balance:0 },
+  { id:'1125', code:'1125', name:'حسابي — مدفوعات إلكترونية',        type:'asset', parent:'1000', balance:0 },
   { id:'1130', code:'1130', name:'ذمم مدينة — شركات التأمين',        type:'asset', parent:'1000', balance:0 },
   { id:'1200', code:'1200', name:'الذمم المدينة — مرضى', type:'asset',   parent:'1000', balance:0 },
   { id:'1210', code:'1210', name:'مطالبات التأمين المعلقة', type:'asset', parent:'1000', balance:0 },
@@ -254,6 +256,7 @@ const DEFAULT_COA = [
   { id:'5730', code:'5730', name:'تأمين طبي وعمالي',     type:'expense',  parent:'5700', balance:0 },
   { id:'5740', code:'5740', name:'قرطاسية ومطبوعات',     type:'expense',  parent:'5700', balance:0 },
   { id:'5750', code:'5750', name:'مصاريف بنكية وعمولات', type:'expense',  parent:'5700', balance:0 },
+  { id:'5760', code:'5760', name:'خصم التأمين — حسم شركات التأمين', type:'expense', parent:'5700', balance:0 },
   { id:'5800', code:'5800', name:'إهلاك الأصول الثابتة', type:'expense',  parent:'5000', balance:0 },
   { id:'5900', code:'5900', name:'مصاريف أخرى متنوعة',   type:'expense',  parent:'5000', balance:0 },
 ];
@@ -392,10 +395,12 @@ function migrateDB(db) {
       const acc = db.chartOfAccounts.find(a => a.code === code);
       if (acc && acc.name !== correctName) { acc.name = correctName; changed = true; }
     }
-    // Add missing revenue accounts
+    // Add missing accounts
     const newAccounts = [
-      { id:'4150', code:'4150', name:'إيرادات تأمين — إجمالي', type:'revenue', parent:'4000', balance:0 },
-      { id:'4160', code:'4160', name:'إيرادات شيكات',           type:'revenue', parent:'4000', balance:0 },
+      { id:'4150', code:'4150', name:'إيرادات تأمين — إجمالي',             type:'revenue', parent:'4000', balance:0 },
+      { id:'4160', code:'4160', name:'إيرادات شيكات',                       type:'revenue', parent:'4000', balance:0 },
+      { id:'1125', code:'1125', name:'حسابي — مدفوعات إلكترونية',           type:'asset',   parent:'1000', balance:0 },
+      { id:'5760', code:'5760', name:'خصم التأمين — حسم شركات التأمين',     type:'expense', parent:'5700', balance:0 },
     ];
     for (const acc of newAccounts) {
       if (!db.chartOfAccounts.find(a => a.code === acc.code)) {
@@ -796,10 +801,11 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       const rev4150 = findAcc('4150'); // Insurance
       const rev4160 = findAcc('4160'); // Cheque
       // Asset debit accounts
-      const cash1100 = findAcc('1100'); // Sundry cash
-      const bank1110 = findAcc('1110'); // Bank (Link / Cheque)
-      const knet1120 = findAcc('1120'); // K-Net / Visa / Master receivables
-      const ins1130  = findAcc('1130'); // Insurance receivable
+      const cash1100  = findAcc('1100'); // Sundry cash
+      const bank1110  = findAcc('1110'); // Bank (Cheque)
+      const hisabi1125= findAcc('1125'); // حسابي — K-Net / Visa / Master / Link
+      const ins1130   = findAcc('1130'); // Insurance receivable (net)
+      const exp5760   = findAcc('5760'); // خصم التأمين
 
       // Group uploaded records by month (YYYY-MM)
       const monthGroups = {};
@@ -823,17 +829,53 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         );
 
         const r = (v) => parseFloat(v.toFixed(3));
+        const cfg = loadConfig();
+        const insRate = typeof cfg.insDeductionRate === 'number' ? cfg.insDeductionRate : 0.13;
         const lines = [];
-        let totalRev = 0;
+        let totalDebitRev = 0;
 
         // Debit lines
-        if (g.cash      > 0) { const v=r(g.cash);      lines.push({ accountId:cash1100.id, accountCode:'1100', accountName:cash1100.name, debit:v, credit:0 }); totalRev+=v; }
-        if (g.knet      > 0) { const v=r(g.knet);      lines.push({ accountId:knet1120.id, accountCode:'1120', accountName:knet1120.name, debit:v, credit:0 }); totalRev+=v; }
-        if (g.visa      > 0) { const v=r(g.visa);      lines.push({ accountId:knet1120.id, accountCode:'1120', accountName:knet1120.name, debit:v, credit:0 }); totalRev+=v; }
-        if (g.master    > 0) { const v=r(g.master);    lines.push({ accountId:knet1120.id, accountCode:'1120', accountName:knet1120.name, debit:v, credit:0 }); totalRev+=v; }
-        if (g.link      > 0) { const v=r(g.link);      lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:v, credit:0 }); totalRev+=v; }
-        if (g.cheque    > 0) { const v=r(g.cheque);    lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:v, credit:0 }); totalRev+=v; }
-        if (g.insurance > 0) { const v=r(g.insurance); lines.push({ accountId:ins1130.id,  accountCode:'1130', accountName:ins1130.name,  debit:v, credit:0 }); totalRev+=v; }
+        if (g.cash > 0) {
+          const v = r(g.cash);
+          lines.push({ accountId:cash1100.id, accountCode:'1100', accountName:cash1100.name, debit:v, credit:0 });
+          totalDebitRev += v;
+        }
+        // K-Net → حسابي (separate line)
+        if (g.knet > 0) {
+          const v = r(g.knet);
+          lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:v, credit:0, remarks:`كي-نت: ${v} د.ك` });
+          totalDebitRev += v;
+        }
+        // Visa + Master → حسابي (one combined line)
+        if ((g.visa + g.master) > 0) {
+          const v = r(g.visa + g.master);
+          const parts = [];
+          if (g.visa   > 0) parts.push(`فيزا: ${r(g.visa)} د.ك`);
+          if (g.master > 0) parts.push(`ماستر: ${r(g.master)} د.ك`);
+          lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:v, credit:0, remarks:parts.join(' | ') });
+          totalDebitRev += v;
+        }
+        // Link → حسابي (separate line)
+        if (g.link > 0) {
+          const v = r(g.link);
+          lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:v, credit:0, remarks:`لينك: ${v} د.ك` });
+          totalDebitRev += v;
+        }
+        // Cheque → Bank
+        if (g.cheque > 0) {
+          const v = r(g.cheque);
+          lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:v, credit:0, remarks:`شيك: ${v} د.ك` });
+          totalDebitRev += v;
+        }
+        // Insurance → gross CR to 4150; net DR to 1130; deduction DR to 5760
+        if (g.insurance > 0) {
+          const gross     = r(g.insurance);
+          const deduction = r(gross * insRate);
+          const net       = r(gross - deduction);
+          lines.push({ accountId:ins1130.id,  accountCode:'1130', accountName:ins1130.name,  debit:net,       credit:0, remarks:`صافي التأمين (${((1-insRate)*100).toFixed(0)}%)` });
+          lines.push({ accountId:exp5760.id,  accountCode:'5760', accountName:exp5760.name,  debit:deduction, credit:0, remarks:`خصم شركات التأمين (${(insRate*100).toFixed(0)}%)` });
+          totalDebitRev += gross;
+        }
 
         // Credit lines
         if (g.cash      > 0) { const v=r(g.cash);      lines.push({ accountId:rev4100.id, accountCode:'4100', accountName:rev4100.name, debit:0, credit:v }); }
@@ -842,7 +884,9 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         if (g.master    > 0) { const v=r(g.master);    lines.push({ accountId:rev4130.id, accountCode:'4130', accountName:rev4130.name, debit:0, credit:v }); }
         if (g.link      > 0) { const v=r(g.link);      lines.push({ accountId:rev4140.id, accountCode:'4140', accountName:rev4140.name, debit:0, credit:v }); }
         if (g.cheque    > 0) { const v=r(g.cheque);    lines.push({ accountId:rev4160.id, accountCode:'4160', accountName:rev4160.name, debit:0, credit:v }); }
-        if (g.insurance > 0) { const v=r(g.insurance); lines.push({ accountId:rev4150.id, accountCode:'4150', accountName:rev4150.name, debit:0, credit:v }); }
+        if (g.insurance > 0) { const v=r(g.insurance); lines.push({ accountId:rev4150.id, accountCode:'4150', accountName:rev4150.name, debit:0, credit:v, remarks:'إيرادات التأمين — إجمالي' }); }
+
+        const totalRev = totalDebitRev;
 
         if (lines.length < 2 || totalRev === 0) continue;
 
@@ -1274,9 +1318,11 @@ app.get('/api/stats', (req, res) => {
   const linkRevenue  = revByCode['4140'] || 0;
   const chequeRevenue= revByCode['4160'] || 0;
 
-  // Insurance share (25% of the gross insurance amount)
-  const insOriginal  = insRevenue > 0 ? insRevenue / 0.75 : 0;
-  const insShare     = r3(insOriginal * 0.25);
+  // Insurance: 4150 now holds gross amount; compute share using config rate
+  const cfg2         = loadConfig();
+  const insRate2     = typeof cfg2.insDeductionRate === 'number' ? cfg2.insDeductionRate : 0.13;
+  const insOriginal  = insRevenue; // gross (credited to 4150 directly)
+  const insShare     = r3(insRevenue * insRate2);
 
   // Work days = unique dates with revenue > 0 from daily data (unchanged)
   let daily = db.dailyData || [];

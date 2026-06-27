@@ -3339,6 +3339,10 @@ body { font-size: calc(14px * var(--fs-scale)); }
             </select>
           </div>
           <div class="fr">
+            <label class="flbl">نسبة خصم التأمين % (للقيد التلقائي)</label>
+            <input type="number" class="finp" id="cfgInsRate" placeholder="13" min="0" max="100" step="0.1" style="max-width:140px;">
+          </div>
+          <div class="fr">
             <label class="flbl">الخصومات قبل الحساب</label>
             <div style="display:flex;gap:14px;padding:10px;background:var(--surface2);border-radius:8px;margin-top:4px;">
               <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
@@ -5735,6 +5739,8 @@ function renderCfgUI(cfg) {
   if (dedIns) dedIns.checked = (f.deductions||[]).includes('insurance');
   const fixedAmt = document.getElementById('cfgFixedAmt');
   if (fixedAmt) fixedAmt.value = f.fixedAmount || '';
+  const insRateEl = document.getElementById('cfgInsRate');
+  if (insRateEl) insRateEl.value = typeof cfg.insDeductionRate === 'number' ? (cfg.insDeductionRate * 100).toFixed(1) : '13';
   renderTiers(f.tiers || []);
   updateFormulaPreview();
 }
@@ -5866,7 +5872,10 @@ function collectCfg() {
     else automation[section][field] = el.type === 'number' ? Number(el.value) : el.value;
   });
 
-  return { nav, modules, labels, dashboard: { kpi }, importTemplates, commissionFormula, automation };
+  const insRateRaw = parseFloat(document.getElementById('cfgInsRate')?.value || 13);
+  const insDeductionRate = isNaN(insRateRaw) ? 0.13 : insRateRaw / 100;
+
+  return { nav, modules, labels, dashboard: { kpi }, importTemplates, commissionFormula, insDeductionRate, automation };
 }
 
 async function saveConfig() {
