@@ -4747,11 +4747,11 @@ app.post('/api/ai/chat/stream', async (req, res) => {
 إذا طلب المستخدم إضافة حساب أو إنشاء حساب أو تسجيل حساب جديد في شجرة الحسابات:
 1. اختر الكود من جدول الأكواد المتاحة أدناه حسب نوع الحساب
 2. اكتب جملة واحدة توضح الاقتراح
-3. في السطر الأخير بالضبط اكتب:
-⚡ACTION:addAccount|الكود|الاسم|النوع|الحساب_الأب
+3. في السطر الأخير بالضبط اكتب هذا السطر وبس (لا تضيف شيء بعده):
+ADDACCOUNT:الكود:الاسم:النوع:الحساب_الأب
 
-أنواع الحسابات المقبولة: asset | liability | equity | revenue | expense
-مثال: ⚡ACTION:addAccount|${nextCodes.misc}|مصروف نظافة|expense|5900
+أنواع الحسابات: asset أو liability أو equity أو revenue أو expense
+مثال لمصروف نظافة: ADDACCOUNT:${nextCodes.misc}:مصروف نظافة:expense:5900
 ══════════════════════════════════════
 
 الأكواد الموجودة (لا تستخدمها):
@@ -4778,8 +4778,8 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'messages-2023-12-15' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500, system: systemPrompt, messages, stream: true })
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: systemPrompt, messages, stream: true })
     });
 
     const reader = response.body.getReader();
