@@ -4743,21 +4743,10 @@ app.post('/api/ai/chat/stream', async (req, res) => {
 
     const systemPrompt = `أنت مساعد محاسبي لعيادة "بوبيان" للأسنان. أجب بالعربي فقط، بدون JSON أو كود.
 
-═══ قواعد إضافة الحساب — اقرأها أولاً ═══
-إذا طلب المستخدم إضافة حساب أو إنشاء حساب أو تسجيل حساب جديد في شجرة الحسابات:
-1. اختر الكود من جدول الأكواد المتاحة أدناه حسب نوع الحساب
-2. اكتب جملة واحدة توضح الاقتراح
-3. في السطر الأخير بالضبط اكتب هذا السطر وبس (لا تضيف شيء بعده):
-ADDACCOUNT:الكود:الاسم:النوع:الحساب_الأب
-
-أنواع الحسابات: asset أو liability أو equity أو revenue أو expense
-مثال لمصروف نظافة: ADDACCOUNT:${nextCodes.misc}:مصروف نظافة:expense:5900
-══════════════════════════════════════
-
-الأكواد الموجودة (لا تستخدمها):
+الأكواد الموجودة في شجرة الحسابات (لا تقترح أياً منها):
 ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
 
-الكود التالي المتاح لكل نطاق:
+الكود التالي المتاح لكل نطاق (استخدمها عند إضافة حساب):
 أصول=${nextCodes.asset} | خصوم=${nextCodes.liability} | إيرادات=${nextCodes.revenue}
 رواتب=${nextCodes.salaries} | مواد=${nextCodes.materials} | مستلزمات=${nextCodes.supplies}
 إيجار=${nextCodes.rent} | مرافق=${nextCodes.utilities} | صيانة=${nextCodes.maintenance}
@@ -4779,12 +4768,30 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: systemPrompt, messages, stream: true })
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: systemPrompt, messages, stream: true,
+        tools: [{
+          name: 'add_account',
+          description: 'أضف حساباً جديداً في شجرة الحسابات عندما يطلب المستخدم ذلك',
+          input_schema: {
+            type: 'object',
+            properties: {
+              code:   { type: 'string', description: 'رقم الحساب — يجب أن يكون من جدول الأكواد المتاحة' },
+              name:   { type: 'string', description: 'اسم الحساب بالعربي' },
+              type:   { type: 'string', enum: ['asset','liability','equity','revenue','expense'], description: 'نوع الحساب' },
+              parent: { type: 'string', description: 'كود الحساب الأب (اختياري)' }
+            },
+            required: ['code','name','type']
+          }
+        }]
+      })
     });
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let toolInput = '';
+    let inTool = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -4798,7 +4805,17 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
         if (raw === '[DONE]') continue;
         try {
           const evt = JSON.parse(raw);
-          if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+          if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
+            inTool = true; toolInput = '';
+          } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'input_json_delta') {
+            toolInput += evt.delta.partial_json || '';
+          } else if (evt.type === 'content_block_stop' && inTool) {
+            inTool = false;
+            try {
+              const params = JSON.parse(toolInput);
+              send('action', { type: 'addAccount', ...params });
+            } catch {}
+          } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
             send('delta', { text: evt.delta.text });
           }
         } catch {}
