@@ -8750,9 +8750,10 @@ const _toastRegion = (() => {
 async function apiFetch(path, opts) {
   opts = opts || {};
   opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
-  const token = localStorage.getItem('bou_token');
+  const token = (typeof getToken === 'function' ? getToken() : null)
+    || sessionStorage.getItem('bou_token') || localStorage.getItem('bou_token');
   if (token) opts.headers['Authorization'] = 'Bearer ' + token;
-  const r = await fetch('/api' + path, opts);
+  const r = await fetch('/api/' + path.replace(/^\//, ''), opts);
   if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error || r.statusText); }
   return r.json();
 }
