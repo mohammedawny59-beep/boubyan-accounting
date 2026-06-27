@@ -4728,6 +4728,19 @@ app.post('/api/ai/chat/stream', async (req, res) => {
     const lowStock = inventory.filter(i=>(i.qty||0)<=(i.minQty||0));
     const topExpenses = Object.entries(expByCat).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([c,a])=>`${c}: ${a.toFixed(3)} د.ك`).join(' | ');
 
+    // Compute next available code per range — injected into prompt so AI never picks an existing code
+    const usedCodes = new Set((db.chartOfAccounts||[]).map(a => a.code));
+    const nextCode = (from, to) => { for (let i = from; i <= to; i++) { const c = String(i); if (!usedCodes.has(c)) return c; } return String(to); };
+    const nextCodes = {
+      asset: nextCode(1100,1999), liability: nextCode(2100,2999),
+      equity: nextCode(3100,3999), revenue: nextCode(4100,4999),
+      salaries: nextCode(5010,5099), materials: nextCode(5110,5199),
+      supplies: nextCode(5210,5299), rent: nextCode(5310,5399),
+      utilities: nextCode(5410,5499), maintenance: nextCode(5510,5599),
+      marketing: nextCode(5610,5699), admin: nextCode(5710,5799),
+      depreciation: nextCode(5810,5899), misc: nextCode(5910,5999),
+    };
+
     const systemPrompt = `أنت مساعد محاسبي ذكي متخصص في عيادة الأسنان "بوبيان". لديك وصول كامل لبيانات العيادة الحقيقية.
 
 ═══════════════════════════════════════
@@ -4754,26 +4767,23 @@ app.post('/api/ai/chat/stream', async (req, res) => {
 صافي الربح (إجمالي): ${(totalRevenue-totalExpenses-payroll.reduce((s,p)=>s+(p.totalNet||0),0)).toFixed(3)} د.ك
 
 ═══════════════════════════════════════
-📋 شجرة الحسابات الحالية (الأكواد المستخدمة — لا تقترح أياً منها):
-${(db.chartOfAccounts||[]).filter(a=>!a.isGroup).map(a=>`${a.code} | ${a.name} | ${a.type}`).join('\n')}
+📋 الحسابات الموجودة (محظور استخدام أي كود منها):
+${(db.chartOfAccounts||[]).map(a=>`${a.code}`).join(' | ')}
 
-نطاقات الحسابات:
-• 1000-1999: الأصول (assets)
-• 2000-2999: الخصوم (liability)
-• 3000-3999: حقوق الملكية (equity)
-• 4000-4999: الإيرادات (revenue)
-• 5000-5099: رواتب وأجور | 5100-5199: مواد | 5200-5299: مستلزمات | 5300-5399: إيجار | 5400-5499: مرافق | 5500-5599: صيانة | 5600-5699: تسويق | 5700-5799: مصاريف إدارية | 5800-5899: إهلاك | 5900-5999: مصاريف متنوعة
+🔢 الكود التالي المتاح (استخدم هذه الأكواد فقط عند الإضافة):
+• أصول: ${nextCodes.asset} | خصوم: ${nextCodes.liability} | إيرادات: ${nextCodes.revenue}
+• رواتب: ${nextCodes.salaries} | مواد: ${nextCodes.materials} | مستلزمات: ${nextCodes.supplies}
+• إيجار: ${nextCodes.rent} | مرافق: ${nextCodes.utilities} | صيانة: ${nextCodes.maintenance}
+• تسويق: ${nextCodes.marketing} | إداري: ${nextCodes.admin} | إهلاك: ${nextCodes.depreciation} | متنوع: ${nextCodes.misc}
 ═══════════════════════════════════════
 
-تعليمات صارمة:
-1. أجب بالعربي فقط — لا JSON ولا طلاسم
-2. استخدم الأرقام الحقيقية من البيانات
-3. استخدم emojis للتنظيم
-4. عند طلب إضافة حساب: اختر الكود التالي المتاح في النطاق الصحيح (غير موجود في القائمة أعلاه)، اشرح اقتراحك بجملة واحدة، ثم أضف في السطر الأخير بالضبط:
-   ⚡ACTION:addAccount|كود|الاسم|النوع|الحساب_الأب
-   مثال: ⚡ACTION:addAccount|5760|مصروف نظافة|expense|5700
-5. لا تضيف أي JSON أو كود برمجي في ردودك
-6. اسأل دائماً "هل تريد إضافة هذا الحساب؟" قبل السطر الأخير`;
+تعليمات:
+1. أجب بالعربي — لا JSON ولا كود برمجي
+2. استخدم الأرقام الحقيقية من البيانات أعلاه
+3. عند طلب إضافة حساب: اختر الكود من جدول "الكود التالي المتاح" أعلاه حسب النوع، اشرح بجملة واحدة، ثم ضع في السطر الأخير بالضبط:
+   ⚡ACTION:addAccount|الكود|الاسم|النوع|الحساب_الأب
+   مثال لمصروف نظافة: ⚡ACTION:addAccount|${nextCodes.misc}|مصروف نظافة|expense|5900
+4. النوع يكون: asset أو liability أو equity أو revenue أو expense فقط`;
 
     const messages = [];
     if (history && Array.isArray(history)) history.slice(-10).forEach(h => messages.push({ role: h.role, content: h.content }));
@@ -4784,7 +4794,7 @@ ${(db.chartOfAccounts||[]).filter(a=>!a.isGroup).map(a=>`${a.code} | ${a.name} |
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'messages-2023-12-15' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000, system: systemPrompt, messages, stream: true })
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500, system: systemPrompt, messages, stream: true })
     });
 
     const reader = response.body.getReader();

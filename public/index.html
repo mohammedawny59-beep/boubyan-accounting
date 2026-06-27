@@ -9583,7 +9583,7 @@ function renderMarkdown(text) {
       const safe = JSON.stringify({ code, name, type, parent }).replace(/'/g, '&#39;');
       return `<div style="margin-top:10px;padding:10px 14px;background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.35);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <span style="font-size:12px;color:var(--text);">📌 <strong>${code}</strong> — ${name} (${type})</span>
-        <button class="btn bp bsm" onclick="aiConfirmAddAccount('${safe.replace(/"/g,'&quot;')}')">✅ تأكيد الإضافة</button>
+        <button class="btn bp bsm" onclick="aiConfirmAddAccount('${safe.replace(/"/g,'&quot;')}',this)">✅ تأكيد الإضافة</button>
       </div>`;
     }
     return '';
@@ -9602,15 +9602,23 @@ function renderMarkdown(text) {
     .replace(/\n/g, '<br>');
 }
 
-async function aiConfirmAddAccount(jsonStr) {
+async function aiConfirmAddAccount(jsonStr, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
   try {
     const { code, name, type, parent } = JSON.parse(jsonStr);
-    const db = await fetch('/api/coa').then(r=>r.json());
-    if ((db||[]).find(a => a.code === code)) { showToast('الكود موجود مسبقاً', 'error'); return; }
-    await fetch('/api/coa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code, name, type, parent: parent||null, balance:0 }) });
-    showToast(`✅ تم إضافة الحساب ${code} — ${name}`, 'success');
-    const btn = event.target; btn.textContent = '✅ تم'; btn.disabled = true;
-  } catch(e) { showToast('فشل: ' + e.message, 'error'); }
+    const r = await fetch('/api/coa/account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, name, type, parent: parent || null, balance: 0 })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    showToast('✅ تم إضافة الحساب ' + code + ' — ' + name, 'success');
+    if (btn) { btn.textContent = '✅ تم'; }
+  } catch(e) {
+    showToast('فشل: ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '✅ تأكيد الإضافة'; }
+  }
 }
 
 function copyAiMsg(btn) {
