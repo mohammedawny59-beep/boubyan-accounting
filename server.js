@@ -4748,14 +4748,15 @@ app.post('/api/ai/chat/stream', async (req, res) => {
 - لا تقل "تم الإضافة" أو "تم التسجيل" — أنت لا تضيف الحسابات مباشرة، المستخدم هو من يؤكد الإضافة
 - عند طلب إضافة حساب: استخدم الأداة add_account مباشرةً باستخدام الكود المتاح من جدول الأكواد أدناه
 
-الأكواد الموجودة في شجرة الحسابات (لا تقترح أياً منها):
-${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
+شجرة الحسابات الموجودة (كود — اسم):
+${(db.chartOfAccounts||[]).map(a=>`${a.code}:${a.name}`).join(' | ')}
 
-الكود التالي المتاح لكل نطاق (استخدمها عند إضافة حساب):
-أصول=${nextCodes.asset} | خصوم=${nextCodes.liability} | إيرادات=${nextCodes.revenue}
-رواتب=${nextCodes.salaries} | مواد=${nextCodes.materials} | مستلزمات=${nextCodes.supplies}
-إيجار=${nextCodes.rent} | مرافق=${nextCodes.utilities} | صيانة=${nextCodes.maintenance}
-تسويق=${nextCodes.marketing} | إداري=${nextCodes.admin} | إهلاك=${nextCodes.depreciation} | متنوع=${nextCodes.misc}
+الكود التالي المتاح لكل نوع — استخدم هذا الكود بالضبط ولا تختر غيره:
+• مصاريف متنوعة: ${nextCodes.misc}
+• مواد: ${nextCodes.materials} | مستلزمات: ${nextCodes.supplies}
+• رواتب: ${nextCodes.salaries} | إيجار: ${nextCodes.rent} | مرافق: ${nextCodes.utilities}
+• صيانة: ${nextCodes.maintenance} | تسويق: ${nextCodes.marketing} | إداري: ${nextCodes.admin}
+• أصول: ${nextCodes.asset} | خصوم: ${nextCodes.liability} | إيرادات: ${nextCodes.revenue}
 
 ═══ بيانات العيادة (${now.toLocaleDateString('ar-KW')}) ═══
 إيرادات إجمالية: ${totalRevenue.toFixed(3)} | هذا الشهر: ${thisMonthRev.toFixed(3)} | الشهر الماضي: ${lastMonthRev.toFixed(3)} د.ك
@@ -4777,16 +4778,15 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
         model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: systemPrompt, messages, stream: true,
         tools: [{
           name: 'add_account',
-          description: 'أضف حساباً جديداً في شجرة الحسابات عندما يطلب المستخدم ذلك',
+          description: 'اقترح إضافة حساب تفصيلي واحد فقط (ليس مجموعة) في شجرة الحسابات. السيرفر هو من يحدد الكود الصحيح.',
           input_schema: {
             type: 'object',
             properties: {
-              code:   { type: 'string', description: 'رقم الحساب — يجب أن يكون من جدول الأكواد المتاحة' },
-              name:   { type: 'string', description: 'اسم الحساب بالعربي' },
-              type:   { type: 'string', enum: ['asset','liability','equity','revenue','expense'], description: 'نوع الحساب' },
-              parent: { type: 'string', description: 'كود الحساب الأب (اختياري)' }
+              name: { type: 'string', description: 'اسم الحساب بالعربي' },
+              type: { type: 'string', enum: ['asset','liability','equity','revenue','expense'], description: 'نوع الحساب' },
+              parent: { type: 'string', description: 'كود الحساب الأب إذا كان موجوداً في الشجرة' }
             },
-            required: ['code','name','type']
+            required: ['name','type']
           }
         }]
       })
@@ -4819,7 +4819,28 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
             inTool = false;
             try {
               const params = JSON.parse(toolInput);
-              send('action', { type: 'addAccount', code: params.code, name: params.name, accountType: params.type||'expense', parent: params.parent||null });
+              const accType = params.type || 'expense';
+              const parentCode = parseInt(params.parent) || 0;
+              // Server overrides AI code with guaranteed-available code from correct range
+              const codeMap = {
+                asset: nextCodes.asset, liability: nextCodes.liability, equity: nextCodes.equity,
+                revenue: nextCodes.revenue,
+              };
+              let serverCode;
+              if (accType !== 'expense') {
+                serverCode = codeMap[accType] || nextCodes.misc;
+              } else if (parentCode >= 5900 || !parentCode) {
+                serverCode = nextCodes.misc;
+              } else if (parentCode >= 5800) serverCode = nextCodes.depreciation;
+              else if (parentCode >= 5700) serverCode = nextCodes.admin;
+              else if (parentCode >= 5600) serverCode = nextCodes.marketing;
+              else if (parentCode >= 5500) serverCode = nextCodes.maintenance;
+              else if (parentCode >= 5400) serverCode = nextCodes.utilities;
+              else if (parentCode >= 5300) serverCode = nextCodes.rent;
+              else if (parentCode >= 5200) serverCode = nextCodes.supplies;
+              else if (parentCode >= 5100) serverCode = nextCodes.materials;
+              else serverCode = nextCodes.misc;
+              send('action', { type: 'addAccount', code: serverCode, name: params.name, accountType: accType, parent: params.parent||null });
             } catch {}
           } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
             fullText += evt.delta.text;
