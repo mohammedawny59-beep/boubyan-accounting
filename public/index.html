@@ -4678,7 +4678,12 @@ function fixTemplateLinks() {
 function downloadTemplate(name) {
   const token = getToken();
   if (!token) { showToast('يرجى تسجيل الدخول أولاً', 'error'); return; }
-  window.location.href = `/api/templates/${name}?_token=${encodeURIComponent(token)}`;
+  const a = document.createElement('a');
+  a.href = `/api/templates/${name}?_token=${encodeURIComponent(token)}`;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function getRoleLabel(role) {
