@@ -867,24 +867,25 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
           lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:v, credit:0, remarks:`شيك: ${v} د.ك` });
           totalDebitRev += v;
         }
-        // Insurance → gross CR to 4150; net DR to 1130; deduction DR to 5760
+        // Insurance: file value = NET (after deduction); back-calculate gross
+        let insGross = 0;
         if (g.insurance > 0) {
-          const gross     = r(g.insurance);
-          const deduction = r(gross * insRate);
-          const net       = r(gross - deduction);
-          lines.push({ accountId:ins1130.id,  accountCode:'1130', accountName:ins1130.name,  debit:net,       credit:0, remarks:`صافي التأمين (${((1-insRate)*100).toFixed(0)}%)` });
-          lines.push({ accountId:exp5760.id,  accountCode:'5760', accountName:exp5760.name,  debit:deduction, credit:0, remarks:`خصم شركات التأمين (${(insRate*100).toFixed(0)}%)` });
-          totalDebitRev += gross;
+          const net       = r(g.insurance);
+          insGross        = r(net / (1 - insRate));
+          const deduction = r(insGross - net);
+          lines.push({ accountId:ins1130.id, accountCode:'1130', accountName:ins1130.name, debit:net,       credit:0, remarks:`صافي التأمين — ${((1-insRate)*100).toFixed(0)}% من الإجمالي` });
+          lines.push({ accountId:exp5760.id, accountCode:'5760', accountName:exp5760.name, debit:deduction, credit:0, remarks:`خصم شركات التأمين — ${(insRate*100).toFixed(0)}%` });
+          totalDebitRev += insGross;
         }
 
         // Credit lines
-        if (g.cash      > 0) { const v=r(g.cash);      lines.push({ accountId:rev4100.id, accountCode:'4100', accountName:rev4100.name, debit:0, credit:v }); }
-        if (g.knet      > 0) { const v=r(g.knet);      lines.push({ accountId:rev4110.id, accountCode:'4110', accountName:rev4110.name, debit:0, credit:v }); }
-        if (g.visa      > 0) { const v=r(g.visa);      lines.push({ accountId:rev4120.id, accountCode:'4120', accountName:rev4120.name, debit:0, credit:v }); }
-        if (g.master    > 0) { const v=r(g.master);    lines.push({ accountId:rev4130.id, accountCode:'4130', accountName:rev4130.name, debit:0, credit:v }); }
-        if (g.link      > 0) { const v=r(g.link);      lines.push({ accountId:rev4140.id, accountCode:'4140', accountName:rev4140.name, debit:0, credit:v }); }
-        if (g.cheque    > 0) { const v=r(g.cheque);    lines.push({ accountId:rev4160.id, accountCode:'4160', accountName:rev4160.name, debit:0, credit:v }); }
-        if (g.insurance > 0) { const v=r(g.insurance); lines.push({ accountId:rev4150.id, accountCode:'4150', accountName:rev4150.name, debit:0, credit:v, remarks:'إيرادات التأمين — إجمالي' }); }
+        if (g.cash      > 0) { const v=r(g.cash);    lines.push({ accountId:rev4100.id, accountCode:'4100', accountName:rev4100.name, debit:0, credit:v }); }
+        if (g.knet      > 0) { const v=r(g.knet);    lines.push({ accountId:rev4110.id, accountCode:'4110', accountName:rev4110.name, debit:0, credit:v }); }
+        if (g.visa      > 0) { const v=r(g.visa);    lines.push({ accountId:rev4120.id, accountCode:'4120', accountName:rev4120.name, debit:0, credit:v }); }
+        if (g.master    > 0) { const v=r(g.master);  lines.push({ accountId:rev4130.id, accountCode:'4130', accountName:rev4130.name, debit:0, credit:v }); }
+        if (g.link      > 0) { const v=r(g.link);    lines.push({ accountId:rev4140.id, accountCode:'4140', accountName:rev4140.name, debit:0, credit:v }); }
+        if (g.cheque    > 0) { const v=r(g.cheque);  lines.push({ accountId:rev4160.id, accountCode:'4160', accountName:rev4160.name, debit:0, credit:v }); }
+        if (insGross    > 0) {                        lines.push({ accountId:rev4150.id, accountCode:'4150', accountName:rev4150.name, debit:0, credit:insGross, remarks:'إيرادات التأمين — إجمالي' }); }
 
         const totalRev = totalDebitRev;
 
