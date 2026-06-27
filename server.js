@@ -4819,7 +4819,7 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
             inTool = false;
             try {
               const params = JSON.parse(toolInput);
-              send('action', { type: 'addAccount', ...params });
+              send('action', { type: 'addAccount', code: params.code, name: params.name, accountType: params.type||'expense', parent: params.parent||null });
             } catch {}
           } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
             fullText += evt.delta.text;
@@ -4853,11 +4853,11 @@ ${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
     };
 
     const emittedCodes = new Set();
-    const emitAction = (code, name, type, parent) => {
-      const finalCode = autoCorrectCode(code, type);
+    const emitAction = (code, name, accountType, parent) => {
+      const finalCode = autoCorrectCode(code, accountType);
       if (!finalCode || emittedCodes.has(finalCode)) return;
       emittedCodes.add(finalCode);
-      send('action', { type: 'addAccount', code: finalCode, name, type: type||'expense', parent: parent||null });
+      send('action', { type: 'addAccount', code: finalCode, name, accountType: accountType||'expense', parent: parent||null });
     };
 
     // Try ADDACCOUNT text format
