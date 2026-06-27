@@ -46,7 +46,7 @@ const DEFAULT_CONFIG = {
     users:'المستخدمون', telegram:'تيليجرام', settings:'الإعدادات' },
   commissionFormula: { base:'above_target', deductions:['lab'], method:'percentage',
     tiers:[{from:0,to:3000,rate:15},{from:3000,to:6000,rate:20},{from:6000,to:null,rate:25}] },
-  insDeductionRate: 0.13,
+  insDeductionRate: 0.25,
   dashboard: { kpi: {
     kTotal:'إجمالي الإيرادات', kNet:'صافي (بدون تأمين)', kIns:'حصة التأمين',
     kComm:'إجمالي العمولات', kPend:'عمولات معلّقة'
@@ -1336,8 +1336,8 @@ app.get('/api/stats', (req, res) => {
 
   res.json({
     totalRevenue:  r3(totalRevenue),
-    insRecorded:   r3(insRevenue),
-    insOriginal:   r3(insOriginal),
+    insRecorded:   r3(insRevenue - insShare),
+    insOriginal:   r3(insRevenue),
     insShare,
     insNet:        r3(insRevenue - insShare),
     insRate:       insRate2,

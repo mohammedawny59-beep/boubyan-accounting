@@ -2079,11 +2079,13 @@ body { font-size: calc(14px * var(--fs-scale)); }
     <div class="ins-box" id="w-ins-box">
       <div class="ins-title" data-i18n="ins.title">🏥 تفصيل التأمين</div>
       <div class="ins-grid">
-        <div class="ins-item"><div class="ins-lbl">إيرادات التأمين (إجمالي)</div><div class="ins-val" id="iOrig" style="color:var(--accent)">—</div></div>
-        <div class="ins-arr" id="iRateArrow">×13%→</div>
-        <div class="ins-item"><div class="ins-lbl">خصم شركة التأمين</div><div class="ins-val" id="iShare" style="color:var(--danger)">—</div></div>
+        <div class="ins-item"><div class="ins-lbl" id="iRecLbl">مسجّل بالبرنامج (صافي)</div><div class="ins-val" id="iRec" style="color:var(--text2)">—</div></div>
+        <div class="ins-arr" id="iDivArrow">÷0.75→</div>
+        <div class="ins-item"><div class="ins-lbl">المبلغ الأصلي</div><div class="ins-val" id="iOrig" style="color:var(--accent)">—</div></div>
+        <div class="ins-arr" id="iRateArrow">×25%→</div>
+        <div class="ins-item"><div class="ins-lbl">حصة شركة التأمين</div><div class="ins-val" id="iShare" style="color:var(--danger)">—</div></div>
         <div class="ins-arr">=</div>
-        <div class="ins-item"><div class="ins-lbl">صافي العيادة</div><div class="ins-val" id="iNet" style="color:var(--accent2)">—</div></div>
+        <div class="ins-item"><div class="ins-lbl">صافي الذمم — التأمين</div><div class="ins-val" id="iNet" style="color:var(--accent2)">—</div></div>
       </div>
     </div>
     <!-- CHARTS ROW -->
@@ -4863,11 +4865,20 @@ async function loadDashboard() {
     animateCount(document.getElementById('kPend'),  s.pendingComm);
     // Add refreshed pulse on KPI cards
     document.querySelectorAll('.kc').forEach(c => { c.classList.remove('refreshed'); void c.offsetWidth; c.classList.add('refreshed'); });
-    document.getElementById('iOrig').textContent = s.insOriginal.fmt() + ' د.ك';
-    document.getElementById('iShare').textContent = s.insShare.fmt() + ' د.ك';
-    document.getElementById('iNet').textContent = s.insNet.fmt() + ' د.ك';
-    const rateArrow = document.getElementById('iRateArrow');
-    if (rateArrow && s.insRate) rateArrow.textContent = `×${(s.insRate*100).toFixed(0)}%→`;
+    document.getElementById('iRec').textContent   = s.insRecorded.fmt() + ' د.ك';
+    document.getElementById('iOrig').textContent  = s.insOriginal.fmt() + ' د.ك';
+    document.getElementById('iShare').textContent = s.insShare.fmt()    + ' د.ك';
+    document.getElementById('iNet').textContent   = s.insNet.fmt()      + ' د.ك';
+    if (s.insRate) {
+      const pct = (s.insRate * 100).toFixed(0);
+      const div = (1 / (1 - s.insRate)).toFixed(2);
+      const divArrow  = document.getElementById('iDivArrow');
+      const rateArrow = document.getElementById('iRateArrow');
+      const recLbl    = document.getElementById('iRecLbl');
+      if (divArrow)  divArrow.textContent  = `÷${(1 - s.insRate).toFixed(2)}→`;
+      if (rateArrow) rateArrow.textContent = `×${pct}%→`;
+      if (recLbl)    recLbl.textContent    = `مسجّل بالبرنامج (بعد ${pct}%)`;
+    }
     
     const days = DB.dailyData || [];
     let filtered = days;
