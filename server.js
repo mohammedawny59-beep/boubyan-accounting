@@ -753,9 +753,11 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     const db = loadDB();
     const filePath = req.file.path;
     const fileName = req.file.originalname.toLowerCase();
-    
+    const batchId  = 'BATCH-' + Date.now();   // create once, used for ALL tagging below
+
     let parsed = [];
     let type = '';
+    let uploadMonths = [];   // months covered (for daily files)
     
     if (fileName.includes('dailyincome')) {
       parsed = parseDailyIncome(filePath);
@@ -765,11 +767,12 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       const existing = new Set(db.dailyData.map(d => d.date));
       let added = 0;
       for (const rec of parsed) {
+        rec._batchId = batchId;   // tag every record with this upload's batchId
         if (!existing.has(rec.date)) {
           db.dailyData.push(rec);
           added++;
         } else {
-          // Update existing
+          // Update existing (also refresh batchId so delete works)
           const idx = db.dailyData.findIndex(d => d.date === rec.date);
           db.dailyData[idx] = rec;
         }
@@ -843,13 +846,14 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 
         if (lines.length < 2 || totalRev === 0) continue;
 
-        const lastDay = new Date(month + '-28'); // safe last day for all months
+        uploadMonths.push(month);
         db.journalEntries.push({
           id:          `JE-INC-${month}`,
-          date:        month + '-30', // end of month reference date
+          date:        month + '-30',
           desc:        `إيرادات شهر ${month}`,
           ref:         `INCOME-${month}`,
           type:        'auto-income',
+          _batchId:    batchId,
           totalDebit:  r(totalRev),
           totalCredit: r(totalRev),
           createdAt:   new Date().toISOString(),
@@ -868,6 +872,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       const existingIds = new Set(db.paymentsData.map(d => d.invId));
       let added = 0;
       for (const rec of parsed) {
+        rec._batchId = batchId;   // tag every payment record
         if (!existingIds.has(rec.invId)) {
           db.paymentsData.push(rec);
           added++;
@@ -879,24 +884,15 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       updateCommissions(db);
     }
     
-    // Log upload with batchId for later deletion
-    const batchId = 'BATCH-' + Date.now();
-    // Tag each added record with batchId
-    if (type === 'daily' && Array.isArray(parsed)) {
-      const bStart = db.dailyData.length - parsed.length;
-      for (let i = Math.max(0, bStart); i < db.dailyData.length; i++) {
-        db.dailyData[i]._batchId = batchId;
-      }
-    } else if (type === 'payments' && Array.isArray(parsed)) {
-      db.paymentsData.filter(r => !r._batchId).slice(-parsed.length).forEach(r => r._batchId = batchId);
-    }
+    // Log upload record (batchId already created above and applied to all records)
     db.uploadedFiles.push({
-      id: batchId,
+      id:      batchId,
       batchId,
-      name: req.file.originalname,
+      name:    req.file.originalname,
       type,
       records: parsed.length,
-      date: new Date().toISOString(),
+      months:  uploadMonths,
+      date:    new Date().toISOString(),
     });
     
     saveDB(db);
@@ -7432,17 +7428,25 @@ app.delete('/api/uploaded-files/:id', requireAuth, (req, res) => {
   const batchId  = file.batchId;
   let removed    = 0;
 
+  // Always remove journal entries tagged with this batchId (covers JE-INC-* for daily, any future types)
+  const jeBefore = (db.journalEntries||[]).length;
+  if (batchId) {
+    db.journalEntries = (db.journalEntries||[]).filter(e => e._batchId !== batchId);
+  }
+  // Also remove by month ref for daily files (covers legacy entries without _batchId)
+  if (file.type === 'daily' && Array.isArray(file.months) && file.months.length) {
+    const monthSet = new Set(file.months);
+    db.journalEntries = (db.journalEntries||[]).filter(
+      e => !(e.type === 'auto-income' && monthSet.has((e.ref||'').replace('INCOME-', '')))
+    );
+  }
+  const jeRemoved = jeBefore - (db.journalEntries||[]).length;
+
   if (batchId) {
     if (file.type === 'daily') {
       const before = (db.dailyData||[]).length;
       db.dailyData = (db.dailyData||[]).filter(r => r._batchId !== batchId);
       removed = before - db.dailyData.length;
-      // Remove auto-income journal entries for months covered by this batch
-      if (file.months && file.months.length) {
-        file.months.forEach(m => {
-          db.journalEntries = (db.journalEntries||[]).filter(e => !(e.type === 'auto-income' && e.ref === `INCOME-${m}`));
-        });
-      }
     } else if (file.type === 'payments') {
       const before = (db.paymentsData||[]).length;
       db.paymentsData = (db.paymentsData||[]).filter(r => r._batchId !== batchId);
@@ -7456,7 +7460,7 @@ app.delete('/api/uploaded-files/:id', requireAuth, (req, res) => {
 
   db.uploadedFiles.splice(idx, 1);
   saveDB(db);
-  res.json({ success: true, removed, file });
+  res.json({ success: true, removed, journalEntries: jeRemoved, file });
 });
 
 // ── ACCRUED EXPENSES (مصاريف مستحقة) ───────────────────────────────────────

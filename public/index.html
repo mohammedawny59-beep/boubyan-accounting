@@ -4943,7 +4943,8 @@ async function deleteUploadedFile(fileId) {
     const r = await fetch(`${API}/uploaded-files/${fileId}`, { method:'DELETE' });
     const d = await r.json();
     if (d.success) {
-      showToast(`تم الحذف — ${d.removed||0} سجل محذوف`, 'success');
+      const je = d.journalEntries ? ` + ${d.journalEntries} قيد` : '';
+      showToast(`تم الحذف — ${d.removed||0} سجل${je} محذوف`, 'success');
       await loadAll(); loadFiles();
     } else showToast(d.error||'خطأ في الحذف', 'error');
   } catch { showToast('خطأ في الاتصال', 'error'); }
