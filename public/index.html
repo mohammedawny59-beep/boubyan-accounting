@@ -2478,6 +2478,7 @@ body { font-size: calc(14px * var(--fs-scale)); }
   <div id="tab-doctors" class="sec">
     <div class="sh">
       <div><div class="st">عمولات الدكاترة</div><div class="ss">محسوبة تلقائياً — تراكمية</div></div>
+      <button class="btn bp bsm" onclick="openDrModal()">+ إضافة / تعديل دكتور</button>
     </div>
     <div class="filter-bar">
       <span class="fl">🔍 دكتور:</span>
@@ -2807,7 +2808,14 @@ body { font-size: calc(14px * var(--fs-scale)); }
     <div class="sh"><div><div class="st">كشف الحساب</div><div class="ss">Account Statement</div></div></div>
     <div class="filter-bar">
       <span class="fl">الحساب:</span>
-      <select class="fi" id="ledgerAccount" style="width:280px;"></select>
+      <div style="position:relative;display:inline-block;width:280px;">
+        <input class="fi" id="ledgerAccTxt" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="width:100%;box-sizing:border-box;"
+          oninput="filterAccPicker('ledgerAccTxt','ledgerAccount','ledgerAccDrop','all','loadLedger')"
+          onfocus="filterAccPicker('ledgerAccTxt','ledgerAccount','ledgerAccDrop','all','loadLedger')"
+          onblur="setTimeout(()=>{let d=document.getElementById('ledgerAccDrop');if(d)d.style.display='none'},200)">
+        <input type="hidden" id="ledgerAccount" value="">
+        <div id="ledgerAccDrop" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+      </div>
       <select class="fi" id="ledgerMonth">
         <option value="all">كل الفترات</option>
       </select>
@@ -3486,22 +3494,12 @@ body { font-size: calc(14px * var(--fs-scale)); }
 
     <div style="font-size:13px;font-weight:700;margin-bottom:14px;color:var(--text2);">إعدادات الدكاترة</div>
     <div class="sg">
-      <div class="sc">
-        <div class="sct">➕ إضافة / تعديل دكتور</div>
-        <div class="fr"><label class="flbl">الاسم (نفس اسم البرنامج بالضبط)</label><input class="finp" id="drN" placeholder="DR.NASSER"></div>
-        <div class="fr2">
-          <div class="fr" style="margin:0"><label class="flbl">Target الشهري (د.ك)</label><input class="finp" id="drT" type="number" placeholder="4000"></div>
-          <div class="fr" style="margin:0"><label class="flbl">نسبة العمولة %</label><input class="finp" id="drC" type="number" placeholder="20"></div>
+      <div class="sc" style="grid-column:1/-1;">
+        <div class="sct" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>👨‍⚕️ الدكاترة المسجّلون</span>
+          <button class="btn bp bsm" onclick="openDrModal()">+ إضافة دكتور</button>
         </div>
-        <div class="fr2">
-          <div class="fr" style="margin:0"><label class="flbl">خصم المختبر %</label><input class="finp" id="drL" type="number" placeholder="10"></div>
-          <div class="fr" style="margin:0"><label class="flbl">خصم التأمين %</label><input class="finp" id="drI" type="number" placeholder="45"></div>
-        </div>
-        <button class="btn bs" onclick="saveDoctor()" style="width:100%;margin-top:8px;">💾 حفظ</button>
-      </div>
-      <div class="sc">
-        <div class="sct">👨‍⚕️ الدكاترة المسجّلون</div>
-        <div id="drList"></div>
+        <div id="drList" style="margin-top:8px;"></div>
       </div>
     </div>
 
@@ -4150,11 +4148,25 @@ body { font-size: calc(14px * var(--fs-scale)); }
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
       <div>
         <label class="flbl">من حساب (مصدر)</label>
-        <select class="finp" id="trFrom" style="width:100%;"></select>
+        <div style="position:relative;">
+          <input class="finp" id="trFromTxt" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="width:100%;box-sizing:border-box;"
+            oninput="filterAccPicker('trFromTxt','trFrom','trFromDrop','all')"
+            onfocus="filterAccPicker('trFromTxt','trFrom','trFromDrop','all')"
+            onblur="setTimeout(()=>{let d=document.getElementById('trFromDrop');if(d)d.style.display='none'},200)">
+          <input type="hidden" id="trFrom" value="">
+          <div id="trFromDrop" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+        </div>
       </div>
       <div>
         <label class="flbl">إلى حساب (وجهة)</label>
-        <select class="finp" id="trTo" style="width:100%;"></select>
+        <div style="position:relative;">
+          <input class="finp" id="trToTxt" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="width:100%;box-sizing:border-box;"
+            oninput="filterAccPicker('trToTxt','trTo','trToDrop','all')"
+            onfocus="filterAccPicker('trToTxt','trTo','trToDrop','all')"
+            onblur="setTimeout(()=>{let d=document.getElementById('trToDrop');if(d)d.style.display='none'},200)">
+          <input type="hidden" id="trTo" value="">
+          <div id="trToDrop" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div>
@@ -4219,7 +4231,14 @@ body { font-size: calc(14px * var(--fs-scale)); }
         <input type="number" class="finp" id="recurDay" placeholder="1" min="1" max="28" value="1">
       </div>
       <div class="fr" style="margin:0"><label class="flbl">الحساب المحاسبي</label>
-        <select class="finp" id="recurAccount"></select>
+        <div style="position:relative;">
+          <input class="finp" id="recurAccTxt" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="width:100%;box-sizing:border-box;"
+            oninput="filterAccPicker('recurAccTxt','recurAccount','recurAccDrop','expense')"
+            onfocus="filterAccPicker('recurAccTxt','recurAccount','recurAccDrop','expense')"
+            onblur="setTimeout(()=>{let d=document.getElementById('recurAccDrop');if(d)d.style.display='none'},200)">
+          <input type="hidden" id="recurAccount" value="">
+          <div id="recurAccDrop" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+        </div>
       </div>
     </div>
     <div class="mact">
@@ -4297,6 +4316,27 @@ body { font-size: calc(14px * var(--fs-scale)); }
     <div class="mact">
       <button class="btn bs" style="flex:1" onclick="saveExp()">✅ حفظ</button>
       <button class="btn bd" onclick="closeModal('expModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Doctor Modal -->
+<div class="modal" id="drModal">
+  <div class="mbox" style="width:480px;max-width:95vw;">
+    <div class="mtit" id="drModalTitle">➕ إضافة دكتور</div>
+    <input type="hidden" id="drEditIdx" value="-1">
+    <div class="fr"><label class="flbl">الاسم (نفس اسم البرنامج بالضبط)</label><input class="finp" id="drN" placeholder="DR.NASSER"></div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">Target الشهري (د.ك)</label><input class="finp" id="drT" type="number" placeholder="4000"></div>
+      <div class="fr" style="margin:0"><label class="flbl">نسبة العمولة %</label><input class="finp" id="drC" type="number" placeholder="20"></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">قيمة المختبر (د.ك)</label><input class="finp" id="drL" type="number" placeholder="300" step="0.001"></div>
+      <div class="fr" style="margin:0"><label class="flbl">قيمة التأمين (د.ك)</label><input class="finp" id="drI" type="number" placeholder="0" step="0.001"></div>
+    </div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="saveDoctor()">💾 حفظ</button>
+      <button class="btn bd" onclick="closeModal('drModal')">إلغاء</button>
     </div>
   </div>
 </div>
@@ -5149,15 +5189,60 @@ async function loadExpenses() {
     '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px;">لا توجد مصاريف</td></tr>';
 }
 
-function filterExpAccounts() {
-  const q = (document.getElementById('expAccTxt').value || '').toLowerCase();
-  const coa = (DB.chartOfAccounts || []).filter(a => a.status !== 'inactive' && a.type === 'expense');
-  const drop = document.getElementById('expAccDrop');
-  const matches = coa.filter(a => !q || (a.code||'').includes(q) || (a.name||'').toLowerCase().includes(q)).slice(0, 30);
+// ── Generic account picker helpers ──────────────────────────────
+const _accPickStyle = 'padding:7px 10px;cursor:pointer;font-size:12px;color:var(--text1);border-bottom:1px solid var(--border);transition:background .12s;';
+const _accPickHov   = 'onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'"';
+
+function filterAccPicker(txtId, hiddenId, dropId, filterType, onSelectFn) {
+  const q = (document.getElementById(txtId)?.value || '').toLowerCase();
+  let coa = (DB.chartOfAccounts || []).filter(a => a.status !== 'inactive' && !a.isGroup);
+  if (filterType === 'expense') coa = coa.filter(a => a.type === 'expense');
+  if (filterType === 'asset')   coa = coa.filter(a => (a.code||'').startsWith('1'));
+  const drop = document.getElementById(dropId);
+  if (!drop) return;
+  const matches = coa.filter(a => !q || (a.code||'').includes(q) || (a.name||'').toLowerCase().includes(q)).slice(0, 35);
   if (!matches.length) { drop.style.display = 'none'; return; }
-  drop.innerHTML = matches.map(a =>
-    `<div style="padding:7px 10px;cursor:pointer;font-size:13px;" onmousedown="selectExpAccount('${a.code}','${a.name.replace(/'/g,'\\\'')}')">${a.code} — ${a.name}</div>`
-  ).join('');
+  const os = onSelectFn ? `,'${onSelectFn}'` : '';
+  drop.innerHTML = matches.map(a => {
+    const sn = (a.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div style="${_accPickStyle}" ${_accPickHov} onmousedown="selectAccPicker('${txtId}','${hiddenId}','${dropId}','${a.id||a.code}','${a.code}','${sn}'${os})">${a.code} — ${a.name}</div>`;
+  }).join('');
+  drop.style.display = 'block';
+}
+
+function selectAccPicker(txtId, hiddenId, dropId, accId, code, name, onSelectFn) {
+  const ti = document.getElementById(txtId), hi = document.getElementById(hiddenId), di = document.getElementById(dropId);
+  if (ti) ti.value = code + ' — ' + name;
+  if (hi) hi.value = accId;
+  if (di) di.style.display = 'none';
+  if (onSelectFn && typeof window[onSelectFn] === 'function') window[onSelectFn]();
+}
+
+const _accDropStyle = 'display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);';
+
+function accPickerHTML(txtId, hiddenId, dropId, filterType, placeholder, onSelectFn) {
+  const ev = (fn) => `"${fn}('${txtId}','${hiddenId}','${dropId}','${filterType}'${onSelectFn?`,'${onSelectFn}'`:''})"`;
+  return `<div style="position:relative;">
+    <input class="finp" id="${txtId}" placeholder="${placeholder||'ابحث بالكود أو الاسم...'}" autocomplete="off" style="width:100%;box-sizing:border-box;"
+      oninput=${ev('filterAccPicker')} onfocus=${ev('filterAccPicker')}
+      onblur="setTimeout(()=>{let d=document.getElementById('${dropId}');if(d)d.style.display='none'},200)">
+    <input type="hidden" id="${hiddenId}" value="">
+    <div id="${dropId}" style="${_accDropStyle}"></div>
+  </div>`;
+}
+// ── Expense account picker (stores code, not id) ─────────────────
+function filterExpAccounts() {
+  const q = (document.getElementById('expAccTxt')?.value || '').toLowerCase();
+  let coa = (DB.chartOfAccounts || []).filter(a => a.status !== 'inactive' && !a.isGroup);
+  if (q.length < 1) coa = coa.filter(a => a.type === 'expense');
+  const drop = document.getElementById('expAccDrop');
+  if (!drop) return;
+  const matches = coa.filter(a => !q || (a.code||'').includes(q) || (a.name||'').toLowerCase().includes(q)).slice(0, 35);
+  if (!matches.length) { drop.style.display = 'none'; return; }
+  drop.innerHTML = matches.map(a => {
+    const sn = (a.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div style="${_accPickStyle}" ${_accPickHov} onmousedown="selectExpAccount('${a.code}','${sn}')">${a.code} — ${a.name}</div>`;
+  }).join('');
   drop.style.display = 'block';
 }
 function selectExpAccount(code, name) {
@@ -5325,16 +5410,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // SETTINGS
 function loadSettings() {
-  const doctors = DB.doctors || [];
-  document.getElementById('drList').innerHTML = doctors.map((d,i) => `
-    <div class="di">
-      <div><div class="din">${d.name}</div><div class="dit">Target: ${d.target.toLocaleString()} | ${d.commission}% | مختبر: ${d.lab}%</div></div>
-      <button class="btn bd bsm" onclick="delDoctor(${i})">حذف</button>
-    </div>`).join('');
+  renderDrList();
   loadCompanyInfo();
   loadAccountingSettings();
-  // Load config and render customization UI
   loadAndApplyConfig().then(() => { if (_CFG) renderCfgUI(_CFG); });
+}
+
+function renderDrList() {
+  const doctors = DB.doctors || [];
+  const el = document.getElementById('drList');
+  if (!el) return;
+  el.innerHTML = doctors.length ? doctors.map((d,i) => `
+    <div class="di">
+      <div>
+        <div class="din">${d.name}</div>
+        <div class="dit">Target: ${(d.target||0).toLocaleString()} KD | عمولة: ${d.commission}% | مختبر: ${d.lab||0} KD | تأمين: ${d.insurance||0} KD</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn bw bsm" onclick="openDrModal(${i})">✏️</button>
+        <button class="btn bd bsm" onclick="delDoctor(${i})">حذف</button>
+      </div>
+    </div>`).join('') : '<div style="color:var(--text3);font-size:12px;padding:8px;">لا يوجد دكاترة مسجّلون</div>';
+}
+
+function openDrModal(idx = -1) {
+  const dr = idx >= 0 ? (DB.doctors||[])[idx] : null;
+  document.getElementById('drModalTitle').textContent = dr ? '✏️ تعديل دكتور' : '➕ إضافة دكتور';
+  document.getElementById('drEditIdx').value = idx;
+  document.getElementById('drN').value = dr?.name || '';
+  document.getElementById('drT').value = dr?.target || '';
+  document.getElementById('drC').value = dr?.commission || '';
+  document.getElementById('drL').value = dr?.lab || '';
+  document.getElementById('drI').value = dr?.insurance || '';
+  document.getElementById('drModal').classList.add('open');
 }
 
 // COMPANY INFO
@@ -5985,29 +6093,39 @@ async function saveCoaToServer(accounts) {
 }
 
 async function saveDoctor() {
-  const name = document.getElementById('drN').value.trim();
-  const target = parseFloat(document.getElementById('drT').value);
+  const name       = document.getElementById('drN').value.trim();
+  const target     = parseFloat(document.getElementById('drT').value);
   const commission = parseFloat(document.getElementById('drC').value);
-  const lab = parseFloat(document.getElementById('drL').value) || 0;
-  const insurance = parseFloat(document.getElementById('drI').value) || 45;
+  const lab        = parseFloat(document.getElementById('drL').value) || 0;
+  const insurance  = parseFloat(document.getElementById('drI').value) || 0;
+  const editIdx    = parseInt(document.getElementById('drEditIdx')?.value ?? '-1');
   if (!name || !target || !commission) { alert('أدخل الاسم والـ Target والعمولة'); return; }
-  
-  const doctors = DB.doctors || [];
-  const idx = doctors.findIndex(d => d.name === name);
-  if (idx >= 0) doctors[idx] = { name, target, commission, lab, insurance };
-  else doctors.push({ name, target, commission, lab, insurance });
-  
-  await fetch(`${API}/doctors`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ doctors }) });
-  await loadAll(); loadSettings();
-  ['drN','drT','drC','drL','drI'].forEach(id => document.getElementById(id).value = '');
+
+  const doctors = [...(DB.doctors || [])];
+  const record  = { name, target, commission, lab, insurance };
+  if (editIdx >= 0 && editIdx < doctors.length) {
+    doctors[editIdx] = { ...doctors[editIdx], ...record };
+  } else {
+    const existing = doctors.findIndex(d => d.name === name);
+    if (existing >= 0) doctors[existing] = { ...doctors[existing], ...record };
+    else doctors.push(record);
+  }
+
+  await fetch(`${API}/doctors`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ doctors }) });
+  closeModal('drModal');
+  await loadAll();
+  renderDrList();
+  loadDoctors();
 }
 
 async function delDoctor(i) {
-  const doctors = DB.doctors || [];
+  const doctors = [...(DB.doctors || [])];
   if (!confirm('حذف ' + doctors[i].name + '؟')) return;
   doctors.splice(i, 1);
-  await fetch(`${API}/doctors`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ doctors }) });
-  await loadAll(); loadSettings();
+  await fetch(`${API}/doctors`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ doctors }) });
+  await loadAll();
+  renderDrList();
+  loadDoctors();
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -6972,18 +7090,13 @@ function exportReport() {
 async function loadLedger() {
   await loadAll();
   const accounts = getCoaAccounts();
-  const sel = document.getElementById('ledgerAccount');
-  if (sel && sel.options.length <= 1) {
-    sel.innerHTML = '<option value="">— اختر الحساب —</option>' +
-      accounts.map(a=>`<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
-  }
   const months = [...new Set((DB.journalEntries||[]).map(e=>e.date?.substring(0,7)))].sort().reverse();
   const mSel = document.getElementById('ledgerMonth');
   if (mSel) {
     mSel.innerHTML = '<option value="all">كل الفترات</option>' +
       months.map(m=>`<option value="${m}">${monthLbl(m)}</option>`).join('');
   }
-  const accountId = sel?.value;
+  const accountId = document.getElementById('ledgerAccount')?.value;
   if (!accountId) return;
   const acc = accounts.find(a=>a.id===accountId);
   const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
@@ -7111,10 +7224,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function openTransferModal() {
-  const accounts = getCoaAccounts().filter(a => !a.isGroup);
-  const opts = accounts.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
-  document.getElementById('trFrom').innerHTML = opts;
-  document.getElementById('trTo').innerHTML = opts;
+  ['trFromTxt','trToTxt'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['trFrom','trTo'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['trFromDrop','trToDrop'].forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
   document.getElementById('trAmount').value = '';
   document.getElementById('trDate').value = new Date().toISOString().split('T')[0];
   document.getElementById('trDesc').value = '';
@@ -7183,13 +7295,13 @@ function exportLedger() {
 
 // ===== RECURRING EXPENSES =====
 function openRecurModal() {
-  const accounts = getCoaAccounts().filter(a=>a.type==='expense');
   document.getElementById('recurModalTitle').textContent='إضافة مصروف متكرر';
   document.getElementById('recurEditId').value='';
   document.getElementById('recurDesc').value='';
   document.getElementById('recurAmt').value='';
   document.getElementById('recurDay').value='1';
-  document.getElementById('recurAccount').innerHTML='<option value="">— اختر الحساب —</option>'+accounts.map(a=>`<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  const at=document.getElementById('recurAccTxt'); if(at) at.value='';
+  document.getElementById('recurAccount').value='';
   document.getElementById('recurModal').classList.add('open');
 }
 
@@ -9049,15 +9161,19 @@ function openVcModal(type) {
 }
 
 function addVcLine() {
-  const id   = ++_vcLineCount;
-  const opts = _vcAllAccounts
-    .map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
-
+  const id = ++_vcLineCount;
   const row = document.createElement('div');
   row.className = 'vc-line';
   row.id = `vcLine${id}`;
   row.innerHTML = `
-    <select class="finp" id="vcLineAcc${id}">${opts}</select>
+    <div style="position:relative;">
+      <input class="finp" id="vcLineAccTxt${id}" placeholder="ابحث عن الحساب..." autocomplete="off" style="width:100%;box-sizing:border-box;"
+        oninput="filterAccPicker('vcLineAccTxt${id}','vcLineAcc${id}','vcLineAccDrop${id}','all')"
+        onfocus="filterAccPicker('vcLineAccTxt${id}','vcLineAcc${id}','vcLineAccDrop${id}','all')"
+        onblur="setTimeout(()=>{let d=document.getElementById('vcLineAccDrop${id}');if(d)d.style.display='none'},200)">
+      <input type="hidden" id="vcLineAcc${id}" value="">
+      <div id="vcLineAccDrop${id}" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+    </div>
     <input type="number" step="0.001" min="0" class="finp" id="vcLineAmt${id}"
            placeholder="0.000" oninput="calcVcTotal()" style="direction:ltr;text-align:left">
     <input type="text" class="finp" id="vcLineDesc${id}" placeholder="البيان (اختياري)">
