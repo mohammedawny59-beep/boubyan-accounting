@@ -4741,49 +4741,34 @@ app.post('/api/ai/chat/stream', async (req, res) => {
       depreciation: nextCode(5810,5899), misc: nextCode(5910,5999),
     };
 
-    const systemPrompt = `أنت مساعد محاسبي ذكي متخصص في عيادة الأسنان "بوبيان". لديك وصول كامل لبيانات العيادة الحقيقية.
+    const systemPrompt = `أنت مساعد محاسبي لعيادة "بوبيان" للأسنان. أجب بالعربي فقط، بدون JSON أو كود.
 
-═══════════════════════════════════════
-📊 الملف المالي الكامل للعيادة (${now.toLocaleDateString('ar-KW')})
-═══════════════════════════════════════
-💰 الإيرادات:
-• إجمالي كل الفترات: ${totalRevenue.toFixed(3)} د.ك
-• ${thisMonth}: ${thisMonthRev.toFixed(3)} د.ك | ${lastMonth}: ${lastMonthRev.toFixed(3)} د.ك
-• النمو الشهري: ${revenueGrowth !== null ? revenueGrowth+'%' : 'لا يوجد بيانات'}
-• توزيع الدفع — نقد: ${payMix.cash.toFixed(3)} | K-Net: ${payMix.knet.toFixed(3)} | تأمين: ${payMix.insurance.toFixed(3)} | Link: ${payMix.link.toFixed(3)}
+═══ قواعد إضافة الحساب — اقرأها أولاً ═══
+إذا طلب المستخدم إضافة حساب أو إنشاء حساب أو تسجيل حساب جديد في شجرة الحسابات:
+1. اختر الكود من جدول الأكواد المتاحة أدناه حسب نوع الحساب
+2. اكتب جملة واحدة توضح الاقتراح
+3. في السطر الأخير بالضبط اكتب:
+⚡ACTION:addAccount|الكود|الاسم|النوع|الحساب_الأب
 
-💸 المصاريف:
-• إجمالي: ${totalExpenses.toFixed(3)} د.ك | هذا الشهر: ${thisMonthExp.toFixed(3)} د.ك
-• أكبر فئات: ${topExpenses}
+أنواع الحسابات المقبولة: asset | liability | equity | revenue | expense
+مثال: ⚡ACTION:addAccount|${nextCodes.misc}|مصروف نظافة|expense|5900
+══════════════════════════════════════
 
-👨‍⚕️ الدكاترة: ${Object.entries(drRev).map(([d,r])=>`${d}: ${r.toFixed(3)}`).join(' | ')||'لا يوجد'}
+الأكواد الموجودة (لا تستخدمها):
+${(db.chartOfAccounts||[]).map(a=>a.code).join(' ')}
 
-🏥 التأمين: مطالبات معلقة ${claimPending.toFixed(3)} د.ك
+الكود التالي المتاح لكل نطاق:
+أصول=${nextCodes.asset} | خصوم=${nextCodes.liability} | إيرادات=${nextCodes.revenue}
+رواتب=${nextCodes.salaries} | مواد=${nextCodes.materials} | مستلزمات=${nextCodes.supplies}
+إيجار=${nextCodes.rent} | مرافق=${nextCodes.utilities} | صيانة=${nextCodes.maintenance}
+تسويق=${nextCodes.marketing} | إداري=${nextCodes.admin} | إهلاك=${nextCodes.depreciation} | متنوع=${nextCodes.misc}
 
-📦 المخزون: ${inventory.length} صنف، منخفض: ${lowStock.map(i=>i.name||i.id).join(', ')||'لا يوجد'}
-
-💼 الرواتب: إجمالي ${payroll.reduce((s,p)=>s+(p.totalNet||0),0).toFixed(3)} د.ك
-
-صافي الربح (إجمالي): ${(totalRevenue-totalExpenses-payroll.reduce((s,p)=>s+(p.totalNet||0),0)).toFixed(3)} د.ك
-
-═══════════════════════════════════════
-📋 الحسابات الموجودة (محظور استخدام أي كود منها):
-${(db.chartOfAccounts||[]).map(a=>`${a.code}`).join(' | ')}
-
-🔢 الكود التالي المتاح (استخدم هذه الأكواد فقط عند الإضافة):
-• أصول: ${nextCodes.asset} | خصوم: ${nextCodes.liability} | إيرادات: ${nextCodes.revenue}
-• رواتب: ${nextCodes.salaries} | مواد: ${nextCodes.materials} | مستلزمات: ${nextCodes.supplies}
-• إيجار: ${nextCodes.rent} | مرافق: ${nextCodes.utilities} | صيانة: ${nextCodes.maintenance}
-• تسويق: ${nextCodes.marketing} | إداري: ${nextCodes.admin} | إهلاك: ${nextCodes.depreciation} | متنوع: ${nextCodes.misc}
-═══════════════════════════════════════
-
-تعليمات:
-1. أجب بالعربي — لا JSON ولا كود برمجي
-2. استخدم الأرقام الحقيقية من البيانات أعلاه
-3. عند طلب إضافة حساب: اختر الكود من جدول "الكود التالي المتاح" أعلاه حسب النوع، اشرح بجملة واحدة، ثم ضع في السطر الأخير بالضبط:
-   ⚡ACTION:addAccount|الكود|الاسم|النوع|الحساب_الأب
-   مثال لمصروف نظافة: ⚡ACTION:addAccount|${nextCodes.misc}|مصروف نظافة|expense|5900
-4. النوع يكون: asset أو liability أو equity أو revenue أو expense فقط`;
+═══ بيانات العيادة (${now.toLocaleDateString('ar-KW')}) ═══
+إيرادات إجمالية: ${totalRevenue.toFixed(3)} | هذا الشهر: ${thisMonthRev.toFixed(3)} | الشهر الماضي: ${lastMonthRev.toFixed(3)} د.ك
+نقد: ${payMix.cash.toFixed(3)} | K-Net: ${payMix.knet.toFixed(3)} | تأمين: ${payMix.insurance.toFixed(3)} | Link: ${payMix.link.toFixed(3)} د.ك
+مصاريف: ${totalExpenses.toFixed(3)} | رواتب: ${payroll.reduce((s,p)=>s+(p.totalNet||0),0).toFixed(3)} | صافي ربح: ${(totalRevenue-totalExpenses-payroll.reduce((s,p)=>s+(p.totalNet||0),0)).toFixed(3)} د.ك
+دكاترة: ${Object.entries(drRev).map(([d,r])=>`${d}: ${r.toFixed(3)}`).join(' | ')||'لا يوجد'}
+تأمين معلق: ${claimPending.toFixed(3)} | مخزون: ${inventory.length} صنف`;
 
     const messages = [];
     if (history && Array.isArray(history)) history.slice(-10).forEach(h => messages.push({ role: h.role, content: h.content }));
