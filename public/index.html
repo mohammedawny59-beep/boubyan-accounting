@@ -12831,5 +12831,474 @@ function refreshDashSparklines() {
 }
 </script>
 
+<!-- ═══════════════════════════════════════════════════════════════
+     MOTION.DEV — Production Animation Layer v1.0
+     Boubyan Accounting | Apple/Nike UX Standard
+     Features: Spring tabs · Stagger cards · Physics buttons ·
+               Toast spring · Modal scale · Nav indicator ·
+               Form glow · Scroll progress · Row cascade
+═══════════════════════════════════════════════════════════════ -->
+<script type="module">
+import { animate, inView, scroll, stagger, spring } from 'https://cdn.jsdelivr.net/npm/motion@11/+esm';
+
+// ── EASING PRESETS (Apple HIG values) ──────────────────────────
+const EASE_OUT  = [0.25, 0.46, 0.45, 0.94];
+const EASE_SPRING = { type: 'spring', stiffness: 400, damping: 28, mass: 0.8 };
+const EASE_SPRING_SOFT = { type: 'spring', stiffness: 280, damping: 24, mass: 1 };
+const EASE_SPRING_SNAPPY = { type: 'spring', stiffness: 600, damping: 30, mass: 0.6 };
+
+// ══════════════════════════════════════════════════════════════
+// 1. SCROLL PROGRESS BAR — top of content area
+// ══════════════════════════════════════════════════════════════
+const progressBar = document.createElement('div');
+progressBar.id = 'motion-progress';
+progressBar.style.cssText = [
+  'position:fixed','top:0','left:0','right:0','height:2px',
+  'background:linear-gradient(90deg,var(--accent) 0%,var(--accent2) 60%,var(--violet-400) 100%)',
+  'transform-origin:left center','transform:scaleX(0)',
+  'z-index:99999','pointer-events:none',
+  'border-radius:0 2px 2px 0'
+].join(';');
+document.body.appendChild(progressBar);
+
+const contentWrap = document.querySelector('.content-wrap');
+if (contentWrap) {
+  scroll(
+    animate(progressBar, { scaleX: [0, 1] }, { duration: 1 }),
+    { source: contentWrap }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// 2. TAB TRANSITIONS — directional spring physics
+// ══════════════════════════════════════════════════════════════
+const NAV_ORDER = [
+  'dashboard','upload','import',
+  'manual','vouchers','cashrecon','insurance','payroll','doctors','expenses','vendors',
+  'journal','coa','ledger','recurring','trialbalance','opening','bankrecon','fixedassets',
+  'financials','reports','aging',
+  'inventory',
+  'ai','audit','ocr','monthclose',
+  'users','telegram','settings','superadmin'
+];
+let _prevTab = 'dashboard';
+
+const _origShowTab = window.showTab;
+window.showTab = function(id, btn) {
+  const prevIdx = NAV_ORDER.indexOf(_prevTab);
+  const nextIdx = NAV_ORDER.indexOf(id);
+  const dir = nextIdx >= prevIdx ? 1 : -1;
+  _prevTab = id;
+
+  // Call original (handles display:block + class)
+  _origShowTab.call(this, id, btn);
+
+  const tabEl = document.getElementById('tab-' + id);
+  if (!tabEl) return;
+
+  // Kill existing CSS animation, take over with Motion
+  tabEl.style.animation = 'none';
+  animate(tabEl,
+    { opacity: [0, 1], y: [dir * 14, 0] },
+    { duration: 0.3, easing: EASE_OUT }
+  );
+
+  // Stagger all child cards in new tab
+  const cards = tabEl.querySelectorAll('.kc, .tw, .dc');
+  if (cards.length) {
+    animate(cards,
+      { opacity: [0, 1], y: [12, 0], scale: [0.97, 1] },
+      { delay: stagger(0.04, { start: 0.05 }), ...EASE_SPRING_SOFT }
+    );
+  }
+
+  // Stagger table rows
+  const rows = tabEl.querySelectorAll('tbody tr');
+  if (rows.length) {
+    animate(rows,
+      { opacity: [0, 1], x: [dir * -6, 0] },
+      { duration: 0.22, delay: stagger(0.025, { start: 0.08 }), easing: EASE_OUT }
+    );
+  }
+
+  // Update nav indicator
+  if (btn) _updateNavIndicator(btn);
+};
+
+// ══════════════════════════════════════════════════════════════
+// 3. NAV ACTIVE INDICATOR — sliding spring pill
+// ══════════════════════════════════════════════════════════════
+const _navIndicator = document.createElement('div');
+_navIndicator.id = 'motion-nav-pill';
+_navIndicator.style.cssText = [
+  'position:absolute','right:0','width:3px',
+  'background:linear-gradient(180deg,var(--accent),var(--accent2))',
+  'border-radius:3px 0 0 3px','pointer-events:none',
+  'z-index:20','opacity:0'
+].join(';');
+
+const sidebar = document.getElementById('sidebar');
+if (sidebar) {
+  sidebar.style.position = 'relative';
+  sidebar.appendChild(_navIndicator);
+}
+
+function _updateNavIndicator(activeBtn) {
+  if (!sidebar || !activeBtn) return;
+  const sRect = sidebar.getBoundingClientRect();
+  const bRect = activeBtn.getBoundingClientRect();
+  const top  = bRect.top - sRect.top + sidebar.scrollTop;
+  const h    = bRect.height;
+  animate(_navIndicator,
+    { top: top, height: h, opacity: 1 },
+    EASE_SPRING_SNAPPY
+  );
+}
+
+// Init indicator on first load
+setTimeout(() => {
+  const active = document.querySelector('.nav-item.active');
+  if (active) _updateNavIndicator(active);
+}, 600);
+
+// ══════════════════════════════════════════════════════════════
+// 4. BUTTON PRESS — iOS-style spring scale
+// ══════════════════════════════════════════════════════════════
+const BTN_SEL = '.btn,.bp,.bex,.nav-item,.cat-btn,.bw,.bd,.bsm';
+
+document.addEventListener('pointerdown', (e) => {
+  const btn = e.target.closest(BTN_SEL);
+  if (!btn || btn.disabled) return;
+  animate(btn, { scale: 0.94 },
+    { type: 'spring', stiffness: 700, damping: 28, mass: 0.5 });
+}, { passive: true });
+
+const _popBtn = (e) => {
+  const btn = e.target.closest(BTN_SEL);
+  if (!btn) return;
+  animate(btn, { scale: 1 },
+    { type: 'spring', stiffness: 500, damping: 22 });
+};
+document.addEventListener('pointerup',     _popBtn, { passive: true });
+document.addEventListener('pointercancel', _popBtn, { passive: true });
+document.addEventListener('pointerleave',  _popBtn, { passive: true });
+
+// ══════════════════════════════════════════════════════════════
+// 5. TOAST — spring physics slide-in from top-right
+// ══════════════════════════════════════════════════════════════
+// Patch the toast creation to add Motion animations
+const _origToastFn = window._toast;
+
+function _animateToastIn(el) {
+  animate(el,
+    { opacity: [0, 1], y: [-24, 0], scale: [0.88, 1] },
+    { type: 'spring', stiffness: 500, damping: 26, mass: 0.7 }
+  );
+}
+
+function _animateToastOut(el, done) {
+  animate(el,
+    { opacity: [1, 0], y: [0, -16], scale: [1, 0.9] },
+    { duration: 0.2, easing: 'ease-in' }
+  ).then(() => { el.remove(); done?.(); });
+}
+
+// Observe toast region for new toasts
+const toastRegion = document.getElementById('toast-region');
+if (toastRegion) {
+  new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== 1 || !node.classList.contains('toast')) continue;
+        _animateToastIn(node);
+        // Intercept the .out class addition
+        const classObs = new MutationObserver(() => {
+          if (node.classList.contains('out')) {
+            classObs.disconnect();
+            node.classList.remove('out'); // prevent CSS animation
+            _animateToastOut(node);
+          }
+        });
+        classObs.observe(node, { attributes: true, attributeFilter: ['class'] });
+      }
+    }
+  }).observe(toastRegion, { childList: true });
+}
+
+// ══════════════════════════════════════════════════════════════
+// 6. MODAL / DIALOG — spring scale-in from trigger
+// ══════════════════════════════════════════════════════════════
+new MutationObserver((mutations) => {
+  for (const m of mutations) {
+    for (const node of m.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      // Modal box inside overlay
+      const box = node.querySelector?.('.mbox, .lem-box, .modal-box, [class*="modal-box"]')
+                  || (node.matches?.('.mbox, .lem-box') ? node : null);
+      if (box) {
+        animate(box,
+          { opacity: [0, 1], scale: [0.9, 1], y: [20, 0] },
+          { type: 'spring', stiffness: 420, damping: 30, mass: 0.85 }
+        );
+      }
+      // Full overlay fade-in
+      if (node.classList?.contains('lem-bg') || node.classList?.contains('modal-bg') || node.classList?.contains('overlay-bg')) {
+        animate(node, { opacity: [0, 1] }, { duration: 0.18 });
+      }
+    }
+    // Modal removal — fade out
+    for (const node of m.removedNodes) {
+      if (node.nodeType !== 1) continue;
+      if (node.classList?.contains('lem-bg') || node.classList?.contains('modal-bg')) {
+        // Already removed, no action needed
+      }
+    }
+  }
+}).observe(document.body, { childList: true, subtree: false });
+
+// ══════════════════════════════════════════════════════════════
+// 7. FORM INPUT — spring focus glow + field attention
+// ══════════════════════════════════════════════════════════════
+document.addEventListener('focusin', (e) => {
+  const el = e.target;
+  if (!el.matches('input:not([type=checkbox]):not([type=radio]), select, textarea')) return;
+  animate(el, { scale: [1, 1.008] },
+    { type: 'spring', stiffness: 500, damping: 35 });
+  // Label float animation
+  const label = el.closest('.field-wrap, .form-group, label')?.querySelector('label, .label');
+  if (label) animate(label, { y: [0, -1] }, { duration: 0.15 });
+}, { passive: true });
+
+document.addEventListener('focusout', (e) => {
+  const el = e.target;
+  if (!el.matches('input:not([type=checkbox]):not([type=radio]), select, textarea')) return;
+  animate(el, { scale: 1 }, { type: 'spring', stiffness: 400, damping: 28 });
+  const label = el.closest('.field-wrap, .form-group, label')?.querySelector('label, .label');
+  if (label) animate(label, { y: 0 }, { duration: 0.15 });
+}, { passive: true });
+
+// ══════════════════════════════════════════════════════════════
+// 8. FORM VALIDATION — shake on error, bounce on success
+// ══════════════════════════════════════════════════════════════
+window._motionShake = function(el) {
+  if (!el) return;
+  animate(el,
+    { x: [0, -8, 8, -6, 6, -3, 3, 0] },
+    { duration: 0.45, easing: 'ease-in-out' }
+  );
+};
+
+window._motionSuccess = function(el) {
+  if (!el) return;
+  animate(el,
+    { scale: [1, 1.12, 1] },
+    { type: 'spring', stiffness: 600, damping: 14, mass: 0.7 }
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
+// 9. KPI CARDS — inView stagger + hover spring
+// ══════════════════════════════════════════════════════════════
+function _initCardAnimations(root) {
+  const cards = (root || document).querySelectorAll('.kc:not([data-m])');
+  if (!cards.length) return;
+  cards.forEach(c => c.setAttribute('data-m', '1'));
+  inView(
+    Array.from(cards),
+    (el) => {
+      const i = Array.from(cards).indexOf(el);
+      animate(el,
+        { opacity: [0, 1], y: [22, 0], scale: [0.95, 1] },
+        { delay: Math.min(i * 0.06, 0.4), ...EASE_SPRING_SOFT }
+      );
+    },
+    { margin: '-20px' }
+  );
+
+  // Hover spring depth
+  cards.forEach(card => {
+    card.addEventListener('mouseenter', () => {
+      animate(card, { y: -6 }, { type: 'spring', stiffness: 300, damping: 20 });
+    });
+    card.addEventListener('mouseleave', () => {
+      animate(card, { y: 0 }, { type: 'spring', stiffness: 250, damping: 22 });
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// 10. TABLE ROWS — cascade in when data renders
+// ══════════════════════════════════════════════════════════════
+function _initRowAnimations(root) {
+  const rows = (root || document).querySelectorAll('tbody tr:not([data-m])');
+  if (!rows.length) return;
+  rows.forEach(r => r.setAttribute('data-m', '1'));
+  animate(rows,
+    { opacity: [0, 1], x: [-6, 0] },
+    {
+      duration: 0.2,
+      delay: stagger(0.025, { start: 0 }),
+      easing: EASE_OUT
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11. SECTION DIVIDERS + STAT BOXES — scroll-triggered
+// ══════════════════════════════════════════════════════════════
+function _initSectionAnimations(root) {
+  const els = (root || document).querySelectorAll('.tw:not([data-m]),.dc:not([data-m]),.ins-box:not([data-m]),.stat-box:not([data-m])');
+  els.forEach(el => el.setAttribute('data-m','1'));
+  if (!els.length) return;
+  inView(Array.from(els), (el) => {
+    animate(el, { opacity: [0, 1], y: [18, 0] }, EASE_SPRING_SOFT);
+  }, { margin: '-20px' });
+}
+
+// ══════════════════════════════════════════════════════════════
+// 12. SIDEBAR OPEN/CLOSE — spring width animation
+// ══════════════════════════════════════════════════════════════
+const _origToggleSidebar = window.toggleSidebar;
+if (_origToggleSidebar) {
+  window.toggleSidebar = function() {
+    _origToggleSidebar();
+    // The CSS handles width, Motion adds feel
+    const sb = document.getElementById('sidebar');
+    if (!sb) return;
+    const collapsed = sb.classList.contains('collapsed');
+    const icon = document.getElementById('collapseBtn');
+    if (icon) animate(icon, { rotate: collapsed ? [0, 180] : [180, 0] },
+      { type: 'spring', stiffness: 400, damping: 25 });
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+// 13. DROPDOWN / SELECT MENUS — smooth open
+// ══════════════════════════════════════════════════════════════
+document.querySelectorAll('.sub-panel').forEach(panel => {
+  const orig = Object.getOwnPropertyDescriptor(panel.classList, 'add');
+  // Observe class changes on sub-panels for accordion animation
+  new MutationObserver(() => {
+    if (panel.classList.contains('open')) {
+      const h = panel.scrollHeight;
+      panel.style.maxHeight = '0px';
+      panel.style.overflow = 'hidden';
+      animate(panel, { maxHeight: [0, h] }, { duration: 0.28, easing: EASE_OUT })
+        .then(() => { panel.style.maxHeight = ''; panel.style.overflow = ''; });
+    }
+  }).observe(panel, { attributes: true, attributeFilter: ['class'] });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 14. PAGE INITIAL LOAD — Sidebar + Header entrance
+// ══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  const sb = document.getElementById('sidebar');
+  const header = document.querySelector('.top-bar, header');
+  const dashTab = document.getElementById('tab-dashboard');
+
+  if (sb) animate(sb, { x: [-30, 0], opacity: [0, 1] },
+    { type: 'spring', stiffness: 250, damping: 26, mass: 1 });
+  if (header) animate(header, { y: [-16, 0], opacity: [0, 1] },
+    { type: 'spring', stiffness: 320, damping: 28, delay: 0.1 });
+  if (dashTab) setTimeout(() => {
+    _initCardAnimations(dashTab);
+    _initSectionAnimations(dashTab);
+  }, 500);
+});
+
+// ══════════════════════════════════════════════════════════════
+// 15. HOOK INTO initReveal — enhance existing observer
+// ══════════════════════════════════════════════════════════════
+const _origInitReveal = window.initReveal;
+window.initReveal = function(container) {
+  _origInitReveal?.(container);
+  _initCardAnimations(container);
+  _initSectionAnimations(container);
+  _initRowAnimations(container);
+};
+
+// ══════════════════════════════════════════════════════════════
+// 16. DATA TABLE OBSERVER — re-animate when tbody changes
+// ══════════════════════════════════════════════════════════════
+new MutationObserver((mutations) => {
+  for (const m of mutations) {
+    if (m.type === 'childList' && m.target.tagName === 'TBODY' && m.addedNodes.length > 0) {
+      const rows = Array.from(m.target.querySelectorAll('tr:not([data-m])'));
+      if (!rows.length) continue;
+      rows.forEach(r => r.setAttribute('data-m','1'));
+      animate(rows,
+        { opacity: [0, 1], x: [-4, 0] },
+        { duration: 0.18, delay: stagger(0.02), easing: EASE_OUT }
+      );
+    }
+  }
+}).observe(document.body, { childList: true, subtree: true });
+
+// ══════════════════════════════════════════════════════════════
+// 17. SAVE BUTTON SUCCESS ANIMATION
+// ══════════════════════════════════════════════════════════════
+// Called after successful save operations
+window._motionSavePulse = function(btnOrId) {
+  const el = typeof btnOrId === 'string' ? document.getElementById(btnOrId) : btnOrId;
+  if (!el) return;
+  animate(el, { scale: [1, 1.18, 1] },
+    { type: 'spring', stiffness: 700, damping: 12, mass: 0.6 });
+};
+
+// ══════════════════════════════════════════════════════════════
+// 18. FLOATING LABELS (data entry helper)
+// ══════════════════════════════════════════════════════════════
+// Animate placeholder transform when input has value
+document.querySelectorAll('.float-label input, .float-label textarea').forEach(inp => {
+  const check = () => {
+    const label = inp.parentElement.querySelector('label');
+    if (!label) return;
+    if (inp.value) animate(label, { y: -20, scale: 0.82, opacity: 0.7 }, { duration: 0.18 });
+    else           animate(label, { y: 0,   scale: 1,    opacity: 1   }, { duration: 0.18 });
+  };
+  inp.addEventListener('input', check);
+  check();
+});
+
+// ══════════════════════════════════════════════════════════════
+// 19. QUICK-ADD ROW — animate newly inserted row in tables
+// ══════════════════════════════════════════════════════════════
+window._motionInsertRow = function(rowEl) {
+  if (!rowEl) return;
+  animate(rowEl,
+    { backgroundColor: ['rgba(59,130,246,0.12)', 'rgba(59,130,246,0)'], opacity: [0, 1], y: [-6, 0] },
+    { duration: 0.5, easing: EASE_OUT }
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
+// 20. NUMBERS — enhanced count-up with Motion easing
+// ══════════════════════════════════════════════════════════════
+// Patch animateCount to use smoother spring-feel easing
+const _origAnimateCount = window.animateCount;
+window.animateCount = function(el, targetVal, decimals = 3, duration = 900) {
+  if (!el) return;
+  const target = parseFloat(targetVal) || 0;
+  if (target === 0) { el.textContent = (window.fmt || ((n,d)=>n.toFixed(d)))(0, decimals); return; }
+  const startTime = performance.now();
+  el.classList.add('counting');
+  const tick = (now) => {
+    const p = Math.min((now - startTime) / duration, 1);
+    // Spring-feel: overshoots slightly at 0.85 then settles
+    const ease = p < 0.85
+      ? 1 - Math.pow(1 - p/0.85, 3)
+      : 1 + Math.sin((p - 0.85) / 0.15 * Math.PI) * 0.02 * (1 - p);
+    const fmt = window.fmt || ((n,d) => n.toFixed(d));
+    el.textContent = fmt(target * Math.min(ease, 1), decimals);
+    if (p < 1) requestAnimationFrame(tick);
+    else { el.textContent = fmt(target, decimals); el.classList.remove('counting'); }
+  };
+  requestAnimationFrame(tick);
+};
+
+console.log('%c✅ Motion.dev v11 — Boubyan Animation Layer active', 'color:#3b82f6;font-weight:700');
+</script>
+
 </body>
 </html>
