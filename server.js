@@ -7420,7 +7420,12 @@ app.post('/api/journal/learn', requireAuth, (req, res) => {
 app.delete('/api/uploaded-files/:id', requireAuth, (req, res) => {
   const db    = loadDB();
   const files = db.uploadedFiles || [];
-  const idx   = files.findIndex(f => f.id === req.params.id);
+  // Match by id or batchId; fall back to numeric index for legacy files uploaded before batchId system
+  let idx = files.findIndex(f => f.id === req.params.id || f.batchId === req.params.id);
+  if (idx === -1 && /^\d+$/.test(req.params.id)) {
+    const i = parseInt(req.params.id, 10);
+    if (i >= 0 && i < files.length) idx = i;
+  }
   if (idx === -1) return res.status(404).json({ error: 'الملف غير موجود' });
 
   const file     = files[idx];
