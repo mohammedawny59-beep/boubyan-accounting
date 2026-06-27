@@ -9676,8 +9676,11 @@ async function sendAiMessage() {
           fullText += payload.text;
           textEl.innerHTML = renderMarkdown(fullText);
           document.getElementById('aiMessages').scrollTop = 999999;
-        } else if (evt === 'action' && payload.type === 'addAccount') {
-          const { code, name, accountType, parent } = payload;
+        } else if (evt === 'action' && payload.code) {
+          const code = payload.code;
+          const name = payload.name;
+          const accountType = payload.accountType || (payload.type !== 'addAccount' ? payload.type : 'expense') || 'expense';
+          const parent = payload.parent || null;
           const safe = JSON.stringify({ code, name, type: accountType, parent }).replace(/'/g,'&#39;');
           const actionHtml = `<div style="margin-top:10px;padding:10px 14px;background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.35);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
             <span style="font-size:13px;color:var(--text);">📌 <strong>${code}</strong> — ${name} <em style="color:var(--text3)">(${accountType||'expense'})</em></span>
