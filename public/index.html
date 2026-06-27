@@ -2079,13 +2079,11 @@ body { font-size: calc(14px * var(--fs-scale)); }
     <div class="ins-box" id="w-ins-box">
       <div class="ins-title" data-i18n="ins.title">🏥 تفصيل التأمين</div>
       <div class="ins-grid">
-        <div class="ins-item"><div class="ins-lbl" data-i18n="ins.recorded">مسجّل بالبرنامج (بعد 25%)</div><div class="ins-val" id="iRec" style="color:var(--text2)">—</div></div>
-        <div class="ins-arr">÷0.75→</div>
-        <div class="ins-item"><div class="ins-lbl" data-i18n="ins.original">المبلغ الأصلي</div><div class="ins-val" id="iOrig" style="color:var(--accent)">—</div></div>
-        <div class="ins-arr">×25%→</div>
-        <div class="ins-item"><div class="ins-lbl" data-i18n="ins.share">حصة شركة التأمين</div><div class="ins-val" id="iShare" style="color:var(--danger)">—</div></div>
+        <div class="ins-item"><div class="ins-lbl">إيرادات التأمين (إجمالي)</div><div class="ins-val" id="iOrig" style="color:var(--accent)">—</div></div>
+        <div class="ins-arr" id="iRateArrow">×13%→</div>
+        <div class="ins-item"><div class="ins-lbl">خصم شركة التأمين</div><div class="ins-val" id="iShare" style="color:var(--danger)">—</div></div>
         <div class="ins-arr">=</div>
-        <div class="ins-item"><div class="ins-lbl" data-i18n="ins.net">صافي العيادة</div><div class="ins-val" id="iNet" style="color:var(--accent2)">—</div></div>
+        <div class="ins-item"><div class="ins-lbl">صافي العيادة</div><div class="ins-val" id="iNet" style="color:var(--accent2)">—</div></div>
       </div>
     </div>
     <!-- CHARTS ROW -->
@@ -4865,10 +4863,11 @@ async function loadDashboard() {
     animateCount(document.getElementById('kPend'),  s.pendingComm);
     // Add refreshed pulse on KPI cards
     document.querySelectorAll('.kc').forEach(c => { c.classList.remove('refreshed'); void c.offsetWidth; c.classList.add('refreshed'); });
-    document.getElementById('iRec').textContent = s.insRecorded.fmt() + ' د.ك';
     document.getElementById('iOrig').textContent = s.insOriginal.fmt() + ' د.ك';
     document.getElementById('iShare').textContent = s.insShare.fmt() + ' د.ك';
     document.getElementById('iNet').textContent = s.insNet.fmt() + ' د.ك';
+    const rateArrow = document.getElementById('iRateArrow');
+    if (rateArrow && s.insRate) rateArrow.textContent = `×${(s.insRate*100).toFixed(0)}%→`;
     
     const days = DB.dailyData || [];
     let filtered = days;
