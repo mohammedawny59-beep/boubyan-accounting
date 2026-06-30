@@ -4,7 +4,13 @@
   "description": "Boubyan Dental Center Accounting System",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "jest --forceExit",
+    "test:watch": "jest --watch"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.2.2"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",

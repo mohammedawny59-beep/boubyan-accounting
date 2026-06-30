@@ -11,6 +11,8 @@ const jwt = require('jsonwebtoken');
 const {
   initDB, loadDB, saveDB, loadConfig, saveConfig, shutdownDB,
 } = require('./lib/database');
+const { callAI, callAIVision } = require('./lib/ai');
+const { calcCommission: _calcCommission } = require('./lib/calcCommission');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -589,47 +591,7 @@ function parsePaymentsDetails(filePath) {
 
 function calcCommission(dr, revenue) {
   const cfg = loadConfig();
-  const formula = cfg.commissionFormula || {};
-  const base       = formula.base       || 'above_target';
-  const deductions = formula.deductions || ['lab'];
-  const method     = formula.method     || 'percentage';
-
-  // Step 0: exclude insurance portion from revenue (insurance is stored as % 0-100)
-  const insRate = (dr.insRate || dr.insurance || 0);
-  const insPercent = insRate > 1 ? insRate / 100 : insRate;
-  const netRevenue = revenue * (1 - insPercent);
-
-  // Step 1: determine base amount from net revenue (excluding insurance)
-  let amount = base === 'above_target'
-    ? Math.max(0, netRevenue - (dr.target || 0))
-    : netRevenue;
-
-  // Step 2: apply deductions (lab is a fixed KD amount)
-  if (deductions.includes('lab')) amount = Math.max(0, amount - (dr.lab || 0));
-
-  // Step 3: apply method
-  let commission = 0;
-  if (method === 'percentage') {
-    commission = amount * (dr.commission / 100);
-  } else if (method === 'tiered') {
-    const tiers = formula.tiers || [];
-    let remaining = amount;
-    for (const tier of tiers) {
-      const from = tier.from || 0;
-      const to   = tier.to;
-      if (remaining <= 0) break;
-      const bracket = to !== null ? Math.min(remaining, to - from) : remaining;
-      if (bracket <= 0) continue;
-      commission += bracket * (tier.rate / 100);
-      remaining  -= bracket;
-    }
-  } else if (method === 'fixed') {
-    commission = dr.commission || 0;
-  } else if (method === 'fixed_plus_percentage') {
-    commission = (formula.fixedAmount || 0) + amount * (dr.commission / 100);
-  }
-
-  return parseFloat(Math.max(0, commission).toFixed(3));
+  return _calcCommission(dr, revenue, cfg.commissionFormula || {});
 }
 
 function getMonth(dateStr) {
@@ -1555,18 +1517,12 @@ function setupBot(bot) {
         const base64Image = fs.readFileSync(tempPath).toString('base64');
         fs.removeSync(tempPath);
 
-        const aiResponse = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514', max_tokens: 500,
-            messages: [{ role: 'user', content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image } },
-              { type: 'text', text: `استخرج بيانات هذه الفاتورة وأجب بـ JSON فقط:\n{"vendor":"اسم المورد","amount":رقم,"date":"YYYY-MM-DD","category":"مواد مختبر/رواتب/إيجار/كهرباء/صيانة/أخرى","description":"وصف قصير"}\nإذا ما قدرت تقرأ قيمة حط null. اليوم: ${new Date().toISOString().split('T')[0]}` }
-            ]}]
-          })
-        });
-        const rawText = (await aiResponse.json()).content?.[0]?.text || '{}';
+        const rawText = await callAIVision({
+          model: 'claude-sonnet-4-6',
+          base64Image,
+          prompt: `استخرج بيانات هذه الفاتورة وأجب بـ JSON فقط:\n{"vendor":"اسم المورد","amount":رقم,"date":"YYYY-MM-DD","category":"مواد مختبر/رواتب/إيجار/كهرباء/صيانة/أخرى","description":"وصف قصير"}\nإذا ما قدرت تقرأ قيمة حط null. اليوم: ${new Date().toISOString().split('T')[0]}`,
+          max_tokens: 500,
+        }) || '{}';
         let invoice;
         try { invoice = JSON.parse(rawText.replace(/```json|```/g, '').trim()); } catch(e) { invoice = {}; }
 
@@ -1623,22 +1579,16 @@ function setupBot(bot) {
         const today = new Date().toISOString().slice(0, 10);
 
         // Use Claude to decode the voice as financial intent
-        const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version':'2023-06-01' },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-6', max_tokens: 800,
-            messages: [{ role: 'user', content: [
-              { type: 'document', source: { type: 'base64', media_type: 'audio/ogg', data: audioB64 } },
-              { type: 'text', text: `استمع لهذه الرسالة الصوتية وحولها لقيد محاسبي.
+        const rawText = await callAI({
+          model: 'claude-sonnet-4-6', max_tokens: 800,
+          messages: [{ role: 'user', content: [
+            { type: 'document', source: { type: 'base64', media_type: 'audio/ogg', data: audioB64 } },
+            { type: 'text', text: `استمع لهذه الرسالة الصوتية وحولها لقيد محاسبي.
 اليوم: ${today}. دليل الحسابات:\n${coa}
 أعد JSON فقط:
-{"transcription":"النص المسموع","date":"YYYY-MM-DD","description":"وصف القيد","lines":[{"accountCode":"","accountName":"","debit":0,"credit":0}],"confidence":0.0}` }
-            ]}]
-          })
-        });
-
-        const rawText = (await aiResp.json()).content?.[0]?.text || '{}';
+{"transcription":"النص المسموع","date":"YYYY-MM-DD","description":"وصف القيد","lines":[{"accountCode":"","accountName":"","debit":0,"credit":0}],"confidence":0.0}` },
+          ]}],
+        }) || '{}';
         const jMatch  = rawText.match(/\{[\s\S]*\}/);
         if (!jMatch) throw new Error('فشل تحليل الصوت');
 
@@ -2131,17 +2081,11 @@ function setupBot(bot) {
         const pendingClaims = (db.insuranceClaims||[]).filter(c=>c.status!=='received').reduce((s,c)=>s+(c.amount||0),0);
         const fmt = n => n.toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3});
         const context = `بيانات عيادة بوبيان:\n- إيرادات ${thisMonth}: ${fmt(tmRev)} د.ك\n- إيرادات ${lastMonth}: ${fmt(lmRev)} د.ك\n- نمو الإيرادات: ${lmRev?((tmRev-lmRev)/lmRev*100).toFixed(1)+'%':'لا يوجد'}\n- مصاريف ${thisMonth}: ${fmt(tmExp)} د.ك\n- مصاريف ${lastMonth}: ${fmt(lmExp)} د.ك\n- صافي الشهر الحالي: ${fmt(tmRev-tmExp)} د.ك\n- عمولات معلقة: ${fmt(pendingComm)} د.ك\n- مطالبات تأمين معلقة: ${fmt(pendingClaims)} د.ك\n- أصناف مخزون منخفضة: ${lowStock}`;
-        const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
-          method:'POST',
-          headers:{'Content-Type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01'},
-          body: JSON.stringify({
-            model:'claude-haiku-4-5-20251001', max_tokens:600,
-            system:'أنت محلل مالي خبير لعيادة أسنان. قدّم تحليلاً موجزاً وذكياً باللغة العربية في 5-7 نقاط. استخدم إيموجي. ركّز على النقاط المهمة والتوصيات.',
-            messages:[{role:'user',content:`حلّل هذه البيانات وأعطني أهم الملاحظات والتوصيات:\n${context}`}]
-          })
-        });
-        const aiData = await aiResp.json();
-        const analysis = aiData.content?.[0]?.text || 'لم أستطع التحليل';
+        const analysis = await callAI({
+          model: 'claude-haiku-4-5-20251001', max_tokens: 600,
+          system: 'أنت محلل مالي خبير لعيادة أسنان. قدّم تحليلاً موجزاً وذكياً باللغة العربية في 5-7 نقاط. استخدم إيموجي. ركّز على النقاط المهمة والتوصيات.',
+          messages: [{ role: 'user', content: `حلّل هذه البيانات وأعطني أهم الملاحظات والتوصيات:\n${context}` }],
+        }) || 'لم أستطع التحليل';
         bot.sendMessage(chatId, `🤖 *التحليل الذكي — ${thisMonth}*\n\n${analysis}`, { parse_mode:'Markdown' });
       } catch(e) {
         bot.sendMessage(chatId, '❌ خطأ في التحليل: ' + e.message);
@@ -2165,17 +2109,11 @@ function setupBot(bot) {
         if (months.length < 2) { bot.sendMessage(chatId, '⚠️ البيانات غير كافية للتوقع. تحتاج على الأقل شهرين.'); return; }
         const fmt = n => n.toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3});
         const history = months.map(([m,v])=>`${m}: ${fmt(v)} د.ك`).join('\n');
-        const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
-          method:'POST',
-          headers:{'Content-Type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01'},
-          body: JSON.stringify({
-            model:'claude-haiku-4-5-20251001', max_tokens:400,
-            system:'أنت محلل مالي. بناء على بيانات الإيرادات الشهرية، توقّع الشهر القادم. أجب باختصار بالعربية مع الرقم المتوقع والأسباب.',
-            messages:[{role:'user',content:`إيرادات الأشهر الماضية:\n${history}\n\nتوقّع الشهر القادم مع تبرير.`}]
-          })
-        });
-        const aiData = await aiResp.json();
-        const forecast = aiData.content?.[0]?.text || 'لم أستطع التوقع';
+        const forecast = await callAI({
+          model: 'claude-haiku-4-5-20251001', max_tokens: 400,
+          system: 'أنت محلل مالي. بناء على بيانات الإيرادات الشهرية، توقّع الشهر القادم. أجب باختصار بالعربية مع الرقم المتوقع والأسباب.',
+          messages: [{ role: 'user', content: `إيرادات الأشهر الماضية:\n${history}\n\nتوقّع الشهر القادم مع تبرير.` }],
+        }) || 'لم أستطع التوقع';
         bot.sendMessage(chatId, `📈 *توقعات الشهر القادم*\n\n${forecast}`, { parse_mode:'Markdown' });
       } catch(e) {
         bot.sendMessage(chatId, '❌ خطأ: ' + e.message);
@@ -2198,18 +2136,12 @@ function setupBot(bot) {
 أيام العمل: ${daily.filter(d=>d.total>0).length}
 العمولات: ${comms.map(c=>`${c.doctor}: ${c.commission.toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:3})} د.ك (${c.paid?'مدفوع':'غير مدفوع'})`).join(', ')}`;
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 500,
-          system: `أنت مساعد محاسبي لعيادة بوبيان. ${context}. أجب باختصار بالعربي.`,
-          messages: [{ role: 'user', content: text }]
-        })
-      });
-      const data = await response.json();
-      const answer = data.content?.[0]?.text || 'ما قدرت أجاوب';
+      const answer = await callAI({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 500,
+        system: `أنت مساعد محاسبي لعيادة بوبيان. ${context}. أجب باختصار بالعربي.`,
+        messages: [{ role: 'user', content: text }],
+      }) || 'ما قدرت أجاوب';
       bot.sendMessage(chatId, answer);
     } catch(e) {
       bot.sendMessage(chatId, 'اكتب /stats أو /comm أو /pending للحصول على المعلومات');
@@ -3492,14 +3424,10 @@ ${JSON.stringify(expenses.slice(0,50), null, 1)}
 {"findings": [{"id": "...", "risk": "HIGH|MEDIUM|LOW", "type": "...", "description": "...", "action": "..."}], "summary": "...", "score": 0-100}`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt }] })
-    });
-    const data = await response.json();
-    const text = data.content?.[0]?.text || '{}';
+    const text = await callAI({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }],
+    }) || '{}';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     res.json(jsonMatch ? JSON.parse(jsonMatch[0]) : { findings: [], summary: 'لا توجد مخاطر', score: 100 });
   } catch(e) {
@@ -3558,14 +3486,11 @@ ${JSON.stringify(data, null, 2)}
 استخدم الأرقام بالدينار الكويتي. كن محدداً ومهنياً. لا تزيد عن 350 كلمة.`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }] })
-    });
-    const resp = await response.json();
-    res.json({ narrative: resp.content?.[0]?.text || '', data });
+    const narrative = await callAI({
+      model: 'claude-sonnet-4-6', max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    }) || '';
+    res.json({ narrative, data });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -3596,17 +3521,12 @@ app.post('/api/ai/ocr-invoice', requireAuth, uploadImg.single('file'), async (re
     const coa = (db.chartOfAccounts || []).filter(a => !a.isGroup).map(a => `${a.code}: ${a.name}`).join('\n');
     const vendors = (db.vendors || []).map(v => v.name).join(', ');
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-            { type: 'text', text: `استخرج بيانات هذه الفاتورة وأعد JSON فقط:
+    const text = await callAIVision({
+      model: 'claude-sonnet-4-6',
+      base64Image: base64,
+      mediaType: mimeType,
+      max_tokens: 1000,
+      prompt: `استخرج بيانات هذه الفاتورة وأعد JSON فقط:
 
 دليل الحسابات المتاحة:
 ${coa}
@@ -3627,14 +3547,8 @@ ${coa}
   "suggested_account_name": "اسم الحساب",
   "confidence": 0.0,
   "items": [{"description": "", "qty": 0, "unit_price": 0, "total": 0}]
-}` }
-          ]
-        }]
-      })
-    });
-
-    const data = await response.json();
-    const text = data.content?.[0]?.text || '{}';
+}`,
+    }) || '{}';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     fs.removeSync(req.file.path);
     res.json(jsonMatch ? JSON.parse(jsonMatch[0]) : { error: 'لم يتمكن AI من قراءة الفاتورة' });
@@ -4548,13 +4462,28 @@ app.put('/api/journal/:id', (req, res) => {
   const db = loadDB();
   const idx = (db.journalEntries || []).findIndex(e => e.id === req.params.id);
   if (idx === -1) return res.status(404).json({ success: false, message: 'القيد غير موجود' });
-  const { date, desc, ref, lines } = req.body;
   const existing = db.journalEntries[idx];
+
+  // IFRS compliance: reject edits to entries in locked periods (IAS 8)
+  const entryPeriod = (existing.date || '').substring(0, 7);
+  if ((db.lockedPeriods || {})[entryPeriod]) {
+    return res.status(403).json({ success: false, message: `الفترة ${entryPeriod} مقفلة — لا يمكن تعديل القيد` });
+  }
+
+  const { date, desc, ref, lines } = req.body;
+
+  // Also block moving an entry into a locked period
+  const newDate = date ? sanitize(date, 10) : existing.date;
+  const newPeriod = (newDate || '').substring(0, 7);
+  if (newPeriod !== entryPeriod && (db.lockedPeriods || {})[newPeriod]) {
+    return res.status(403).json({ success: false, message: `الفترة ${newPeriod} مقفلة — لا يمكن نقل القيد إليها` });
+  }
+
   const newDesc = desc ? sanitize(desc, 500) : (existing.desc || existing.description || '');
   const updated = {
     ...existing,
     id: req.params.id,
-    date: date ? sanitize(date, 10) : existing.date,
+    date: newDate,
     desc: newDesc,
     description: newDesc,
     ref:  ref  ? sanitize(ref, 100)  : existing.ref,
@@ -4569,7 +4498,16 @@ app.put('/api/journal/:id', (req, res) => {
 
 app.delete('/api/journal/:id', (req, res) => {
   const db = loadDB();
-  db.journalEntries = (db.journalEntries || []).filter(e => e.id !== req.params.id);
+  const entry = (db.journalEntries || []).find(e => e.id === req.params.id);
+  if (!entry) return res.status(404).json({ success: false, message: 'القيد غير موجود' });
+
+  // IFRS compliance: block deletion of entries in locked periods
+  const period = (entry.date || '').substring(0, 7);
+  if ((db.lockedPeriods || {})[period]) {
+    return res.status(403).json({ success: false, message: `الفترة ${period} مقفلة — لا يمكن حذف القيد` });
+  }
+
+  db.journalEntries = db.journalEntries.filter(e => e.id !== req.params.id);
   saveDB(db);
   res.json({ success: true });
 });
@@ -4580,21 +4518,11 @@ app.post('/api/ai/journal', async (req, res) => {
     const { image, accounts } = req.body;
     const accountList = accounts.map(a => `${a.code}: ${a.name} (${a.type})`).join('\n');
     
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-            { type: 'text', text: `أنت محاسب خبير. اقرأ هذه الفاتورة وولّد قيد محاسبي.
+    const raw = await callAIVision({
+      model: 'claude-sonnet-4-6',
+      base64Image: image,
+      max_tokens: 1000,
+      prompt: `أنت محاسب خبير. اقرأ هذه الفاتورة وولّد قيد محاسبي.
 
 شجرة الحسابات المتاحة:
 ${accountList}
@@ -4609,14 +4537,8 @@ ${accountList}
   ]
 }
 
-القواعد: مجموع المدين = مجموع الدائن. للمصروف: مدين حساب المصروف، دائن الصندوق أو البنك. للإيراد: مدين الصندوق أو البنك، دائن حساب الإيراد.` }
-          ]
-        }]
-      })
-    });
-    
-    const data = await response.json();
-    const raw = data.content?.[0]?.text || '{}';
+القواعد: مجموع المدين = مجموع الدائن. للمصروف: مدين حساب المصروف، دائن الصندوق أو البنك. للإيراد: مدين الصندوق أو البنك، دائن حساب الإيراد.`,
+    }) || '{}';
     const result = JSON.parse(raw.replace(/```json|```/g, '').trim());
     res.json({ success: true, ...result });
   } catch(err) {
@@ -4790,24 +4712,12 @@ ${Object.entries(drRev).map(([dr, rev]) => `• ${dr}: ${rev.toFixed(3)} د.ك`)
     }
     messages.push({ role: 'user', content: message });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
-        system: systemPrompt,
-        messages
-      })
-    });
-
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
-    const reply = data.content?.[0]?.text || 'لم أتمكن من الإجابة';
+    const reply = await callAI({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages,
+    }) || 'لم أتمكن من الإجابة';
     res.json({ success: true, reply });
 
   } catch (err) {
@@ -8158,21 +8068,17 @@ app.post('/api/bank/categorize', requireAuth, async (req, res) => {
   if (lowConf.length && process.env.ANTHROPIC_API_KEY) {
     try {
       const coa = (db.chartOfAccounts||[]).slice(0,50).map(a=>`${a.code} ${a.name}`).join('\n');
-      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version':'2023-06-01' },
-        body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:512,
-          messages:[{role:'user',content:`صنّف المعاملات على حسابات من دليل الحسابات. أجب JSON فقط.
+      const aiText = await callAI({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 512,
+        messages: [{ role: 'user', content: `صنّف المعاملات على حسابات من دليل الحسابات. أجب JSON فقط.
 معاملات:
 ${lowConf.map((t,i)=>`${i+1}. "${t.desc}" ${t.amount} KD`).join('\n')}
 حسابات متاحة:
 ${coa}
-تنسيق الإجابة: [{"i":1,"code":"XXXX","name":"اسم","conf":0.9},...]`}]
-        })
-      });
-      if (aiRes.ok) {
-        const data = await aiRes.json();
-        const m = (data.content?.[0]?.text||'').match(/\[[\s\S]*?\]/);
+تنسيق الإجابة: [{"i":1,"code":"XXXX","name":"اسم","conf":0.9},...]` }],
+      }).catch(() => '');
+      if (aiText) {
+        const m = aiText.match(/\[[\s\S]*?\]/);
         if (m) JSON.parse(m[0]).forEach(s => {
           const t = categorized.find(c => c === lowConf[s.i-1]);
           if (t) { t.suggestedAccount = s.code; t.category = s.name; t.confidence = s.conf; t.method = 'ai'; }
