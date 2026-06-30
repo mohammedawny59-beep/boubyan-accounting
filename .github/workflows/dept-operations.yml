@@ -1,0 +1,42 @@
+name: ⚙️ Operations Department — Weekly System Check
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'   # Every Monday 05:00 UTC (before other depts)
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  operations-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run operations check
+        run: node scripts/departments/operations.js > /tmp/report.md
+
+      - name: Run full test suite
+        run: npm ci && npm test >> /tmp/report.md 2>&1 || echo "⚠️ بعض الاختبارات فشلت" >> /tmp/report.md
+
+      - name: Create GitHub Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/report.md', 'utf8');
+            const week = new Date().toISOString().slice(0,10);
+            const testsFailed = body.includes('فشلت') || body.includes('FAIL');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `⚙️ Operations — فحص النظام الأسبوعي — ${week}${testsFailed?' ⚠️':''}`,
+              body,
+              labels: ['department:Operations', 'needs-review'],
+            });
