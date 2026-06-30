@@ -1,97 +1,241 @@
-#!/usr/bin/env node
 'use strict';
-// Security Department — weekly security scan
-// Checks: hardcoded secrets, insecure patterns, auth gaps, JWT config
-
+/**
+ * قسم الأمن — Security Department v2.0
+ * المهمة: فحص الأمن والثغرات وضوابط الوصول
+ * معايير: OWASP Top 10 · NIST CSF · ISO 27001
+ */
+const fs   = require('fs');
+const path = require('path');
 const { execSync } = require('child_process');
-const { readFile, countPattern, today } = require('./_common');
+const { DeptAgent } = require('./_agent.js');
 
-function run(cmd) {
-  try { return execSync(cmd, { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }); }
-  catch (e) { return e.stdout || ''; }
+const ROOT = path.join(__dirname, '../..');
+
+const agent = new DeptAgent({
+  name:      'security',
+  nameAr:    '🔒 قسم الأمن',
+  mission:   'حماية النظام من الثغرات وضمان سلامة البيانات وامتثال OWASP',
+  standards: ['OWASP Top 10', 'NIST CSF', 'ISO 27001', 'CIS Controls'],
+  version:   '2.0',
+});
+
+// OWASP A01 — Broken Access Control
+function checkAccessControl() {
+  agent._log('🔐 A01 — Access Control...');
+  const content = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const routes  = (content.match(/app\.(get|post|put|delete|patch)\s*\(['"]/g) || []).length;
+  const protected_ = (content.match(/requireAuth/g) || []).length;
+
+  agent.metric('إجمالي Routes',       routes,      '');
+  agent.metric('Routes محمية',        protected_,  '');
+  agent.metric('نسبة الحماية',        routes > 0 ? `${Math.round(protected_/routes*100)}%` : '0%');
+
+  const ratio = routes > 0 ? protected_ / routes : 0;
+  if (ratio < 0.6) {
+    agent.finding('high', 'A01-access-control',
+      `${Math.round((1-ratio)*100)}% من الـ routes بدون حماية`,
+      `${routes} route — ${protected_} محمي فقط`,
+      'أضف requireAuth middleware لكل endpoint يحتوي بيانات'
+    );
+  } else {
+    agent.ok('A01-access-control', `${Math.round(ratio*100)}% من الـ routes محمية`);
+  }
+
+  // Check for mass assignment
+  const massAssign = (content.match(/req\.body\b(?!\.)/g) || []).length;
+  agent.metric('استخدام req.body مباشر', massAssign, '', 5);
+  if (massAssign > 10) {
+    agent.finding('medium', 'A01-access-control',
+      `${massAssign} استخدام مباشر لـ req.body`,
+      'خطر Mass Assignment — قد يسمح للمستخدم بتغيير حقول لا يجب',
+      'استخدم destructuring صريح: const { field1, field2 } = req.body'
+    );
+  }
 }
 
-const server = readFile('server.js');
-const index  = readFile('public/index.html');
-const db     = readFile('lib/database.js');
+// OWASP A02 — Cryptographic Failures
+function checkCryptography() {
+  agent._log('🔑 A02 — Cryptography...');
+  const content = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
-// ── Pattern checks ────────────────────────────────────────────────────────────
-const PATTERNS = [
-  { name: 'كلمات مرور مكتوبة في الكود',       re: /password\s*[:=]\s*['"][^'"]{3,}/gi,             severity: 'CRITICAL' },
-  { name: 'API keys مكتوبة مباشرة',            re: /api[_-]?key\s*[:=]\s*['"][a-zA-Z0-9_\-]{10,}/gi, severity: 'CRITICAL' },
-  { name: 'JWT secrets مكتوبة',                re: /jwt[_-]?secret\s*[:=]\s*['"][^'"]{3,}/gi,        severity: 'HIGH'     },
-  { name: 'eval() خطر التنفيذ',                re: /\beval\s*\(/g,                                    severity: 'HIGH'     },
-  { name: 'SQL Injection احتمال',              re: /query\s*\+\s*(req\.|user\.)/gi,                   severity: 'MEDIUM'   },
-  { name: 'HTTP بدل HTTPS في الـ URLs',        re: /http:\/\/(?!localhost|127)/gi,                    severity: 'MEDIUM'   },
-  { name: 'console.log بيانات حساسة محتملة',  re: /console\.log\(.*?(pass|token|secret|key)/gi,      severity: 'LOW'      },
-];
+  // JWT
+  const jwtSecret = process.env.JWT_SECRET || '';
+  agent.metric('JWT_SECRET', jwtSecret ? `${jwtSecret.length} حرف` : '❌ مفقود');
+  if (!jwtSecret) {
+    agent.finding('critical', 'A02-crypto', 'JWT_SECRET غير موجود في البيئة', 'JWT مكسور — أي شخص يقدر يزور tokens', 'أضف JWT_SECRET قوي (32+ حرف عشوائي)');
+  } else if (jwtSecret.length < 32) {
+    agent.finding('high', 'A02-crypto', 'JWT_SECRET قصير جداً', `${jwtSecret.length} حرف — يجب ≥32`, 'ولّد: openssl rand -hex 32');
+  } else {
+    agent.ok('A02-crypto', 'JWT_SECRET قوي');
+  }
 
-const findings = PATTERNS.map(p => {
-  const count = countPattern(server + db, p.re);
-  return { ...p, count };
-}).filter(f => f.count > 0);
+  // bcrypt / password hashing
+  const hasBcrypt = content.includes('bcrypt') || content.includes('argon2') || content.includes('scrypt');
+  agent.metric('تشفير كلمات المرور', hasBcrypt ? 'bcrypt ✅' : '❌ مفقود');
+  if (!hasBcrypt) {
+    agent.finding('critical', 'A02-crypto', 'لا يوجد تشفير لكلمات المرور',
+      'كلمات المرور مخزنة بدون hash — خطر جسيم', 'استخدم bcrypt: const hash = await bcrypt.hash(password, 12)');
+  } else {
+    agent.ok('A02-crypto', 'كلمات المرور مشفرة بـ bcrypt');
+  }
 
-// ── npm audit critical/high only ──────────────────────────────────────────────
-let criticalVulns = 0, highVulns = 0;
-try {
-  const a = JSON.parse(run('npm audit --json') || '{}');
-  criticalVulns = a.metadata?.vulnerabilities?.critical || 0;
-  highVulns     = a.metadata?.vulnerabilities?.high || 0;
-} catch {}
+  // HTTPS
+  const forceHttps = content.includes('https') || content.includes('ssl') || content.includes('secure');
+  agent.metric('HTTPS', forceHttps ? '✅ مفعّل' : '⚠️ غير واضح');
+}
 
-// ── Auth checks ───────────────────────────────────────────────────────────────
-const unprotectedPosts = (server.match(/app\.(post|put|delete)\s*\(['"]/g) || []).length;
-const protectedPosts   = (server.match(/requireAuth/g) || []).length;
-const rawFetch         = countPattern(server, /api\.anthropic\.com\/v1\/messages/g);
+// OWASP A03 — Injection
+function checkInjection() {
+  agent._log('💉 A03 — Injection...');
+  const content = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
-// ── .gitignore check ──────────────────────────────────────────────────────────
-const gitignore = readFile('.gitignore');
-const sensitiveFiles = ['.env', 'database.json', '*.key', 'config.json'];
-const missingFromGitignore = sensitiveFiles.filter(f => !gitignore.includes(f.replace('*','').split('.')[0]));
+  // eval
+  const evalCount = (content.match(/\beval\s*\(/g) || []).length;
+  agent.metric('استخدام eval()', evalCount, '', 0);
+  if (evalCount > 0) {
+    agent.finding('critical', 'A03-injection', `${evalCount} استخدام لـ eval()`,
+      'eval() يسمح بتنفيذ كود عشوائي — Code Injection', 'احذف كل eval() واستبدل بمنطق صريح');
+  } else {
+    agent.ok('A03-injection', 'لا يوجد eval()');
+  }
 
-// ── Risk score ────────────────────────────────────────────────────────────────
-let score = 100;
-findings.forEach(f => {
-  if (f.severity === 'CRITICAL') score -= f.count * 20;
-  if (f.severity === 'HIGH')     score -= f.count * 10;
-  if (f.severity === 'MEDIUM')   score -= f.count * 5;
-  if (f.severity === 'LOW')      score -= f.count * 1;
-});
-score -= criticalVulns * 20 + highVulns * 10;
-score = Math.max(0, Math.min(100, score));
+  // SQL-like injection patterns (even for MongoDB)
+  const noSqlInjection = (content.match(/\$where|\$regex.*req\.|new RegExp.*req\./g) || []).length;
+  if (noSqlInjection > 0) {
+    agent.finding('high', 'A03-injection', 'نمط NoSQL Injection محتمل',
+      `${noSqlInjection} استخدام لـ $where أو regex من user input`, 'تحقق من sanitization قبل استخدام user input في MongoDB queries');
+  }
 
-const scoreEmoji = score >= 80 ? '🟢' : score >= 60 ? '🟡' : '🔴';
+  // Command injection
+  const execPatterns = (content.match(/exec\s*\(.*req\.|spawn\s*\(.*req\./g) || []).length;
+  if (execPatterns > 0) {
+    agent.finding('critical', 'A03-injection', 'Command Injection محتمل',
+      `${execPatterns} استخدام لـ exec/spawn مع user input`, 'لا تمرر user input لـ exec/spawn أبداً');
+  } else {
+    agent.ok('A03-injection', 'لا أنماط Command Injection');
+  }
+}
 
-// ── Report ────────────────────────────────────────────────────────────────────
-const lines = [
-  `# 🔒 Security Department — تقرير الأمان الأسبوعي`,
-  `**التاريخ:** ${today()} | **درجة الأمان:** ${scoreEmoji} ${score}/100`,
-  '',
-  '## 🚨 نتائج فحص الكود',
-  findings.length === 0
-    ? '✅ لم يتم اكتشاف أنماط خطرة في الكود'
-    : `| الخطورة | المشكلة | العدد |\n|---------|---------|-------|\n${findings.map(f => `| ${f.severity === 'CRITICAL' ? '🔴 CRITICAL' : f.severity === 'HIGH' ? '🟠 HIGH' : f.severity === 'MEDIUM' ? '🟡 MEDIUM' : '🔵 LOW'} | ${f.name} | ${f.count} |`).join('\n')}`,
-  '',
-  '## 📦 ثغرات المكتبات',
-  `- 🔴 Critical: **${criticalVulns}**`,
-  `- 🟠 High: **${highVulns}**`,
-  criticalVulns + highVulns > 0 ? '\n> ⚠️ شغّل `npm audit fix --force` أو حدّث المكتبات المتأثرة فوراً' : '\n> ✅ لا ثغرات عالية الخطورة',
-  '',
-  '## 🛡️ فحص المصادقة',
-  `- Routes محمية بـ requireAuth: **${protectedPosts}**`,
-  `- Raw Anthropic fetch (يجب أن تكون 1 للـ streaming): **${rawFetch}** ${rawFetch <= 1 ? '✅' : '❌'}`,
-  '',
-  '## 📂 .gitignore',
-  missingFromGitignore.length === 0
-    ? '✅ جميع الملفات الحساسة مستثناة'
-    : `⚠️ هذه الملفات قد لا تكون مستثناة: ${missingFromGitignore.map(f => `\`${f}\``).join(', ')}`,
-  '',
-  '## ✅ الإجراءات المطلوبة',
-  findings.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH').map(f => `- [ ] معالجة: ${f.name} (${f.count} موضع)`).join('\n') || '- لا إجراءات عاجلة',
-  criticalVulns + highVulns > 0 ? `- [ ] تحديث المكتبات ذات الثغرات الحرجة` : '',
-  '',
-  '---',
-  '_تقرير آلي من قسم Security — بوبيان للمحاسبة_',
-].filter(l => l !== null && l !== undefined).join('\n');
+// OWASP A05 — Security Misconfiguration
+function checkMisconfiguration() {
+  agent._log('⚙️ A05 — Misconfiguration...');
+  const content = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
-process.stdout.write(lines + '\n');
+  // Helmet
+  const hasHelmet = content.includes('helmet');
+  agent.metric('Helmet (Security Headers)', hasHelmet ? '✅' : '❌ مفقود');
+  if (!hasHelmet) {
+    agent.finding('medium', 'A05-misconfig', 'Helmet غير مستخدم',
+      'HTTP Security Headers مفقودة (XSS، clickjacking، MIME sniffing)',
+      'أضف: app.use(require("helmet")())');
+  } else {
+    agent.ok('A05-misconfig', 'Helmet مفعّل — Security Headers موجودة');
+  }
+
+  // CORS
+  const hasCors = content.includes('cors');
+  agent.metric('CORS', hasCors ? '✅ مضبوط' : '⚠️ غير واضح');
+  if (!hasCors) {
+    agent.finding('medium', 'A05-misconfig', 'CORS غير صريح',
+      'قد يسمح لأي موقع بالوصول للـ API', 'أضف: app.use(require("cors")({ origin: allowedOrigins }))');
+  }
+
+  // Rate Limiting
+  const hasRateLimit = content.includes('rateLimit') || content.includes('rate-limit');
+  agent.metric('Rate Limiting', hasRateLimit ? '✅' : '❌ مفقود');
+  if (!hasRateLimit) {
+    agent.finding('high', 'A05-misconfig', 'لا يوجد Rate Limiting',
+      'API مكشوفة لـ Brute Force وـ DDoS', 'أضف: express-rate-limit على /api/login وكل endpoints حساسة');
+  } else {
+    agent.ok('A05-misconfig', 'Rate Limiting مفعّل');
+  }
+
+  // Error details exposure
+  const exposeErrors = (content.match(/res\.json\s*\(\s*\{\s*error\s*:\s*e\b/g) || []).length;
+  if (exposeErrors > 3) {
+    agent.finding('medium', 'A05-misconfig',
+      `${exposeErrors} endpoint يكشف تفاصيل الخطأ للعميل`,
+      'رسائل الخطأ الداخلية تساعد المهاجم', 'أرجع رسائل عامة للعميل، سجّل التفاصيل server-side');
+  }
+}
+
+// OWASP A07 — Identification & Authentication
+function checkAuthentication() {
+  agent._log('👤 A07 — Authentication...');
+  const content = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+
+  // JWT expiry
+  const hasExpiry = content.includes('expiresIn') || content.includes('exp:');
+  agent.metric('JWT Expiry', hasExpiry ? '✅ موجود' : '❌ مفقود');
+  if (!hasExpiry) {
+    agent.finding('high', 'A07-auth', 'JWT بدون expiry',
+      'Token صالح للأبد — خطر كبير إذا سُرق', 'أضف: { expiresIn: "8h" } في jwt.sign()');
+  } else {
+    agent.ok('A07-auth', 'JWT له مدة انتهاء');
+  }
+
+  // Password minimum length
+  const hasMinLength = content.includes('minLength') || content.includes('.length < ') || content.includes('length >= ');
+  agent.metric('التحقق من قوة كلمة المرور', hasMinLength ? '✅' : '⚠️');
+  if (!hasMinLength) {
+    agent.finding('medium', 'A07-auth', 'لا يوجد تحقق من طول كلمة المرور',
+      'يسمح بكلمات مرور ضعيفة جداً', 'أضف: if (password.length < 8) return error');
+  }
+}
+
+// Hardcoded Secrets Scan
+function checkHardcodedSecrets() {
+  agent._log('🕵️ فحص الأسرار المدمجة...');
+  const files   = ['server.js', 'lib/ai.js', 'lib/database.js'];
+  const patterns= [
+    { regex: /api[_-]?key\s*[:=]\s*['"][a-zA-Z0-9\-_]{20,}/gi, name: 'API Key' },
+    { regex: /password\s*[:=]\s*['"][^'"]{8,}/gi,               name: 'Password' },
+    { regex: /secret\s*[:=]\s*['"][^'"]{8,}/gi,                 name: 'Secret' },
+    { regex: /sk-[a-zA-Z0-9]{20,}/g,                            name: 'OpenAI Key' },
+  ];
+
+  let totalFound = 0;
+  for (const file of files) {
+    const fpath = path.join(ROOT, file);
+    if (!fs.existsSync(fpath)) continue;
+    const content = fs.readFileSync(fpath, 'utf8');
+    for (const p of patterns) {
+      const matches = content.match(p.regex) || [];
+      // Filter out process.env references and comments
+      const real = matches.filter(m => !m.includes('process.env') && !m.includes('//'));
+      totalFound += real.length;
+    }
+  }
+
+  agent.metric('أسرار مدمجة', totalFound, '', 0);
+  if (totalFound > 0) {
+    agent.finding('critical', 'secrets',
+      `${totalFound} سر مدمج في الكود`,
+      'API keys أو كلمات مرور في الكود مباشرة',
+      'انقل كل الأسرار لـ .env واستخدم process.env'
+    );
+  } else {
+    agent.ok('secrets', 'لا أسرار مدمجة في الكود');
+  }
+}
+
+async function main() {
+  agent._log('🚀 بدء الفحص الأمني...');
+
+  checkAccessControl();
+  checkCryptography();
+  checkInjection();
+  checkMisconfiguration();
+  checkAuthentication();
+  checkHardcodedSecrets();
+
+  const score = agent.calcScore();
+  process.stdout.write(await agent.buildReport());
+  agent._log(`✅ انتهى — درجة الأمن: ${score}/100`);
+
+  // Exit with error if critical security issues found
+  const criticals = agent.findings.filter(f => f.severity === 'critical').length;
+  if (criticals > 0) process.exitCode = 1;
+}
+
+main().catch(e => { process.stderr.write(`خطأ: ${e.message}\n`); process.exit(1); });
