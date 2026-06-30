@@ -4582,6 +4582,34 @@ html.light .sidebar-search input {
   </div>
 </div>
 
+<!-- Doctor Monthly Expenses Modal -->
+<div class="modal" id="drExpModal">
+  <div class="mbox" style="max-width:520px">
+    <div class="mtit">📋 مصاريف الدكتور الشهرية</div>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1;background:var(--surface2);border-radius:8px;padding:8px 12px;font-size:13px">
+        <span style="color:var(--text3)">الدكتور:</span>
+        <span id="drExpDrName" style="font-weight:600;margin-right:6px"></span>
+      </div>
+      <div style="flex:1;background:var(--surface2);border-radius:8px;padding:8px 12px;font-size:13px">
+        <span style="color:var(--text3)">الشهر:</span>
+        <span id="drExpMonth" style="font-weight:600;margin-right:6px"></span>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">هذه المصاريف تُخصم من صافي العمولة المحسوبة</div>
+    <div id="drExpLines" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;margin-bottom:10px"></div>
+    <button class="btn bs bsm" style="width:100%;margin-bottom:10px" onclick="addDrExpLine()">+ إضافة بند</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px">
+      <span style="color:var(--text2);font-size:13px">إجمالي المصاريف</span>
+      <span id="drExpTotal" style="font-weight:700;font-family:'IBM Plex Mono',monospace;color:var(--danger)">0.000 د.ك</span>
+    </div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="saveDrExpenses()">💾 حفظ</button>
+      <button class="btn bd" onclick="closeModal('drExpModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
 <!-- Recurring Modal -->
 <div class="modal" id="recurModal">
   <div class="mbox">
@@ -5509,16 +5537,24 @@ function loadDoctors() {
   
   const filtComms = comms.filter(c => (fDr === 'all' || c.doctor === fDr) && (fMonth === 'all' || c.month === fMonth));
   document.getElementById('commBody').innerHTML = filtComms.length ?
-    filtComms.map(c => `<tr>
-      <td><span class="badge bb">${c.doctor}</span></td>
-      <td>${monthLbl(c.month)}</td>
-      <td class="num">${c.revenue.fmt()} د.ك</td>
-      <td class="num pos">${c.commission.fmt()} د.ك</td>
-      <td>${c.paid ? '<span class="badge bg">✅ مدفوع</span>' : '<span class="badge br">⏳ معلّق</span>'}</td>
-      <td>${c.payMethod || '—'}</td>
-      <td>${c.payDate || '—'}</td>
-      <td>${!c.paid ? `<button class="btn bw bsm" onclick="quickPay('${c.doctor}','${c.month}')">دفع</button>` : ''}</td>
-    </tr>`).join('') :
+    filtComms.map(c => {
+      const hasExp = (c.drExpenses || 0) > 0;
+      const expBadge = hasExp ? `<span class="badge br" style="font-size:9px;margin-right:4px">−${(c.drExpenses||0).fmt()}</span>` : '';
+      const grossRow = hasExp ? `<div style="font-size:9px;color:var(--text3)">إجمالي: ${(c.grossCommission||c.commission).fmt()}</div>` : '';
+      return `<tr>
+        <td><span class="badge bb">${c.doctor}</span></td>
+        <td>${monthLbl(c.month)}</td>
+        <td class="num">${c.revenue.fmt()} د.ك</td>
+        <td class="num pos">${c.commission.fmt()} د.ك${expBadge}${grossRow}</td>
+        <td>${c.paid ? '<span class="badge bg">✅ مدفوع</span>' : '<span class="badge br">⏳ معلّق</span>'}</td>
+        <td>${c.payMethod || '—'}</td>
+        <td>${c.payDate || '—'}</td>
+        <td style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn bo bsm" onclick="openDrExpModal('${c.doctor}','${c.month}')">📋 مصاريف</button>
+          ${!c.paid ? `<button class="btn bw bsm" onclick="quickPay('${c.doctor}','${c.month}')">دفع</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('') :
     '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px;">لا بيانات</td></tr>';
 }
 
@@ -5558,6 +5594,84 @@ async function savePay() {
   const d = await r.json();
   if (d.success) { closeModal('payModal'); await loadAll(); loadDoctors(); }
   else alert(d.message);
+}
+
+// DOCTOR MONTHLY EXPENSES
+let _drExpDoctor = '', _drExpMonthVal = '';
+
+async function openDrExpModal(doctor, month) {
+  _drExpDoctor = doctor;
+  _drExpMonthVal = month;
+  document.getElementById('drExpDrName').textContent = doctor;
+  document.getElementById('drExpMonth').textContent = monthLbl(month);
+  document.getElementById('drExpLines').innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px">جاري التحميل...</div>';
+  document.getElementById('drExpModal').classList.add('open');
+
+  try {
+    const r = await apiFetch(`${API}/doctor-expenses/${encodeURIComponent(doctor)}/${month}`);
+    const data = await r.json();
+    document.getElementById('drExpLines').innerHTML = '';
+    const items = (data.items && data.items.length) ? data.items : [];
+    if (items.length === 0) addDrExpLine();
+    else items.forEach(it => addDrExpLine(it.name, it.amount));
+    updateDrExpTotal();
+  } catch(e) {
+    document.getElementById('drExpLines').innerHTML = '';
+    addDrExpLine();
+  }
+}
+
+function addDrExpLine(name = '', amount = '') {
+  const id = Date.now() + Math.random();
+  const div = document.createElement('div');
+  div.id = 'drexpl-' + id;
+  div.style.cssText = 'display:flex;gap:6px;align-items:center';
+  div.innerHTML = `
+    <input class="finp" style="flex:2;margin:0" placeholder="اسم المصروف (مثال: إيجار معدات)" value="${name}" oninput="updateDrExpTotal()">
+    <input class="finp" type="number" style="flex:1;margin:0;font-family:monospace" placeholder="0.000" step="0.001" min="0" value="${amount}" oninput="updateDrExpTotal()">
+    <button class="btn bd bsm" style="padding:6px 10px;flex-shrink:0" onclick="this.closest('[id^=drexpl]').remove();updateDrExpTotal()">🗑</button>
+  `;
+  document.getElementById('drExpLines').appendChild(div);
+  updateDrExpTotal();
+}
+
+function updateDrExpTotal() {
+  const lines = document.getElementById('drExpLines').querySelectorAll('div[id^="drexpl"]');
+  let total = 0;
+  lines.forEach(div => {
+    const inputs = div.querySelectorAll('input');
+    total += parseFloat(inputs[1]?.value || 0) || 0;
+  });
+  document.getElementById('drExpTotal').textContent = total.toFixed(3) + ' د.ك';
+}
+
+async function saveDrExpenses() {
+  const lines = document.getElementById('drExpLines').querySelectorAll('div[id^="drexpl"]');
+  const items = [];
+  lines.forEach(div => {
+    const inputs = div.querySelectorAll('input');
+    const name   = (inputs[0]?.value || '').trim();
+    const amount = parseFloat(inputs[1]?.value || 0) || 0;
+    if (name && amount > 0) items.push({ name, amount });
+  });
+  try {
+    const r = await apiFetch(`${API}/doctor-expenses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doctor: _drExpDoctor, month: _drExpMonthVal, items })
+    });
+    const d = await r.json();
+    if (d.success) {
+      closeModal('drExpModal');
+      await loadAll();
+      loadDoctors();
+      showToast(`تم حفظ مصاريف ${_drExpDoctor} — إجمالي: ${(d.total||0).toFixed(3)} د.ك`);
+    } else {
+      showToast('حدث خطأ أثناء الحفظ', true);
+    }
+  } catch(e) {
+    showToast('خطأ في الاتصال', true);
+  }
 }
 
 // EXPENSES

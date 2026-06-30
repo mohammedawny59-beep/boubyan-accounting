@@ -131,8 +131,12 @@ app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/')) return next();
   const authHeader = req.headers['authorization'] || '';
   if (authHeader.startsWith('Bearer ')) return next();
-  const token = req.headers['x-api-secret'] || req.query._secret;
-  if (token !== API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  // Also allow direct-download links that carry a valid JWT via _token query param
+  if (req.query._token) {
+    try { jwt.verify(req.query._token, JWT_SECRET); return next(); } catch {}
+  }
+  const secret = req.headers['x-api-secret'] || req.query._secret;
+  if (secret !== API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
   next();
 });
 
@@ -379,7 +383,13 @@ function buildInitialDB() {
     cashReconciliation: [],
     insuranceClaims: [],
     payroll: [],
-    employees: []
+    employees: [],
+    assets: [],
+    budget: {},
+    auditLog: [],
+    accruedExpenses: [],
+    journalMappings: [],
+    doctorExpenses: [],
   };
 }
 
@@ -1012,17 +1022,26 @@ function updateCommissions(db) {
     const insRate = (formula.deductions || ['lab']).includes('insurance') ? (dr.insurance || 0) : 0;
     const insDeduction = parseFloat((baseAmt * insRate / 100).toFixed(3));
 
+    // Deduct per-doctor monthly variable expenses
+    const drExpRecord = (db.doctorExpenses || []).find(r => r.doctor === g.doctor && r.month === g.month);
+    const drExpTotal = drExpRecord ? (drExpRecord.total || 0) : 0;
+    const netCommission = parseFloat(Math.max(0, commission - drExpTotal).toFixed(3));
+
     const existing = db.commissionHistory.find(c => c.doctor === g.doctor && c.month === g.month);
     if (existing) {
       existing.revenue = g.revenue;
-      existing.commission = commission;
+      existing.commission = netCommission;
+      existing.grossCommission = commission;
+      existing.drExpenses = drExpTotal;
     } else {
       db.commissionHistory.push({
         id: genId('comm-'),
         doctor: g.doctor,
         month: g.month,
         revenue: g.revenue,
-        commission,
+        commission: netCommission,
+        grossCommission: commission,
+        drExpenses: drExpTotal,
         paid: false,
         payMethod: '',
         payDate: ''
@@ -1069,6 +1088,36 @@ app.post('/api/doctors', (req, res) => {
   updateCommissions(db);
   saveDB(db);
   res.json({ success: true });
+});
+
+// GET doctor monthly expenses
+app.get('/api/doctor-expenses/:doctor/:month', (req, res) => {
+  const db = loadDB();
+  const doctor = decodeURIComponent(req.params.doctor);
+  const month  = req.params.month;
+  const record = (db.doctorExpenses || []).find(r => r.doctor === doctor && r.month === month);
+  res.json(record || { doctor, month, items: [] });
+});
+
+// SAVE doctor monthly expenses
+app.post('/api/doctor-expenses', (req, res) => {
+  const { doctor, month, items } = req.body;
+  if (!doctor || !month) return res.status(400).json({ error: 'doctor and month required' });
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be array' });
+  const db = loadDB();
+  if (!db.doctorExpenses) db.doctorExpenses = [];
+  const cleaned = items
+    .map(it => ({ name: sanitize(String(it.name || ''), 200), amount: Math.max(0, parseFloat(it.amount) || 0) }))
+    .filter(it => it.name && it.amount > 0);
+  const total = cleaned.reduce((s, i) => s + i.amount, 0);
+  const idx = db.doctorExpenses.findIndex(r => r.doctor === doctor && r.month === month);
+  const record = { doctor, month, items: cleaned, total, updatedAt: new Date().toISOString() };
+  if (idx >= 0) db.doctorExpenses[idx] = record;
+  else db.doctorExpenses.push(record);
+  // Re-calculate commissions so monthly expenses are reflected
+  updateCommissions(db);
+  saveDB(db);
+  res.json({ success: true, total });
 });
 
 // Mark commission paid
