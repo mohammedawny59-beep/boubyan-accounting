@@ -8217,6 +8217,202 @@ app.post('/api/journal/bulk', requireAuth, (req, res) => {
 
 console.log('✅ Data Entry Layer v1: Templates, SmartSuggest, BankImport, AutoCategorize, ProExport, BulkJournal loaded');
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ADVANCED REPORTS, AI ADVISOR, EMAIL / TELEGRAM DELIVERY
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Doctor Performance Report ─────────────────────────────────────────────────
+app.get('/api/reports/doctor-performance', requireAuth, (req, res) => {
+  const db = loadDB();
+  const { from, to } = req.query;
+  const inR = d => (!from || d >= from) && (!to || d <= to);
+  const perf = (db.doctors || []).map(doc => {
+    const daily = (db.dailyData || []).filter(d => d.doctor === doc.name && inR(d.date));
+    const revenue = daily.reduce((s, d) =>
+      s + ['cash','knet','insurance','visa','master','link'].reduce((t, k) => t + parseFloat(d[k] || 0), 0), 0);
+    const commPaid = (db.commissionHistory || [])
+      .filter(c => c.doctorId === doc.id && c.status === 'paid' && inR((c.paidAt || '').slice(0,10)))
+      .reduce((s, c) => s + parseFloat(c.amount || 0), 0);
+    const commPending = (db.commissionHistory || [])
+      .filter(c => c.doctorId === doc.id && c.status === 'pending')
+      .reduce((s, c) => s + parseFloat(c.amount || 0), 0);
+    const sessions = daily.length;
+    return {
+      id: doc.id, name: doc.name, specialty: doc.specialty || 'طبيب أسنان',
+      revenue: parseFloat(revenue.toFixed(3)),
+      commPaid: parseFloat(commPaid.toFixed(3)),
+      commPending: parseFloat(commPending.toFixed(3)),
+      sessions,
+      avgPerSession: sessions ? parseFloat((revenue / sessions).toFixed(3)) : 0,
+      netAfterComm: parseFloat((revenue - commPaid).toFixed(3)),
+      margin: revenue > 0 ? parseFloat(((revenue - commPaid) / revenue * 100).toFixed(1)) : 0,
+    };
+  }).sort((a, b) => b.revenue - a.revenue);
+  res.json({ from, to, doctors: perf, totalRevenue: parseFloat(perf.reduce((s, d) => s + d.revenue, 0).toFixed(3)) });
+});
+
+// ── AI Financial Advisor ──────────────────────────────────────────────────────
+app.post('/api/ai/advisor', requireAuth, rateLimit(10), async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY غير مضبوط' });
+  const db = loadDB();
+  const { question } = req.body;
+  if (!question) return res.status(400).json({ error: 'question required' });
+  const now = new Date(), from = `${now.getFullYear()}-01-01`, to = now.toISOString().slice(0, 10);
+  const bm = buildBalanceMap(db, from, to), coa = db.chartOfAccounts || [];
+  const rev = coa.filter(a => a.code.startsWith('4')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.credit - b.debit) : 0); }, 0);
+  const exp = coa.filter(a => a.code.startsWith('5')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.debit - b.credit) : 0); }, 0);
+  const doctors = (db.doctors || []).slice(0, 10).map(d => d.name).join('، ');
+  const topExp = coa.filter(a => a.code.startsWith('5'))
+    .map(a => { const b = bm[a.code]; return { name: a.name, amt: b ? (b.debit - b.credit) : 0 }; })
+    .sort((a, b) => b.amt - a.amt).slice(0, 5).map(e => `${e.name}: ${e.amt.toFixed(3)}`).join('، ');
+  const ctx = `أنت مستشار مالي خبير لعيادة أسنان كويتية (بوبيان لطب الأسنان).
+بيانات ${now.getFullYear()} حتى ${to}:
+- الإيرادات YTD: ${rev.toFixed(3)} د.ك | المصاريف: ${exp.toFixed(3)} د.ك | صافي: ${(rev - exp).toFixed(3)} د.ك | هامش: ${rev > 0 ? ((rev - exp) / rev * 100).toFixed(1) : 0}%
+- أكبر المصاريف: ${topExp || 'لا بيانات'} | الأطباء: ${doctors || 'لم يُسجَّل'}
+- عدد القيود: ${db.journalEntries?.length || 0} | الأصول الثابتة: ${(db.assets || []).filter(a => a.status === 'active').length}
+أجب بالعربية بشكل عملي ومختصر (3-5 جمل). لا مقدمات.`;
+  try {
+    const answer = await callAI({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 700,
+      messages: [{ role: 'user', content: `${ctx}\n\nسؤال: ${question}` }],
+    });
+    res.json({ answer, context: { revenue: parseFloat(rev.toFixed(3)), expenses: parseFloat(exp.toFixed(3)), netIncome: parseFloat((rev - exp).toFixed(3)) } });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AI Revenue Forecast ───────────────────────────────────────────────────────
+app.get('/api/ai/forecast', requireAuth, rateLimit(5), async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY غير مضبوط' });
+  const db = loadDB(), now = new Date(), coa = db.chartOfAccounts || [];
+  const historical = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const bm = buildBalanceMap(db, `${key}-01`, `${key}-31`);
+    const rev = coa.filter(a => a.code.startsWith('4')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.credit - b.debit) : 0); }, 0);
+    historical.push({ month: key, revenue: parseFloat(rev.toFixed(3)) });
+  }
+  const prompt = `بيانات إيرادات آخر 6 أشهر (د.ك):\n${historical.map(m => `${m.month}: ${m.revenue}`).join('\n')}\nتوقع الـ 3 أشهر القادمة. أجب بـ JSON فقط:\n{"m1":{"month":"YYYY-MM","revenue":0,"confidence":"high|medium|low"},"m2":{"month":"YYYY-MM","revenue":0},"m3":{"month":"YYYY-MM","revenue":0},"trend":"جملة واحدة","avg":0}`;
+  try {
+    const text = await callAI({ model: 'claude-haiku-4-5-20251001', max_tokens: 350, messages: [{ role: 'user', content: prompt }] });
+    const m = text.match(/\{[\s\S]*\}/);
+    res.json({ historical, forecast: m ? JSON.parse(m[0]) : { trend: 'بيانات غير كافية', avg: 0 } });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AI Monthly Narrative Report ───────────────────────────────────────────────
+app.post('/api/ai/monthly-report', requireAuth, rateLimit(5), async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY غير مضبوط' });
+  const db = loadDB();
+  const { month } = req.body;
+  if (!month) return res.status(400).json({ error: 'month required' });
+  const bm = buildBalanceMap(db, `${month}-01`, `${month}-31`);
+  const coa = db.chartOfAccounts || [];
+  const rev = coa.filter(a => a.code.startsWith('4')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.credit - b.debit) : 0); }, 0);
+  const exp = coa.filter(a => a.code.startsWith('5')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.debit - b.credit) : 0); }, 0);
+  const pd = new Date(month + '-01'); pd.setMonth(pd.getMonth() - 1);
+  const pk = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}`;
+  const pm = buildBalanceMap(db, `${pk}-01`, `${pk}-31`);
+  const pRev = coa.filter(a => a.code.startsWith('4')).reduce((s, a) => { const b = pm[a.code]; return s + (b ? (b.credit - b.debit) : 0); }, 0);
+  const jeCount = (db.journalEntries || []).filter(je => je.date?.startsWith(month)).length;
+  const topExp = coa.filter(a => a.code.startsWith('5'))
+    .map(a => { const b = bm[a.code]; return { name: a.name, amt: b ? (b.debit - b.credit) : 0 }; })
+    .sort((a, b) => b.amt - a.amt).slice(0, 3).map(e => `${e.name}: ${e.amt.toFixed(3)} د.ك`).join('، ');
+  const prompt = `اكتب تقريراً مالياً شهرياً احترافياً بالعربية لعيادة بوبيان لطب الأسنان — ${month}.
+البيانات: إيرادات ${rev.toFixed(3)} د.ك (السابق: ${pRev.toFixed(3)}, تغيير: ${pRev > 0 ? ((rev - pRev) / pRev * 100).toFixed(1) : 'N/A'}%) | مصاريف ${exp.toFixed(3)} | صافي ${(rev - exp).toFixed(3)} | هامش ${rev > 0 ? ((rev - exp) / rev * 100).toFixed(1) : 0}% | قيود: ${jeCount} | أكبر المصاريف: ${topExp || 'لا بيانات'}
+الشكل: 3 فقرات قصيرة (ملخص الأداء، أبرز المؤشرات، التوصيات). أسلوب مهني ومختصر.`;
+  try {
+    const report = await callAI({ model: 'claude-sonnet-4-6', max_tokens: 900, messages: [{ role: 'user', content: prompt }] });
+    res.json({ month, report, summary: { revenue: parseFloat(rev.toFixed(3)), expenses: parseFloat(exp.toFixed(3)), netIncome: parseFloat((rev - exp).toFixed(3)), prevRevenue: parseFloat(pRev.toFixed(3)), changePct: pRev > 0 ? parseFloat(((rev - pRev) / pRev * 100).toFixed(1)) : 0 } });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AI Auto-Categorize Expense ────────────────────────────────────────────────
+app.post('/api/ai/categorize-expense', requireAuth, rateLimit(30), async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY غير مضبوط' });
+  const db = loadDB();
+  const { description, amount } = req.body;
+  if (!description) return res.status(400).json({ error: 'description required' });
+  const coa5 = (db.chartOfAccounts || []).filter(a => a.code.startsWith('5'));
+  const coaList = coa5.length
+    ? coa5.map(a => `${a.code}: ${a.name}`).join('\n')
+    : '5100: مصاريف طبية\n5200: رواتب وأجور\n5300: إيجار\n5400: كهرباء ومياه\n5500: تسويق وإعلان\n5600: صيانة ومعدات\n5700: إهلاك الأصول\n5800: مصاريف إدارية\n5900: مصاريف أخرى';
+  const prompt = `صنّف هذا المصروف في الحساب الأنسب:\n${coaList}\nالمصروف: "${description}"${amount ? ` — ${amount} د.ك` : ''}\nأجب بـ JSON فقط: {"code":"5XXX","name":"اسم الحساب","confidence":0.95,"reason":"سبب قصير"}`;
+  try {
+    const text = await callAI({ model: 'claude-haiku-4-5-20251001', max_tokens: 120, messages: [{ role: 'user', content: prompt }] });
+    const m = text.match(/\{[\s\S]*\}/);
+    res.json(m ? JSON.parse(m[0]) : { code: '5900', name: 'مصاريف أخرى', confidence: 0.5, reason: 'تصنيف افتراضي' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Telegram: Send Daily Report on demand ────────────────────────────────────
+function buildDailySummaryText(db) {
+  const now = new Date(), today = now.toISOString().slice(0, 10);
+  const bm = buildBalanceMap(db, today, today), coa = db.chartOfAccounts || [];
+  const tRev = coa.filter(a => a.code.startsWith('4')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.credit - b.debit) : 0); }, 0);
+  const tExp = coa.filter(a => a.code.startsWith('5')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.debit - b.credit) : 0); }, 0);
+  const mn = now.toISOString().slice(0, 7);
+  const mm = buildBalanceMap(db, `${mn}-01`, `${mn}-31`);
+  const mRev = coa.filter(a => a.code.startsWith('4')).reduce((s, a) => { const b = mm[a.code]; return s + (b ? (b.credit - b.debit) : 0); }, 0);
+  const mExp = coa.filter(a => a.code.startsWith('5')).reduce((s, a) => { const b = mm[a.code]; return s + (b ? (b.debit - b.credit) : 0); }, 0);
+  const anom = (db.anomalies || []).filter(a => !a.dismissed).length;
+  return `📊 *تقرير بوبيان اليومي — ${today}*\n\n🌟 *اليوم*\nإيرادات: ${tRev.toFixed(3)} د.ك\nمصاريف: ${tExp.toFixed(3)} د.ك\nصافي: ${(tRev - tExp).toFixed(3)} د.ك\n\n📅 *${mn}*\nإيرادات: ${mRev.toFixed(3)} د.ك\nمصاريف: ${mExp.toFixed(3)} د.ك\nصافي: ${(mRev - mExp).toFixed(3)} د.ك | هامش: ${mRev > 0 ? ((mRev - mExp) / mRev * 100).toFixed(1) : 0}%\n\n${anom > 0 ? `⚠️ شذوذات: ${anom}\n\n` : ''}_تقرير آلي — نظام بوبيان_`;
+}
+
+app.post('/api/reports/send-telegram', requireAuth, async (req, res) => {
+  if (typeof bot === 'undefined' || !bot) return res.status(503).json({ error: 'Telegram bot not configured' });
+  const db = loadDB(), cfg = loadConfig();
+  const ids = (cfg.telegramChatIds || []).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'لم يتم تسجيل أي Telegram chat. أرسل /start للبوت أولاً.' });
+  const text = buildDailySummaryText(db);
+  let sent = 0;
+  for (const id of ids) { try { await bot.sendMessage(id, text, { parse_mode: 'Markdown' }); sent++; } catch(e) {} }
+  res.json({ success: true, sent, total: ids.length });
+});
+
+// ── Email Report ──────────────────────────────────────────────────────────────
+app.post('/api/reports/send-email', requireAuth, async (req, res) => {
+  const cfg = loadConfig();
+  const { to, month } = req.body;
+  const emailTo = to || cfg.reportEmail;
+  if (!emailTo) return res.status(400).json({ error: 'لم يُحدَّد بريد إلكتروني' });
+  if (!cfg.smtpHost) return res.status(400).json({ error: 'يرجى إعداد SMTP في إعدادات التقارير' });
+  const db = loadDB(), mn = month || new Date().toISOString().slice(0, 7);
+  const bm = buildBalanceMap(db, `${mn}-01`, `${mn}-31`), coa = db.chartOfAccounts || [];
+  const rev = coa.filter(a => a.code.startsWith('4')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.credit - b.debit) : 0); }, 0);
+  const exp = coa.filter(a => a.code.startsWith('5')).reduce((s, a) => { const b = bm[a.code]; return s + (b ? (b.debit - b.credit) : 0); }, 0);
+  const net = rev - exp, margin = rev > 0 ? (net / rev * 100) : 0;
+  const comp = cfg.companyName || 'بوبيان لطب الأسنان';
+  const g = (v, r, g) => v >= 0 ? g : r;
+  const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;background:#f1f5f9;padding:20px}.card{background:#fff;border-radius:12px;padding:24px;max-width:520px;margin:0 auto;border:1px solid #e2e8f0}h2{color:#1e293b;margin:0 0 4px}.sub{color:#64748b;font-size:13px;margin-bottom:20px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}.kpi{background:#f8fafc;border-radius:8px;padding:14px;text-align:center}.kl{font-size:11px;color:#64748b;margin-bottom:4px}.kv{font-size:20px;font-weight:700}.green{color:#059669}.red{color:#dc2626}.footer{text-align:center;font-size:11px;color:#94a3b8;margin-top:14px}</style></head><body><div class="card"><h2>${comp}</h2><div class="sub">التقرير المالي — ${mn}</div><div class="grid"><div class="kpi"><div class="kl">الإيرادات</div><div class="kv">${rev.toFixed(3)} <span style="font-size:13px">د.ك</span></div></div><div class="kpi"><div class="kl">المصاريف</div><div class="kv">${exp.toFixed(3)} <span style="font-size:13px">د.ك</span></div></div><div class="kpi"><div class="kl">صافي الربح</div><div class="kv ${g(net, 'red', 'green')}">${net.toFixed(3)} <span style="font-size:13px">د.ك</span></div></div><div class="kpi"><div class="kl">هامش الربح</div><div class="kv ${g(margin, 'red', 'green')}">${margin.toFixed(1)}%</div></div></div><div class="footer">تقرير آلي من نظام بوبيان المحاسبي</div></div></body></html>`;
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({ host: cfg.smtpHost, port: parseInt(cfg.smtpPort || 587), secure: cfg.smtpPort == '465', auth: { user: cfg.smtpUser, pass: cfg.smtpPass } });
+    await t.sendMail({ from: `"${comp}" <${cfg.smtpUser}>`, to: emailTo, subject: `التقرير المالي — ${mn}`, html });
+    res.json({ success: true, to: emailTo, month: mn });
+  } catch(e) { res.status(500).json({ error: 'فشل إرسال البريد: ' + e.message }); }
+});
+
+// ── Report Settings (SMTP + email) ───────────────────────────────────────────
+app.post('/api/settings/report', requireAuth, (req, res) => {
+  const cfg = loadConfig();
+  const { reportEmail, smtpHost, smtpPort, smtpUser, smtpPass, dailyReportEnabled } = req.body;
+  const u = { ...cfg };
+  if (reportEmail !== undefined)          u.reportEmail = reportEmail;
+  if (smtpHost !== undefined)             u.smtpHost = smtpHost;
+  if (smtpPort !== undefined)             u.smtpPort = smtpPort;
+  if (smtpUser !== undefined)             u.smtpUser = smtpUser;
+  if (smtpPass !== undefined)             u.smtpPass = smtpPass;
+  if (dailyReportEnabled !== undefined)   u.dailyReportEnabled = dailyReportEnabled;
+  saveConfig(u);
+  res.json({ success: true });
+});
+
+app.get('/api/settings/report', requireAuth, (req, res) => {
+  const cfg = loadConfig();
+  res.json({ reportEmail: cfg.reportEmail || '', smtpHost: cfg.smtpHost || '', smtpPort: cfg.smtpPort || 587, smtpUser: cfg.smtpUser || '', dailyReportEnabled: cfg.dailyReportEnabled !== false });
+});
+
 // ── 404 handler — must be AFTER all routes ───────────
 app.use((req, res) => {
   res.status(404).json({ error: 'المسار غير موجود' });
