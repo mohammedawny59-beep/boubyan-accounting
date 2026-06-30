@@ -46,7 +46,7 @@ const DEFAULT_CONFIG = {
     users:'المستخدمون', telegram:'تيليجرام', settings:'الإعدادات' },
   commissionFormula: { base:'above_target', deductions:['lab'], method:'percentage',
     tiers:[{from:0,to:3000,rate:15},{from:3000,to:6000,rate:20},{from:6000,to:null,rate:25}] },
-  insDeductionRate: 0.25,
+  insDeductionRate: 0.45,
   dashboard: { kpi: {
     kTotal:'إجمالي الإيرادات', kNet:'صافي (بدون تأمين)', kIns:'حصة التأمين',
     kComm:'إجمالي العمولات', kPend:'عمولات معلّقة'
@@ -73,6 +73,21 @@ const DEFAULT_CONFIG = {
 const crypto = require('crypto');
 function genId(prefix = '') {
   return `${prefix}${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+}
+
+// Sequential journal entry ID: JE-YYYY-NNNN
+function nextJeId(db) {
+  const year = new Date().getFullYear();
+  const prefix = `JE-${year}-`;
+  const entries = db.journalEntries || [];
+  let max = 0;
+  entries.forEach(e => {
+    if (e.id && e.id.startsWith(prefix)) {
+      const n = parseInt(e.id.slice(prefix.length)) || 0;
+      if (n > max) max = n;
+    }
+  });
+  return prefix + String(max + 1).padStart(4, '0');
 }
 
 // ===== SECURITY MIDDLEWARE =====
@@ -345,13 +360,7 @@ function buildInitialDB() {
       inventory:   { ...DEFAULT_ROLES.inventory,   id: 'inventory' },
       viewer:      { ...DEFAULT_ROLES.viewer,       id: 'viewer' },
     },
-    doctors: [
-      { name: 'DR.NASSER',      target: 4000, commission: 20, lab: 10, insurance: 45 },
-      { name: 'DR.KAMAL',       target: 3500, commission: 20, lab: 8,  insurance: 45 },
-      { name: 'Dr.VASIM',       target: 3000, commission: 20, lab: 12, insurance: 45 },
-      { name: 'DR. ABDULWAHAB', target: 2000, commission: 15, lab: 5,  insurance: 45 },
-      { name: 'DR.SAJEDA',      target: 2000, commission: 15, lab: 5,  insurance: 45 },
-    ],
+    doctors: [],
     dailyData: [],
     paymentsData: [],
     commissionHistory: [],
@@ -575,14 +584,18 @@ function calcCommission(dr, revenue) {
   const deductions = formula.deductions || ['lab'];
   const method     = formula.method     || 'percentage';
 
-  // Step 1: determine base amount
-  let amount = base === 'above_target'
-    ? Math.max(0, revenue - (dr.target || 0))
-    : revenue;
+  // Step 0: exclude insurance portion from revenue (insurance is stored as % 0-100)
+  const insRate = (dr.insRate || dr.insurance || 0);
+  const insPercent = insRate > 1 ? insRate / 100 : insRate;
+  const netRevenue = revenue * (1 - insPercent);
 
-  // Step 2: apply deductions
-  if (deductions.includes('lab'))       amount = Math.max(0, amount - (dr.lab      || 0));
-  if (deductions.includes('insurance')) amount = Math.max(0, amount - (dr.insurance|| 0));
+  // Step 1: determine base amount from net revenue (excluding insurance)
+  let amount = base === 'above_target'
+    ? Math.max(0, netRevenue - (dr.target || 0))
+    : netRevenue;
+
+  // Step 2: apply deductions (lab is a fixed KD amount)
+  if (deductions.includes('lab')) amount = Math.max(0, amount - (dr.lab || 0));
 
   // Step 3: apply method
   let commission = 0;
@@ -1157,7 +1170,8 @@ app.post('/api/expenses', (req, res) => {
           payMethodCode, vendorId, vendorAccountId } = req.body;
   if (!date || !amount) return res.status(400).json({ error: 'date and amount required' });
   const amt = Math.max(0, parseFloat(amount) || 0);
-  const jeId = 'JE-EXP-' + Date.now();
+  if (!db.journalEntries) db.journalEntries = [];
+  const jeId = nextJeId(db);
   const newExpense = {
     id: genId('exp-'),
     date:      sanitize(date, 10),
@@ -3296,18 +3310,6 @@ if(expData.length && document.getElementById('expChart')){
   res.send(html);
 });
 
-// ── 404 handler ──────────────────────────────────────
-app.use((req, res) => {
-  res.status(404).json({ error: 'المسار غير موجود' });
-});
-
-// ── Global error handler (must have 4 args) ──────────
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  console.error('❌ Unhandled error:', err.message);
-  res.status(500).json({ error: 'خطأ داخلي في الخادم' });
-});
-
 // ── Catch unhandled promise rejections ───────────────
 process.on('unhandledRejection', (reason) => {
   console.error('⚠️ Unhandled Promise Rejection:', reason);
@@ -4480,12 +4482,17 @@ app.post('/api/journal', requireAuth, (req, res) => {
       return res.status(400).json({ error: `القيد غير متوازن: المدين ${totalD.toFixed(3)} ≠ الدائن ${totalC.toFixed(3)}` });
     }
   }
-  const existing = db.journalEntries.findIndex(e => e.id === entry.id);
-  if (existing >= 0) db.journalEntries[existing] = entry;
-  else db.journalEntries.push(entry);
+  const existingIdx = db.journalEntries.findIndex(e => e.id === entry.id);
+  if (existingIdx >= 0) {
+    db.journalEntries[existingIdx] = entry;
+  } else {
+    // Always assign a clean sequential ID for new entries
+    entry.id = nextJeId(db);
+    db.journalEntries.push(entry);
+  }
   db.journalEntries.sort((a,b) => b.date.localeCompare(a.date));
   saveDB(db);
-  res.json({ success: true });
+  res.json({ success: true, id: entry.id });
 });
 
 app.put('/api/journal/:id', (req, res) => {
@@ -4494,11 +4501,13 @@ app.put('/api/journal/:id', (req, res) => {
   if (idx === -1) return res.status(404).json({ success: false, message: 'القيد غير موجود' });
   const { date, desc, ref, lines } = req.body;
   const existing = db.journalEntries[idx];
+  const newDesc = desc ? sanitize(desc, 500) : (existing.desc || existing.description || '');
   const updated = {
     ...existing,
     id: req.params.id,
     date: date ? sanitize(date, 10) : existing.date,
-    desc: desc ? sanitize(desc, 500) : existing.desc,
+    desc: newDesc,
+    description: newDesc,
     ref:  ref  ? sanitize(ref, 100)  : existing.ref,
     lines: Array.isArray(lines) ? lines : existing.lines,
     updatedAt: new Date().toISOString()
@@ -5893,7 +5902,14 @@ app.get('/api/employees', (req,res)=>{
 app.post('/api/employees', (req,res)=>{
   const db=loadDB();
   if(!db.employees) db.employees=[];
-  db.employees.push({id:'EMP-'+Date.now(),...req.body,createdAt:new Date().toISOString()});
+  const { id, ...rest } = req.body;
+  if (id) {
+    const idx = db.employees.findIndex(e => e.id === id);
+    if (idx >= 0) { db.employees[idx] = { ...db.employees[idx], ...rest, id, updatedAt: new Date().toISOString() }; }
+    else { db.employees.push({ id, ...rest, createdAt: new Date().toISOString() }); }
+  } else {
+    db.employees.push({ id: 'EMP-' + Date.now(), ...rest, createdAt: new Date().toISOString() });
+  }
   saveDB(db);
   res.json({success:true});
 });
@@ -8245,4 +8261,16 @@ app.post('/api/journal/bulk', requireAuth, (req, res) => {
 });
 
 console.log('✅ Data Entry Layer v1: Templates, SmartSuggest, BankImport, AutoCategorize, ProExport, BulkJournal loaded');
+
+// ── 404 handler — must be AFTER all routes ───────────
+app.use((req, res) => {
+  res.status(404).json({ error: 'المسار غير موجود' });
+});
+
+// ── Global error handler (must have 4 args) ──────────
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled error:', err.message);
+  res.status(500).json({ error: 'خطأ داخلي في الخادم' });
+});
 

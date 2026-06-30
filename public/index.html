@@ -2732,8 +2732,8 @@ html.light .sidebar-search input {
           <button class="btn bw bsm" onclick="openEmpModal()">+ موظف</button>
         </div>
       </div>
-      <table><thead><tr><th>الاسم</th><th>الوظيفة</th><th>الراتب الأساسي</th><th>الجنسية</th><th>تاريخ التعيين</th><th>PIFSS</th><th>EOS/شهر</th><th></th></tr></thead>
-      <tbody id="empBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون — أضف موظفاً أولاً</td></tr></tbody></table>
+      <table><thead><tr><th>الاسم / الوظيفة</th><th>تاريخ التعيين / المدة</th><th>الراتب الأساسي</th><th>سكن + مواصلات</th><th>الإجمالي</th><th>EOS/شهر</th><th></th></tr></thead>
+      <tbody id="empBody"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون — أضف موظفاً أولاً</td></tr></tbody></table>
     </div>
     <!-- Payroll records -->
     <div class="tw">
@@ -4646,20 +4646,9 @@ html.light .sidebar-search input {
 </div>
 
 <div class="modal" id="expModal">
-  <div class="mbox" style="width:520px;max-width:95vw;">
+  <div class="mbox" style="width:620px;max-width:96vw;">
     <div class="mtit">💸 إضافة مصروف</div>
-    <div class="fr"><label class="flbl">الوصف</label><input class="finp" id="expDesc" placeholder="مواد مختبر — فاتورة رقم..."></div>
-    <div class="fr2">
-      <div class="fr" style="margin:0">
-        <label class="flbl">حساب المصروف</label>
-        <div style="position:relative;">
-          <input class="finp" id="expAccTxt" placeholder="ابحث عن الحساب..." oninput="filterExpAccounts()" onfocus="filterExpAccounts()" onblur="setTimeout(()=>document.getElementById('expAccDrop').style.display='none',200)">
-          <input type="hidden" id="expAccCode" value="">
-          <div id="expAccDrop" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
-        </div>
-      </div>
-      <div class="fr" style="margin:0"><label class="flbl">المبلغ (د.ك)</label><input type="number" class="finp" id="expAmt" placeholder="0.000" step="0.001"></div>
-    </div>
+    <div class="fr"><label class="flbl">الوصف العام</label><input class="finp" id="expDesc" placeholder="مواد مختبر — فاتورة رقم..."></div>
     <div class="fr2">
       <div class="fr" style="margin:0"><label class="flbl">التاريخ</label><input type="date" class="finp" id="expDate"></div>
       <div class="fr" style="margin:0">
@@ -4675,9 +4664,7 @@ html.light .sidebar-search input {
     <div class="fr2">
       <div class="fr" style="margin:0">
         <label class="flbl">المورد (اختياري)</label>
-        <select class="finp" id="expVendor">
-          <option value="">— بدون مورد —</option>
-        </select>
+        <select class="finp" id="expVendor"><option value="">— بدون مورد —</option></select>
       </div>
       <div class="fr" style="margin:0;display:flex;align-items:flex-end;gap:8px;padding-bottom:4px;">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);cursor:pointer;">
@@ -4685,6 +4672,19 @@ html.light .sidebar-search input {
           <span>قيد مستحق (لم يُدفع)</span>
         </label>
       </div>
+    </div>
+    <!-- Multi-line expense table -->
+    <div style="margin-top:12px;">
+      <div style="display:grid;grid-template-columns:1fr 90px 1fr 28px;gap:4px;font-size:11px;font-weight:600;color:var(--text3);padding:0 2px 4px;">
+        <div>حساب المصروف</div><div>المبلغ</div><div>ملاحظات</div><div></div>
+      </div>
+      <div id="expLines"></div>
+      <button class="btn bsm" style="margin-top:6px;font-size:11px;background:rgba(79,142,247,.1);color:var(--accent);border:1px solid rgba(79,142,247,.2);" onclick="addExpLine()">+ إضافة سطر</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:8px;gap:8px;">
+      <span style="font-size:12px;color:var(--text3);">الإجمالي:</span>
+      <span id="expTotal" style="font-size:15px;font-weight:700;color:var(--accent);font-family:monospace;">0.000</span>
+      <span style="font-size:11px;color:var(--text3);">د.ك</span>
     </div>
     <div class="mact">
       <button class="btn bs" style="flex:1" onclick="saveExp()">✅ حفظ</button>
@@ -4695,17 +4695,23 @@ html.light .sidebar-search input {
 
 <!-- Doctor Modal -->
 <div class="modal" id="drModal">
-  <div class="mbox" style="width:480px;max-width:95vw;">
+  <div class="mbox" style="width:520px;max-width:95vw;">
     <div class="mtit" id="drModalTitle">➕ إضافة دكتور</div>
     <input type="hidden" id="drEditIdx" value="-1">
-    <div class="fr"><label class="flbl">الاسم (نفس اسم البرنامج بالضبط)</label><input class="finp" id="drN" placeholder="DR.NASSER"></div>
     <div class="fr2">
-      <div class="fr" style="margin:0"><label class="flbl">Target الشهري (د.ك)</label><input class="finp" id="drT" type="number" placeholder="4000"></div>
-      <div class="fr" style="margin:0"><label class="flbl">نسبة العمولة %</label><input class="finp" id="drC" type="number" placeholder="20"></div>
+      <div class="fr" style="margin:0"><label class="flbl">الاسم (نفس اسم البرنامج)</label><input class="finp" id="drN" placeholder="DR.NASSER"></div>
+      <div class="fr" style="margin:0"><label class="flbl">التخصص</label><input class="finp" id="drSpec" placeholder="طب الأسنان العام"></div>
     </div>
     <div class="fr2">
-      <div class="fr" style="margin:0"><label class="flbl">قيمة المختبر (د.ك)</label><input class="finp" id="drL" type="number" placeholder="300" step="0.001"></div>
-      <div class="fr" style="margin:0"><label class="flbl">قيمة التأمين (د.ك)</label><input class="finp" id="drI" type="number" placeholder="0" step="0.001"></div>
+      <div class="fr" style="margin:0"><label class="flbl">Target الشهري (د.ك)</label><input class="finp" id="drT" type="number" placeholder="4000"></div>
+      <div class="fr" style="margin:0"><label class="flbl">نسبة العمولة % (مثال: 45)</label><input class="finp" id="drC" type="number" placeholder="45"></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">خصم المختبر الشهري (د.ك)</label><input class="finp" id="drL" type="number" placeholder="0" step="0.001"></div>
+      <div class="fr" style="margin:0"><label class="flbl">نسبة التأمين من الإيراد % (مثال: 45)</label><input class="finp" id="drI" type="number" placeholder="45" step="0.01"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);padding:4px 2px 8px;line-height:1.5;">
+      💡 العمولة = (الإيراد الكلي − نسبة التأمين) − Target − خصم المختبر × نسبة العمولة%
     </div>
     <div class="mact">
       <button class="btn bs" style="flex:1" onclick="saveDoctor()">💾 حفظ</button>
@@ -5636,39 +5642,80 @@ function accPickerHTML(txtId, hiddenId, dropId, filterType, placeholder, onSelec
     <div id="${dropId}" style="${_accDropStyle}"></div>
   </div>`;
 }
-// ── Expense account picker (stores code, not id) ─────────────────
-function filterExpAccounts() {
-  const q = (document.getElementById('expAccTxt')?.value || '').toLowerCase();
+// ── Expense account picker (legacy single-line, kept for compatibility) ──
+function filterExpAccounts() {}
+function selectExpAccount(code, name) {}
+
+// ── Multi-line expense ────────────────────────────────────────────
+let _expLineCount = 0;
+
+function addExpLine(accCode, accName, amt, notes) {
+  const id = ++_expLineCount;
+  const div = document.createElement('div');
+  div.id = `expline_${id}`;
+  div.style.cssText = 'display:grid;grid-template-columns:1fr 90px 1fr 28px;gap:4px;margin-bottom:4px;align-items:start;';
+  div.innerHTML = `
+    <div style="position:relative;">
+      <input class="finp" id="el_acc_txt_${id}" placeholder="ابحث بالكود أو الاسم..." autocomplete="off"
+        style="font-size:12px;width:100%;box-sizing:border-box;"
+        oninput="filterExpLine(${id})" onfocus="filterExpLine(${id})"
+        onblur="setTimeout(()=>{let d=document.getElementById('el_drop_${id}');if(d)d.style.display='none'},200)"
+        value="${accCode && accName ? accCode+' — '+accName : ''}">
+      <input type="hidden" id="el_acc_${id}" value="${accCode||''}">
+      <div id="el_drop_${id}" style="${_accDropStyle}"></div>
+    </div>
+    <input type="number" class="finp" id="el_amt_${id}" placeholder="0.000" step="0.001" value="${amt||''}"
+      style="font-size:12px;" oninput="updateExpTotal()">
+    <input class="finp" id="el_notes_${id}" placeholder="ملاحظات..." value="${notes||''}"
+      style="font-size:12px;color:var(--text);">
+    <button onclick="document.getElementById('expline_${id}').remove();updateExpTotal();"
+      style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:6px;cursor:pointer;font-size:14px;width:28px;height:32px;">×</button>
+  `;
+  document.getElementById('expLines').appendChild(div);
+  updateExpTotal();
+}
+
+function filterExpLine(id) {
+  const q = (document.getElementById(`el_acc_txt_${id}`)?.value || '').toLowerCase();
   let coa = (DB.chartOfAccounts || []).filter(a => a.status !== 'inactive' && !a.isGroup);
-  if (q.length < 1) coa = coa.filter(a => a.type === 'expense');
-  const drop = document.getElementById('expAccDrop');
+  if (!q) coa = coa.filter(a => a.type === 'expense');
+  const drop = document.getElementById(`el_drop_${id}`);
   if (!drop) return;
-  const matches = coa.filter(a => !q || (a.code||'').includes(q) || (a.name||'').toLowerCase().includes(q)).slice(0, 35);
+  const matches = coa.filter(a => !q || (a.code||'').includes(q) || (a.name||'').toLowerCase().includes(q)).slice(0, 30);
   if (!matches.length) { drop.style.display = 'none'; return; }
   drop.innerHTML = matches.map(a => {
     const sn = (a.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-    return `<div style="${_accPickStyle}" ${_accPickHov} onmousedown="selectExpAccount('${a.code}','${sn}')">${a.code} — ${a.name}</div>`;
+    return `<div style="${_accPickStyle}" ${_accPickHov} onmousedown="selectExpLine(${id},'${a.code}','${sn}')">${a.code} — ${a.name}</div>`;
   }).join('');
   drop.style.display = 'block';
 }
-function selectExpAccount(code, name) {
-  document.getElementById('expAccTxt').value  = code + ' — ' + name;
-  document.getElementById('expAccCode').value = code;
-  document.getElementById('expAccDrop').style.display = 'none';
+
+function selectExpLine(id, code, name) {
+  document.getElementById(`el_acc_txt_${id}`).value = code + ' — ' + name;
+  document.getElementById(`el_acc_${id}`).value = code;
+  document.getElementById(`el_drop_${id}`).style.display = 'none';
+  document.getElementById(`el_amt_${id}`)?.focus();
+}
+
+function updateExpTotal() {
+  let total = 0;
+  document.querySelectorAll('[id^="el_amt_"]').forEach(el => { total += parseFloat(el.value) || 0; });
+  const el = document.getElementById('expTotal');
+  if (el) el.textContent = total.toFixed(3);
 }
 
 function openExpModal() {
-  document.getElementById('expDate').value    = new Date().toISOString().split('T')[0];
-  document.getElementById('expDesc').value    = '';
-  document.getElementById('expAccTxt').value  = '';
-  document.getElementById('expAccCode').value = '';
-  document.getElementById('expAmt').value     = '';
+  document.getElementById('expDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('expDesc').value = '';
   document.getElementById('expPayMethod').value = '1100';
   document.getElementById('expAccrued').checked = false;
-  // populate vendor dropdown
+  document.getElementById('expLines').innerHTML = '';
+  _expLineCount = 0;
   const vSel = document.getElementById('expVendor');
   vSel.innerHTML = '<option value="">— بدون مورد —</option>' +
     (DB.vendors||[]).map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
+  addExpLine(); // start with one empty line
+  document.getElementById('expTotal').textContent = '0.000';
   document.getElementById('expModal').classList.add('open');
 }
 
@@ -5686,31 +5733,61 @@ function goToExpenseJournal(journalId) {
 }
 
 async function saveExp() {
-  const desc       = document.getElementById('expDesc').value.trim();
-  const accCode    = document.getElementById('expAccCode').value.trim();
-  const amount     = document.getElementById('expAmt').value;
-  const date       = document.getElementById('expDate').value;
-  const payMethod  = document.getElementById('expPayMethod').value;
-  const vendorId   = document.getElementById('expVendor').value;
-  const accrued    = document.getElementById('expAccrued').checked;
-  if (!desc || !amount || !date) { alert('أدخل الوصف والمبلغ والتاريخ'); return; }
-  if (!accCode) { alert('اختر حساب المصروف'); return; }
+  const desc      = document.getElementById('expDesc').value.trim();
+  const date      = document.getElementById('expDate').value;
+  const payMethod = document.getElementById('expPayMethod').value;
+  const vendorId  = document.getElementById('expVendor').value;
+  const accrued   = document.getElementById('expAccrued').checked;
+  if (!desc || !date) { showToast('أدخل الوصف والتاريخ', 'warning'); return; }
+
+  // Collect lines
   const coa = DB.chartOfAccounts || [];
-  const accObj = coa.find(a => a.code === accCode) || { code: accCode, name: accCode };
+  const lines = [];
+  document.querySelectorAll('[id^="el_acc_"]').forEach(el => {
+    if (!el.id.includes('_txt_') && !el.id.includes('_drop_')) {
+      const id = el.id.replace('el_acc_', '');
+      const code  = el.value.trim();
+      const amt   = parseFloat(document.getElementById(`el_amt_${id}`)?.value) || 0;
+      const notes = document.getElementById(`el_notes_${id}`)?.value?.trim() || '';
+      if (code && amt > 0) {
+        const accObj = coa.find(a => a.code === code) || { id: code, code, name: code };
+        lines.push({ code, accObj, amt, notes });
+      }
+    }
+  });
+
+  if (!lines.length) { showToast('أضف سطراً واحداً على الأقل بحساب ومبلغ', 'warning'); return; }
+
   const vendor = (DB.vendors||[]).find(v => v.id === vendorId);
-  const body = {
-    desc, date, amount,
-    accountCode:     accCode,
-    accountId:       accObj.id || accCode,
-    accountName:     accObj.name,
-    payMethodCode:   accrued ? 'accrued' : payMethod,
-    vendorId:        vendorId || '',
-    vendorAccountId: vendor?.accountId || '',
-    cat:             accObj.name,
-    notes:           vendor ? 'مورد: ' + vendor.name : '',
-  };
-  await fetch(`${API}/expenses`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  closeModal('expModal'); await loadAll(); loadExpenses();
+  const pm = accrued ? 'accrued' : payMethod;
+  const btn = document.querySelector('#expModal .btn.bs');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ جاري الحفظ...'; }
+
+  try {
+    for (const line of lines) {
+      const body = {
+        desc: desc + (line.notes ? ' — ' + line.notes : ''),
+        date, amount: line.amt,
+        accountCode:     line.code,
+        accountId:       line.accObj.id || line.code,
+        accountName:     line.accObj.name,
+        payMethodCode:   pm,
+        vendorId:        vendorId || '',
+        vendorAccountId: vendor?.accountId || '',
+        cat:             line.accObj.name,
+        notes:           line.notes || (vendor ? 'مورد: ' + vendor.name : ''),
+      };
+      await fetch(`${API}/expenses`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }
+    closeModal('expModal');
+    await loadAll();
+    loadExpenses();
+    showToast(`تم حفظ ${lines.length > 1 ? lines.length + ' مصاريف' : 'المصروف'} بنجاح`, 'success');
+  } catch(e) {
+    showToast('خطأ في الحفظ: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ حفظ'; }
+  }
 }
 
 // TELEGRAM
@@ -5829,14 +5906,14 @@ function renderDrList() {
   el.innerHTML = doctors.length ? doctors.map((d,i) => `
     <div class="di">
       <div>
-        <div class="din">${d.name}</div>
-        <div class="dit">Target: ${(d.target||0).toLocaleString()} KD | عمولة: ${d.commission}% | مختبر: ${d.lab||0} KD | تأمين: ${d.insurance||0} KD</div>
+        <div class="din">${d.name}${d.specialty ? ' <small style="color:var(--text3);font-weight:400;">('+d.specialty+')</small>' : ''}</div>
+        <div class="dit">Target: ${(d.target||0).toLocaleString()} KD | عمولة: ${d.commission}% | مختبر: ${d.lab||0} KD | تأمين: ${d.insRate??d.insurance??0}%</div>
       </div>
       <div style="display:flex;gap:6px;">
         <button class="btn bw bsm" onclick="openDrModal(${i})">✏️</button>
         <button class="btn bd bsm" onclick="delDoctor(${i})">حذف</button>
       </div>
-    </div>`).join('') : '<div style="color:var(--text3);font-size:12px;padding:8px;">لا يوجد دكاترة مسجّلون</div>';
+    </div>`).join('') : '<div style="color:var(--text3);font-size:12px;padding:8px;">لا يوجد دكاترة مسجّلون — اضغط + إضافة</div>';
 }
 
 function openDrModal(idx = -1) {
@@ -5844,10 +5921,11 @@ function openDrModal(idx = -1) {
   document.getElementById('drModalTitle').textContent = dr ? '✏️ تعديل دكتور' : '➕ إضافة دكتور';
   document.getElementById('drEditIdx').value = idx;
   document.getElementById('drN').value = dr?.name || '';
+  document.getElementById('drSpec').value = dr?.specialty || '';
   document.getElementById('drT').value = dr?.target || '';
   document.getElementById('drC').value = dr?.commission || '';
   document.getElementById('drL').value = dr?.lab || '';
-  document.getElementById('drI').value = dr?.insurance || '';
+  document.getElementById('drI').value = dr?.insRate ?? dr?.insurance ?? 45;
   document.getElementById('drModal').classList.add('open');
 }
 
@@ -6505,15 +6583,16 @@ async function saveCoaToServer(accounts) {
 
 async function saveDoctor() {
   const name       = document.getElementById('drN').value.trim();
-  const target     = parseFloat(document.getElementById('drT').value);
-  const commission = parseFloat(document.getElementById('drC').value);
+  const specialty  = document.getElementById('drSpec').value.trim();
+  const target     = parseFloat(document.getElementById('drT').value) || 0;
+  const commission = parseFloat(document.getElementById('drC').value) || 45;
   const lab        = parseFloat(document.getElementById('drL').value) || 0;
-  const insurance  = parseFloat(document.getElementById('drI').value) || 0;
+  const insRate    = parseFloat(document.getElementById('drI').value) || 45;
   const editIdx    = parseInt(document.getElementById('drEditIdx')?.value ?? '-1');
-  if (!name || !target || !commission) { alert('أدخل الاسم والـ Target والعمولة'); return; }
+  if (!name) { showToast('أدخل اسم الدكتور', 'warning'); return; }
 
   const doctors = [...(DB.doctors || [])];
-  const record  = { name, target, commission, lab, insurance };
+  const record  = { name, specialty, target, commission, lab, insRate, insurance: insRate };
   if (editIdx >= 0 && editIdx < doctors.length) {
     doctors[editIdx] = { ...doctors[editIdx], ...record };
   } else {
@@ -6527,6 +6606,7 @@ async function saveDoctor() {
   await loadAll();
   renderDrList();
   loadDoctors();
+  showToast('تم حفظ بيانات الدكتور', 'success');
 }
 
 async function delDoctor(i) {
@@ -6576,7 +6656,7 @@ function addJLine(debit='', credit='', accountId='', desc='', remarks='') {
       <button onclick="document.getElementById('jline_${id}').remove();updateJBalance();" style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:6px;cursor:pointer;font-size:14px;width:28px;height:28px;">×</button>
     </div>
     <input class="finp" id="jl_rem_${id}" placeholder="ملاحظات هذا السطر (اختياري)" value="${(remarks||'').replace(/"/g,'&quot;')}"
-      style="font-size:10px;margin-top:3px;width:100%;box-sizing:border-box;padding:4px 8px;color:var(--text3);">
+      style="font-size:10px;margin-top:3px;width:100%;box-sizing:border-box;padding:4px 8px;color:var(--text);">
   `;
   document.getElementById('jLines').appendChild(div);
   updateJBalance();
@@ -6636,12 +6716,27 @@ function updateJBalance() {
   }
 }
 
+function nextVoucherRef() {
+  const year = new Date().getFullYear();
+  const prefix = `JV-${year}-`;
+  const entries = DB.journalEntries || [];
+  let max = 0;
+  entries.forEach(e => {
+    const r = e.ref || '';
+    if (r.startsWith(prefix)) {
+      const n = parseInt(r.slice(prefix.length)) || 0;
+      if (n > max) max = n;
+    }
+  });
+  return prefix + String(max + 1).padStart(4, '0');
+}
+
 function openJournalModal() {
   jLineCount = 0;
   document.getElementById('journalModalTitle').textContent = '➕ قيد يومي جديد';
   document.getElementById('jEditId').value = '';
   document.getElementById('jDate').value = new Date().toISOString().split('T')[0];
-  document.getElementById('jRef').value = 'JV-' + String(Date.now()).slice(-5);
+  document.getElementById('jRef').value = nextVoucherRef();
   document.getElementById('jDesc').value = '';
   document.getElementById('jLines').innerHTML = '';
   document.getElementById('jBalance').textContent = '';
@@ -6869,7 +6964,7 @@ function editJournal(id) {
   document.getElementById('jEditId').value = e.id;
   document.getElementById('jDate').value = e.date;
   document.getElementById('jRef').value = e.ref || '';
-  document.getElementById('jDesc').value = e.desc;
+  document.getElementById('jDesc').value = e.desc || e.description || '';
   document.getElementById('jLines').innerHTML = '';
   e.lines.forEach(l => addJLine(l.debit||'', l.credit||'', l.accountId||'', '', l.remarks||''));
   document.querySelectorAll('#journalModal .finp, #journalModal select').forEach(el => el.disabled = false);
@@ -9828,12 +9923,29 @@ async function deleteClaim(id) {
 async function loadEmployees() {
   const data = await fetch('/api/employees').then(r=>r.json()).catch(()=>[]);
   const tbody = document.getElementById('empBody');
-  if(!data.length){ tbody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون</td></tr>'; return; }
-  tbody.innerHTML = data.map(e=>`<tr>
-    <td>${e.name}</td><td>${e.role||'—'}</td>
-    <td class="num">${(e.basicSalary||0).fmt()}</td>
-    <td class="num">${(e.allowances||0).fmt()}</td>
-  </tr>`).join('');
+  if(!data.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون</td></tr>'; return; }
+  const now = new Date();
+  tbody.innerHTML = data.map(e=>{
+    const hire   = e.hireDate ? new Date(e.hireDate) : null;
+    const months = hire ? Math.max(0,(now.getFullYear()-hire.getFullYear())*12+(now.getMonth()-hire.getMonth())) : 0;
+    const years  = months / 12;
+    let eos = 0;
+    if (hire && e.basicSalary) {
+      if (years <= 5) eos = e.basicSalary / 26 * 15 * years;
+      else eos = (e.basicSalary / 26 * 15 * 5) + (e.basicSalary * (years - 5));
+    }
+    const eosMonthly = months > 0 ? eos / months : 0;
+    const total = (e.basicSalary||0)+(e.housing||0)+(e.transport||0)+(e.allowances||0);
+    return `<tr>
+      <td><div style="font-weight:600">${e.name}</div><div style="font-size:10px;color:var(--text3)">${e.role||''}</div></td>
+      <td style="font-size:11px">${e.hireDate||'—'}<br><span style="color:var(--text3)">${months?Math.floor(years)+'س '+months%12+'ش':''}</span></td>
+      <td class="num">${(e.basicSalary||0).fmt()}</td>
+      <td class="num" style="font-size:11px">${(e.housing||0).fmt()}<br><span style="color:var(--text3)">+${(e.transport||0).fmt()}</span></td>
+      <td class="num" style="font-weight:700">${total.fmt()}</td>
+      <td class="num" style="color:var(--accent2);font-size:11px">${eosMonthly.toFixed(3)}<br><span style="color:var(--text3);font-size:10px">إجمالي: ${eos.toFixed(3)}</span></td>
+      <td><button class="btn bw bsm" onclick="openEmpModal(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button></td>
+    </tr>`;
+  }).join('');
   return data;
 }
 
@@ -9858,21 +9970,72 @@ async function loadPayroll() {
   }).join('');
 }
 
-function openEmpModal() {
-  document.getElementById('empModal').classList.add('open');
+function openEmpModal(emp) {
+  const modal = document.getElementById('empModal');
+  document.getElementById('empModalTitle').textContent = emp ? '✏️ تعديل موظف' : '👤 إضافة موظف';
+  document.getElementById('empEditId').value     = emp?.id || '';
+  document.getElementById('empName').value       = emp?.name || '';
+  document.getElementById('empRole').value       = emp?.role || '';
+  document.getElementById('empHireDate').value   = emp?.hireDate || '';
+  document.getElementById('empSalary').value     = emp?.basicSalary || '';
+  document.getElementById('empHousing').value    = emp?.housing || '';
+  document.getElementById('empTransport').value  = emp?.transport || '';
+  document.getElementById('empAllowances').value = emp?.allowances || '';
+  document.getElementById('empPifssEmp').value   = emp?.pifssEmp ?? 11;
+  document.getElementById('eosPreview').style.display = 'none';
+  modal.classList.add('open');
+  calcEosPreview();
+}
+
+function calcEosPreview() {
+  const hireDate  = document.getElementById('empHireDate').value;
+  const salary    = parseFloat(document.getElementById('empSalary').value) || 0;
+  if (!hireDate || !salary) { document.getElementById('eosPreview').style.display = 'none'; return; }
+
+  const hire   = new Date(hireDate);
+  const now    = new Date();
+  const months = Math.max(0, (now.getFullYear() - hire.getFullYear()) * 12 + (now.getMonth() - hire.getMonth()));
+  const years  = months / 12;
+
+  // Kuwait Labor Law: 15 days/year for first 5 years, 1 month/year after
+  let eos = 0;
+  if (years <= 5) {
+    eos = salary / 26 * 15 * years;
+  } else {
+    eos = (salary / 26 * 15 * 5) + (salary * (years - 5));
+  }
+  eos = Math.max(0, eos);
+
+  const eosPerMonth = months > 0 ? eos / months : 0;
+  document.getElementById('eosText').innerHTML =
+    `مدة الخدمة: <b>${Math.floor(years)} سنة و ${months % 12} شهر</b> (${months} شهر إجمالاً)<br>` +
+    `نهاية الخدمة الإجمالية: <b style="color:var(--accent)">${eos.toFixed(3)} د.ك</b><br>` +
+    `نهاية الخدمة الشهرية (مخصص): <b style="color:var(--accent2)">${eosPerMonth.toFixed(3)} د.ك</b>`;
+  document.getElementById('eosPreview').style.display = '';
 }
 
 async function saveEmployee() {
+  const name       = document.getElementById('empName').value.trim();
+  const basicSalary = parseFloat(document.getElementById('empSalary').value) || 0;
+  if (!name || !basicSalary) { showToast('أدخل الاسم والراتب الأساسي', 'warning'); return; }
+
   const body = {
-    name:        document.getElementById('empName').value,
-    role:        document.getElementById('empRole').value,
-    basicSalary: parseFloat(document.getElementById('empSalary').value)||0,
-    allowances:  parseFloat(document.getElementById('empAllowances').value)||0,
+    id:          document.getElementById('empEditId').value || undefined,
+    name,
+    role:        document.getElementById('empRole').value.trim(),
+    hireDate:    document.getElementById('empHireDate').value,
+    basicSalary,
+    housing:     parseFloat(document.getElementById('empHousing').value) || 0,
+    transport:   parseFloat(document.getElementById('empTransport').value) || 0,
+    allowances:  parseFloat(document.getElementById('empAllowances').value) || 0,
+    pifssEmp:    parseFloat(document.getElementById('empPifssEmp').value) || 11,
   };
-  if(!body.name||!body.basicSalary) return alert('يرجى إدخال الاسم والراتب');
-  await fetch('/api/employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  body.totalSalary = body.basicSalary + body.housing + body.transport + body.allowances;
+
+  await fetch('/api/employees', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   document.getElementById('empModal').classList.remove('open');
   loadEmployees();
+  showToast('تم حفظ بيانات الموظف', 'success');
 }
 
 async function openPayrollModal() {
@@ -10567,11 +10730,21 @@ async function loadTrialBalance() {
   if (period === 'month' && month) { const [y,m] = month.split('-'); params.set('year',y); params.set('month',m); }
   if (period === 'year') params.set('year', new Date().getFullYear());
 
-  const r = await fetch('/api/trial-balance?' + params);
-  const d = await r.json();
+  const body = document.getElementById('tbBody');
+  body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;opacity:.5;">جاري التحميل...</td></tr>';
 
-  document.getElementById('tbTotalDebit').textContent  = d.grandDebit.toFixed(3);
-  document.getElementById('tbTotalCredit').textContent = d.grandCredit.toFixed(3);
+  let d;
+  try {
+    const r = await fetch('/api/trial-balance?' + params);
+    d = await r.json();
+    if (d.error) throw new Error(d.error);
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--danger);padding:24px;">خطأ في تحميل ميزان المراجعة: ${e.message}</td></tr>`;
+    return;
+  }
+
+  document.getElementById('tbTotalDebit').textContent  = (d.grandDebit||0).toFixed(3);
+  document.getElementById('tbTotalCredit').textContent = (d.grandCredit||0).toFixed(3);
   const diff = Math.abs(d.grandDebit - d.grandCredit);
   document.getElementById('tbDiff').textContent = diff.toFixed(3);
   const statusEl = document.getElementById('tbStatus');
@@ -10619,10 +10792,18 @@ function exportTrialBalance() {
 // OPENING BALANCES — الأرصدة الافتتاحية
 // ══════════════════════════════════════════════════════
 async function loadOpeningBalances() {
-  const r = await fetch('/api/coa');
-  const accounts = await r.json();
   const grid = document.getElementById('openingBalanceGrid');
   if (!grid) return;
+  grid.innerHTML = '<div style="text-align:center;padding:20px;opacity:.5;font-size:12px;">جاري تحميل الحسابات...</div>';
+  let accounts;
+  try {
+    const r = await fetch('/api/coa');
+    accounts = await r.json();
+    if (!Array.isArray(accounts)) throw new Error(accounts.error || 'فشل تحميل الحسابات');
+  } catch(e) {
+    grid.innerHTML = `<div style="text-align:center;padding:20px;color:var(--danger);font-size:12px;">خطأ: ${e.message}</div>`;
+    return;
+  }
 
   const leaf = accounts.filter(a => !a.isGroup);
   const typeLabels = { asset:'أصول', liability:'التزامات', equity:'حقوق ملكية', revenue:'إيرادات', expense:'مصاريف' };
@@ -11247,6 +11428,66 @@ const _arToEn = {
   'يناير':'January','فبراير':'February','مارس':'March','أبريل':'April',
   'مايو':'May','يونيو':'June','يوليو':'July','أغسطس':'August',
   'سبتمبر':'September','أكتوبر':'October','نوفمبر':'November','ديسمبر':'December',
+  // Journal
+  'قيد يومي جديد':'New Journal Entry','تعديل القيد':'Edit Entry',
+  'البيان':'Description','المرجع':'Reference','السطور':'Lines',
+  'رقم الحساب':'Account Code','اسم الحساب':'Account Name',
+  'القيد متوازن':'Entry Balanced','القيد غير متوازن':'Entry Not Balanced',
+  'تم حفظ التعديل بنجاح':'Edit saved successfully',
+  'تمت إضافة القيد بنجاح':'Journal entry added successfully',
+  'ملاحظات هذا السطر':'Line notes','قيد تلقائي':'Auto-generated entry',
+  'نوع القيد':'Entry Type','مدة':'Duration',
+  // COA
+  'دليل الحسابات':'Chart of Accounts','إضافة حساب':'Add Account',
+  'تعديل حساب':'Edit Account','أصول':'Assets','خصوم':'Liabilities',
+  'حقوق ملكية':'Equity','إيرادات':'Revenue','مصاريف':'Expenses',
+  'رقم الحساب مكرر':'Duplicate account code','حساب أب':'Parent account',
+  'نوع الحساب':'Account Type','الرصيد الطبيعي':'Normal Balance',
+  'حساب مجموعة':'Group Account','مستوى':'Level',
+  // Expenses
+  'إضافة مصروف':'Add Expense','الوصف العام':'General Description',
+  'حساب المصروف':'Expense Account','طريقة الدفع':'Payment Method',
+  'قيد مستحق (لم يُدفع)':'Accrued (not paid yet)',
+  'نقد — الصندوق':'Cash — Safe','بنك — تحويل':'Bank Transfer',
+  'مستحق (آجل)':'Accrued (deferred)',
+  // Doctors
+  'عمولات الدكاترة':'Doctor Commissions','نسبة العمولة':'Commission Rate',
+  'Target الشهري':'Monthly Target','إجمالي العمولات':'Total Commissions',
+  'مدفوع':'Paid','متبقي':'Remaining','خصم المختبر':'Lab Deduction',
+  'نسبة التأمين من الإيراد':'Insurance Rate from Revenue',
+  'تخصص':'Specialty','تعيين':'Hire Date',
+  // Payroll / HR
+  'كشف الرواتب':'Payroll Sheet','راتب أساسي':'Basic Salary',
+  'بدل السكن':'Housing Allowance','بدل مواصلات':'Transport Allowance',
+  'بدلات أخرى':'Other Allowances','تاريخ التعيين':'Hire Date',
+  'مكافأة نهاية الخدمة':'End of Service Benefit',
+  'مدة الخدمة':'Service Duration','نهاية الخدمة الشهرية':'Monthly EOS Provision',
+  // Trial Balance & Financial Statements
+  'ميزان المراجعة':'Trial Balance','متوازن':'Balanced','غير متوازن':'Unbalanced',
+  'الفرق':'Difference','إجمالي مدين':'Total Debit','إجمالي دائن':'Total Credit',
+  'صافي مدين':'Net Debit','صافي دائن':'Net Credit',
+  'الأرصدة الافتتاحية':'Opening Balances','رصيد افتتاحي':'Opening Balance',
+  'قائمة الدخل':'Income Statement','الميزانية العمومية':'Balance Sheet',
+  'قائمة التدفق النقدي':'Cash Flow Statement',
+  'صافي الربح':'Net Profit','صافي الخسارة':'Net Loss',
+  // Bank Recon
+  'التسوية البنكية':'Bank Reconciliation','رصيد البنك':'Bank Balance',
+  'رصيد الدفتر':'Book Balance','فروق التسوية':'Reconciling Items',
+  // Fixed Assets
+  'الأصول الثابتة':'Fixed Assets','الاهتلاك':'Depreciation',
+  'قيمة الاستهلاك':'Depreciation Amount','القيمة الدفترية':'Book Value',
+  // Common UI
+  'الرئيسية':'Home','القائمة':'Menu','البحث':'Search',
+  'تفعيل':'Activate','تعطيل':'Deactivate','طباعة التقرير':'Print Report',
+  'رفع تقرير':'Upload Report','تخصيص لوحة التحكم':'Customize Dashboard',
+  'لا توجد بيانات في هذه الفترة':'No data in this period',
+  'لا توجد قيود':'No journal entries','لا يوجد موظفون':'No employees',
+  'لا يوجد دكاترة':'No doctors registered',
+  'جاري الحفظ...':'Saving...','تم الحفظ':'Saved',
+  'خطأ في الحفظ':'Save error','خطأ في التحميل':'Load error',
+  'الكل':'All','كل الأشهر':'All Months',
+  'تطبيق الفلتر':'Apply Filter','مسح الفلتر':'Clear Filter',
+  'تصدير Excel':'Export Excel','تصدير PDF':'Export PDF',
 };
 
 function _applyTextTranslation(root) {
@@ -11887,16 +12128,31 @@ showTab = function(id, el) {
 
 <!-- ── EMPLOYEE MODAL ── -->
 <div id="empModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
-  <div class="mbox">
-    <div class="mtit">👤 إضافة موظف</div>
-    <div class="fr"><label class="flbl">الاسم *</label><input type="text" class="finp" id="empName" placeholder="اسم الموظف"></div>
-    <div class="fr"><label class="flbl">الوظيفة</label><input type="text" class="finp" id="empRole" placeholder="مثال: ممرضة، موظف استقبال"></div>
+  <div class="mbox" style="width:520px;max-width:96vw;">
+    <div class="mtit" id="empModalTitle">👤 إضافة موظف</div>
+    <input type="hidden" id="empEditId" value="">
     <div class="fr2">
-      <div class="fr"><label class="flbl">الراتب الأساسي (د.ك) *</label><input type="number" step="0.001" class="finp" id="empSalary" placeholder="0.000"></div>
-      <div class="fr"><label class="flbl">البدلات (د.ك)</label><input type="number" step="0.001" class="finp" id="empAllowances" placeholder="0.000"></div>
+      <div class="fr" style="margin:0"><label class="flbl">الاسم *</label><input type="text" class="finp" id="empName" placeholder="اسم الموظف"></div>
+      <div class="fr" style="margin:0"><label class="flbl">الوظيفة</label><input type="text" class="finp" id="empRole" placeholder="ممرضة، موظف استقبال..."></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">تاريخ التعيين</label><input type="date" class="finp" id="empHireDate" onchange="calcEosPreview()"></div>
+      <div class="fr" style="margin:0"><label class="flbl">الراتب الأساسي (د.ك) *</label><input type="number" step="0.001" class="finp" id="empSalary" placeholder="0.000" oninput="calcEosPreview()"></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">بدل السكن (د.ك)</label><input type="number" step="0.001" class="finp" id="empHousing" placeholder="0.000"></div>
+      <div class="fr" style="margin:0"><label class="flbl">بدل مواصلات (د.ك)</label><input type="number" step="0.001" class="finp" id="empTransport" placeholder="0.000"></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">بدلات أخرى (د.ك)</label><input type="number" step="0.001" class="finp" id="empAllowances" placeholder="0.000"></div>
+      <div class="fr" style="margin:0"><label class="flbl">PIFSS موظف %</label><input type="number" class="finp" id="empPifssEmp" placeholder="11" value="11" step="0.01"></div>
+    </div>
+    <div id="eosPreview" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.15);border-radius:8px;font-size:11px;color:var(--text2);line-height:1.8;">
+      <div style="font-weight:600;color:var(--accent);margin-bottom:4px;">مكافأة نهاية الخدمة (تقديرية):</div>
+      <div id="eosText"></div>
     </div>
     <div class="mact">
-      <button class="btn bp" onclick="saveEmployee()">💾 إضافة</button>
+      <button class="btn bp" style="flex:1" onclick="saveEmployee()">💾 حفظ</button>
       <button class="btn bd" onclick="document.getElementById('empModal').classList.remove('open')">إلغاء</button>
     </div>
   </div>
