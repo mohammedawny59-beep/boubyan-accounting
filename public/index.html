@@ -10872,7 +10872,6 @@ async function loadTrialBalance() {
   }
 
   const typeLabels = { asset:'أصول', liability:'التزامات', equity:'حقوق ملكية', revenue:'إيرادات', expense:'مصاريف' };
-  const body = document.getElementById('tbBody');
   if (!d.rows.length) { body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px;">لا توجد حركات في هذه الفترة</td></tr>'; return; }
 
   let lastType = '';
