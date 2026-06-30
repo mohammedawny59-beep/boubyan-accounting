@@ -17,7 +17,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Run design audit
         run: node scripts/departments/design-audit.js > /tmp/report.md

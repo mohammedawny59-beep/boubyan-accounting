@@ -17,7 +17,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Fetch news and build report
         run: node scripts/departments/news-reader.js > /tmp/report.md
