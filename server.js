@@ -166,6 +166,7 @@ function rateLimit(max, windowMs = 60000) {
 }
 app.use('/api/ai', rateLimit(10));  // 10 AI calls/min
 app.use('/api', rateLimit(200));    // 200 API calls/min
+app.use(require('compression')());  // HTTP Gzip compression — IAS 8 audit: performance
 
 // Body size limit + depth limit (prevent deeply nested JSON DoS)
 app.use(express.json({ limit: '5mb', strict: true }));
