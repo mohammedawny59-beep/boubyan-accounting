@@ -3393,6 +3393,47 @@ if(expData.length && document.getElementById('expChart')){
     });
     req.on('close', () => { try { proc.kill(); } catch {} });
   });
+
+  // ── Telegram Webhook — /approve & /reject commands ──────────────────────────
+  // CLAUDE.md §4: BLOCKING findings wait here for user approval
+  {
+    const { processCommand, getPendingApprovals } = require('./lib/telegram');
+    const { getCacheStats } = require('./lib/ai');
+
+    // Telegram bot webhook — set via: https://api.telegram.org/bot<TOKEN>/setWebhook?url=<YOUR_URL>/api/telegram/webhook
+    app.post('/api/telegram/webhook', (req, res) => {
+      res.json({ ok: true }); // respond fast to Telegram
+      const msg = req.body?.message;
+      if (!msg?.text) return;
+
+      const result = processCommand(msg.text);
+      if (!result) return;
+
+      const { sendNotification } = require('./lib/telegram');
+      if (!result.found) {
+        sendNotification({ deptNameAr: 'نظام الموافقة', title: 'ID غير موجود', detail: `لم أجد طلب موافقة برقم: ${result.id}` });
+        return;
+      }
+
+      const emoji  = result.action === 'approve' ? '✅' : '❌';
+      const label  = result.action === 'approve' ? 'مقبول' : 'مرفوض';
+      sendNotification({
+        deptNameAr: result.item.deptAr,
+        title:      `${emoji} ${label} — ${result.item.finding.title}`,
+        detail:     `تم تسجيل قرارك. الحالة: ${result.item.status}`,
+      });
+    });
+
+    // Get pending approvals list
+    app.get('/api/agents/approvals', requireAuth, (req, res) => {
+      res.json(getPendingApprovals());
+    });
+
+    // Get AI cache stats (CLAUDE.md §6)
+    app.get('/api/agents/cache-stats', requireAuth, (req, res) => {
+      res.json(getCacheStats());
+    });
+  }
 }
 
 // ── Catch unhandled promise rejections ───────────────

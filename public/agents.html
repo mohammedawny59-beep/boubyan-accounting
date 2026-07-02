@@ -572,6 +572,20 @@ main {
         <div class="stat-label">آخر تشغيل</div>
       </div>
     </div>
+    <div class="stat-card">
+      <div class="stat-icon" style="background:rgba(99,102,241,.15)" aria-hidden="true">⚡</div>
+      <div class="stat-info">
+        <div class="stat-value" id="cacheHitRate" style="color:var(--indigo)">—</div>
+        <div class="stat-label">Cache Hit Rate</div>
+      </div>
+    </div>
+    <div class="stat-card" id="approvalsCard" style="display:none">
+      <div class="stat-icon" style="background:rgba(239,68,68,.15)" aria-hidden="true">🔴</div>
+      <div class="stat-info">
+        <div class="stat-value" id="pendingApprovals" style="color:var(--red)">0</div>
+        <div class="stat-label">بانتظار موافقتك</div>
+      </div>
+    </div>
   </div>
 
   <!-- Run All Progress -->
@@ -818,6 +832,22 @@ function renderStats() {
   animateNumber('criticalCount', totalCrit);
   document.getElementById('lastRunLabel').textContent = lastRun ? relativeTime(lastRun + 'T00:00:00') : 'لم يُشغَّل';
   document.getElementById('overallScore').textContent = avg !== null ? avg : '—';
+
+  // Cache stats & pending approvals (live from API — CLAUDE.md §6 + §4)
+  if (!DEMO_MODE && TOKEN) {
+    fetch('/api/agents/cache-stats', { headers: H })
+      .then(r => r.ok ? r.json() : null)
+      .then(s => { if (s) document.getElementById('cacheHitRate').textContent = s.hitRate + '%'; })
+      .catch(() => {});
+
+    fetch('/api/agents/approvals', { headers: H })
+      .then(r => r.ok ? r.json() : null)
+      .then(list => {
+        if (!list) return;
+        document.getElementById('pendingApprovals').textContent = list.length;
+        document.getElementById('approvalsCard').style.display = list.length > 0 ? '' : 'none';
+      }).catch(() => {});
+  }
 }
 
 function animateNumber(id, target) {

@@ -1,16 +1,19 @@
 'use strict';
 /**
- * DeptAgent v3.0 — Full AI Agent with:
- *   ✅ Memory       — remembers previous reports, detects trends
- *   ✅ Web Search   — Brave / SerpAPI / DuckDuckGo
- *   ✅ Tool Use     — Claude calls tools in a loop (multi-step reasoning)
- *   ✅ Inter-dept   — reads/writes shared company state
+ * DeptAgent v3.1 — Full AI Agent with:
+ *   ✅ Memory         — remembers previous reports, detects trends
+ *   ✅ Web Search     — Brave / SerpAPI / DuckDuckGo
+ *   ✅ Tool Use       — Claude calls tools in a loop (multi-step reasoning)
+ *   ✅ Inter-dept     — reads/writes shared company state
+ *   ✅ Prompt Cache   — system prompts cached (CLAUDE.md §6)
+ *   ✅ Telegram Gate  — BLOCKING findings wait for Telegram approval (CLAUDE.md §4)
  * Quality standard: EY · Microsoft · Apple · SpaceX
  */
 const { callAI, callAITools } = require('../../lib/ai.js');
 const { saveSnapshot, compareWithPrevious, readCompanyState, getTrendSummary, getLastRunsContext } = require('./_memory.js');
 const { search, fetchPage } = require('./_search.js');
 const { APPROVAL } = require('./_common.js');
+const { sendApprovalRequest, sendNotification, isConfigured: telegramReady } = require('../../lib/telegram.js');
 
 class DeptAgent {
   constructor({ name, nameAr, mission, standards = [], version = '3.0' }) {
@@ -334,7 +337,35 @@ ${this._memoryComparison ? `**مقارنة بالأسبوع الماضي:** ${th
 
     if (extras) md += `---\n\n${extras}\n\n`;
     md += `---\n*تقرير آلي v${this.version} — ${this.nameAr} — AI-Native SaaS*`;
+
+    // ── CLAUDE.md §4: Telegram gateway for BLOCKING & NOTIFY findings ────────
+    await this._dispatchGovernance();
+
     return md;
+  }
+
+  // Send BLOCKING findings to Telegram, NOTIFY findings as simple messages
+  async _dispatchGovernance() {
+    const blocking = this.findings.filter(f => f.approval === APPROVAL.BLOCKING && f.severity !== 'info');
+    const notify   = this.findings.filter(f => f.approval === APPROVAL.NOTIFY   && f.severity !== 'info');
+
+    for (const f of blocking) {
+      try {
+        const id = await sendApprovalRequest({ deptName: this.name, deptNameAr: this.nameAr, finding: f });
+        this._log(`🔴 BLOCKING → Telegram طلب موافقة: ${id}`);
+      } catch (e) {
+        this._log(`تحذير Telegram BLOCKING: ${e.message}`);
+      }
+    }
+
+    for (const f of notify) {
+      try {
+        await sendNotification({ deptNameAr: this.nameAr, title: f.title, detail: f.detail });
+        this._log(`🟡 NOTIFY → Telegram إشعار: ${f.title}`);
+      } catch (e) {
+        this._log(`تحذير Telegram NOTIFY: ${e.message}`);
+      }
+    }
   }
 }
 
