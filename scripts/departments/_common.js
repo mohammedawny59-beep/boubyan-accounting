@@ -23,4 +23,20 @@ function thisMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
-module.exports = { ROOT, readFile, fileExists, countLines, countPattern, today, thisMonth };
+// ── Unified severity (single source of truth — all depts import from here) ──
+const SEVERITY = Object.freeze({
+  CRITICAL: 'critical',
+  HIGH:     'high',
+  MEDIUM:   'medium',
+  LOW:      'low',
+  INFO:     'info',
+});
+
+// ── Approval levels (CLAUDE.md §4) ──────────────────────────────────────────
+const APPROVAL = Object.freeze({
+  AUTO:     'auto',     // executes itself
+  NOTIFY:   'notify',   // executes + notifies you (reversible)
+  BLOCKING: 'blocking', // stops and waits for your explicit OK
+});
+
+module.exports = { ROOT, readFile, fileExists, countLines, countPattern, today, thisMonth, SEVERITY, APPROVAL };

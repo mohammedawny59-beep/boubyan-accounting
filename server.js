@@ -3299,16 +3299,24 @@ if(expData.length && document.getElementById('expChart')){
   const { spawn } = require('child_process');
 
   const AGENTS = {
-    'audit-quality':  { script: 'scripts/departments/audit-quality.js',  nameAr: 'التدقيق والجودة',  icon: '🔍', color: '#f97316' },
-    'security-scan':  { script: 'scripts/departments/security-scan.js',  nameAr: 'الأمن السيبراني', icon: '🔒', color: '#ef4444' },
-    'operations':     { script: 'scripts/departments/operations.js',     nameAr: 'العمليات',        icon: '⚙️', color: '#6366f1' },
-    'it-health':      { script: 'scripts/departments/it-health.js',      nameAr: 'صحة النظام',      icon: '💻', color: '#22d3ee' },
-    'hr-reminders':   { script: 'scripts/departments/hr-reminders.js',   nameAr: 'الموارد البشرية', icon: '👥', color: '#22c55e' },
-    'design-audit':   { script: 'scripts/departments/design-audit.js',   nameAr: 'التصميم وUX',     icon: '🎨', color: '#ec4899' },
-    'news-reader':    { script: 'scripts/departments/news-reader.js',    nameAr: 'متابعة الأخبار',  icon: '📰', color: '#eab308' },
-    'ai-optimizer':   { script: 'scripts/departments/ai-optimizer.js',   nameAr: 'تحسين الذكاء',    icon: '🤖', color: '#a855f7' },
-    'rd-suggestions': { script: 'scripts/departments/rd-suggestions.js', nameAr: 'البحث والتطوير',  icon: '🔬', color: '#14b8a6' },
-    'compliance':     { script: 'scripts/compliance-check.js',           nameAr: 'الامتثال القانوني', icon: '✅', color: '#84cc16' },
+    // ── Core internal departments ──────────────────────────────────────────────
+    'audit-quality':    { script: 'scripts/departments/audit-quality.js',    nameAr: 'التدقيق والجودة',    icon: '🔍', color: '#f97316', category: 'internal' },
+    'security-scan':    { script: 'scripts/departments/security-scan.js',    nameAr: 'الأمن السيبراني',   icon: '🔒', color: '#ef4444', category: 'internal' },
+    'operations':       { script: 'scripts/departments/operations.js',       nameAr: 'العمليات',           icon: '⚙️', color: '#6366f1', category: 'internal' },
+    'it-health':        { script: 'scripts/departments/it-health.js',        nameAr: 'صحة النظام',         icon: '💻', color: '#22d3ee', category: 'internal' },
+    'hr-reminders':     { script: 'scripts/departments/hr-reminders.js',     nameAr: 'الموارد البشرية',   icon: '👥', color: '#22c55e', category: 'internal' },
+    'design-audit':     { script: 'scripts/departments/design-audit.js',     nameAr: 'التصميم وUX',        icon: '🎨', color: '#ec4899', category: 'internal' },
+    'news-reader':      { script: 'scripts/departments/news-reader.js',      nameAr: 'متابعة الأخبار',    icon: '📰', color: '#eab308', category: 'internal' },
+    'ai-optimizer':     { script: 'scripts/departments/ai-optimizer.js',     nameAr: 'تحسين الذكاء',      icon: '🤖', color: '#a855f7', category: 'internal' },
+    'rd-suggestions':   { script: 'scripts/departments/rd-suggestions.js',   nameAr: 'البحث والتطوير',    icon: '🔬', color: '#14b8a6', category: 'internal' },
+    'compliance':       { script: 'scripts/compliance-check.js',             nameAr: 'الامتثال القانوني', icon: '✅', color: '#84cc16', category: 'internal' },
+    // ── SaaS departments (CLAUDE.md §2-3) ─────────────────────────────────────
+    'market-intel':     { script: 'scripts/departments/market-intel.js',     nameAr: 'أبحاث المنافسين',   icon: '🕵️', color: '#0ea5e9', category: 'saas' },
+    'design-studio':    { script: 'scripts/departments/design-studio.js',    nameAr: 'التصميم الإنتاجي',  icon: '🪄', color: '#d946ef', category: 'saas' },
+    'global-compliance':{ script: 'scripts/departments/global-compliance.js',nameAr: 'الامتثال العالمي',  icon: '⚖️', color: '#10b981', category: 'saas' },
+    'meta-eval':        { script: 'scripts/departments/meta-eval.js',        nameAr: 'التحقق الذاتي',     icon: '🔎', color: '#8b5cf6', category: 'saas' },
+    'marketing-growth': { script: 'scripts/departments/marketing-growth.js', nameAr: 'التسويق والنمو',    icon: '📣', color: '#f43f5e', category: 'saas' },
+    'deploy-website':   { script: 'scripts/departments/deploy-website.js',   nameAr: 'النشر والموقع',     icon: '🚀', color: '#f59e0b', category: 'saas' },
   };
 
   // Serve control panel page

@@ -86,14 +86,18 @@ function compareWithPrevious(deptName, currentScore, currentFindings) {
 }
 
 // ── Company-wide state (for inter-dept communication) ────────────────────────
+// Atomic write: write to .tmp then rename — prevents corruption when 2 agents run simultaneously
 function updateCompanyState(deptName, { score, critical, date }) {
+  ensureDir();
   let state = {};
   if (fs.existsSync(STATE_FILE)) {
     try { state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
   }
   state[deptName] = { score, critical, date, status: critical > 0 ? 'alert' : score >= 75 ? 'healthy' : 'warning' };
   state._updated = new Date().toISOString();
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  const tmp = STATE_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
+  fs.renameSync(tmp, STATE_FILE);
 }
 
 function readCompanyState() {
@@ -114,4 +118,19 @@ function getTrendSummary(deptName) {
   return { avg, best, worst, trend, runsCount: history.length };
 }
 
-module.exports = { saveSnapshot, loadHistory, compareWithPrevious, readCompanyState, updateCompanyState, getTrendSummary };
+// Returns last N runs as a learning context string (CLAUDE.md §8)
+function getLastRunsContext(deptName, n = 3) {
+  const history = loadHistory(deptName);
+  if (history.length === 0) return null;
+  const runs = history.slice(0, n);
+  const lines = runs.map((r, i) => {
+    const issues = r.findings
+      .filter(f => f.severity !== 'info')
+      .map(f => `    - [${f.severity}] ${f.title}`)
+      .join('\n');
+    return `تشغيل -${i + 1} (${r.date}) | درجة: ${r.score}/100\n${issues || '    لا مشاكل'}`;
+  });
+  return lines.join('\n\n');
+}
+
+module.exports = { saveSnapshot, loadHistory, compareWithPrevious, readCompanyState, updateCompanyState, getTrendSummary, getLastRunsContext };
