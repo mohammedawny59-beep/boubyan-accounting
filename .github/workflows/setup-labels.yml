@@ -24,10 +24,12 @@ jobs:
               { name: 'department:Operations',  color: 'fef2c0', description: 'Operations Department' },
               { name: 'department:Financial',   color: 'bfd4f2', description: 'Financial Department' },
               { name: 'department:Compliance',  color: 'fbca04', description: 'Legal/Compliance Department' },
+              { name: 'department:Audit',       color: 'f97316', description: 'Audit & Quality Department' },
               { name: 'needs-review',           color: 'e11d48', description: 'Requires owner review' },
               { name: 'approved',               color: '16a34a', description: 'Approved by owner' },
               { name: 'rejected',               color: '6b7280', description: 'Rejected by owner' },
               { name: 'priority:critical',      color: 'b91c1c', description: 'Critical priority' },
+              { name: 'priority:high',          color: 'ef4444', description: 'High priority' },
               { name: 'enhancement',            color: 'a2eeef', description: 'New feature suggestion' },
               { name: 'ui/ux',                  color: 'e9d5ff', description: 'UI/UX improvement' },
             ];

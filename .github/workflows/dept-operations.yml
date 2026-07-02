@@ -18,12 +18,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run operations check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
         run: node scripts/departments/operations.js > /tmp/report.md
 
       - name: Run full test suite
-        run: npm ci && npm test >> /tmp/report.md 2>&1 || echo "⚠️ بعض الاختبارات فشلت" >> /tmp/report.md
+        run: npm test >> /tmp/report.md 2>&1 || echo "⚠️ بعض الاختبارات فشلت" >> /tmp/report.md
 
       - name: Create GitHub Issue
         uses: actions/github-script@v7
@@ -32,11 +40,16 @@ jobs:
             const fs = require('fs');
             const body = fs.readFileSync('/tmp/report.md', 'utf8');
             const week = new Date().toISOString().slice(0,10);
+            const scoreMatch = body.match(/الدرجة الإجمالية[\s\S]*?(\d+)\/100/);
+            const score = scoreMatch ? parseInt(scoreMatch[1]) : null;
             const testsFailed = body.includes('فشلت') || body.includes('FAIL');
+            const labels = ['department:Operations', 'needs-review'];
+            if (score !== null && score < 60) labels.push('priority:critical');
+            const scoreLabel = score !== null ? ` — درجة: ${score}/100` : '';
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo:  context.repo.repo,
-              title: `⚙️ Operations — فحص النظام الأسبوعي — ${week}${testsFailed?' ⚠️':''}`,
+              title: `⚙️ Operations — فحص النظام الأسبوعي — ${week}${scoreLabel}${testsFailed?' ⚠️':''}`,
               body,
-              labels: ['department:Operations', 'needs-review'],
+              labels,
             });

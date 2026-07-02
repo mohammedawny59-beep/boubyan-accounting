@@ -18,8 +18,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run design audit
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
         run: node scripts/departments/design-audit.js > /tmp/report.md
 
       - name: Create GitHub Issue
@@ -29,10 +37,15 @@ jobs:
             const fs = require('fs');
             const body = fs.readFileSync('/tmp/report.md', 'utf8');
             const month = new Date().toISOString().slice(0,7);
+            const scoreMatch = body.match(/الدرجة الإجمالية[\s\S]*?(\d+)\/100/);
+            const score = scoreMatch ? parseInt(scoreMatch[1]) : null;
+            const labels = ['department:Design', 'needs-review', 'ui/ux'];
+            if (score !== null && score < 60) labels.push('priority:critical');
+            const scoreLabel = score !== null ? ` — درجة: ${score}/100` : '';
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo:  context.repo.repo,
-              title: `🎨 Design/UX — تدقيق الواجهة — ${month}`,
+              title: `🎨 Design/UX — تدقيق الواجهة — ${month}${scoreLabel}`,
               body,
-              labels: ['department:Design', 'needs-review', 'ui/ux'],
+              labels,
             });
