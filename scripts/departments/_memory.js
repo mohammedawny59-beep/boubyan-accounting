@@ -54,7 +54,7 @@ function loadHistory(deptName) {
 // ── Compare current run to previous ─────────────────────────────────────────
 function compareWithPrevious(deptName, currentScore, currentFindings) {
   const history = loadHistory(deptName);
-  if (history.length === 0) return { trend: 'new', message: 'أول تشغيل — لا يوجد تاريخ للمقارنة' };
+  if (history.length === 0) return { trend: 'new', message: 'أول تشغيل — لا يوجد تاريخ للمقارنة', repeats: [], newIssues: [], resolved: [], weeksTracked: 0 };
 
   const prev = history[0]; // Most recent saved (before this run)
   const diff  = currentScore - prev.score;

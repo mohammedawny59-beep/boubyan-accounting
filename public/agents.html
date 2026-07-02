@@ -648,6 +648,7 @@ const H = TOKEN ? { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'applica
 // ── State ────────────────────────────────────────────────────────────
 let agentData = {};
 let runningAgents = new Set();
+const savedReports = {};   // id → markdown report text
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function relativeTime(dateStr) {
@@ -867,13 +868,16 @@ function renderCards() {
             <div class="dot ${isRunning ? 'running' : agent.score !== null ? 'ok' : 'idle'}" aria-hidden="true"></div>
             <span>${isRunning ? 'يعمل...' : agent.score !== null ? 'آخر تشغيل: ' + (agent.date || '—') : 'لم يُشغَّل'}</span>
           </div>
-          <button class="btn-run ${isRunning ? 'running-state' : ''}"
-            onclick="runAgent('${id}')"
-            ${isRunning ? 'disabled aria-busy="true"' : ''}
-            aria-label="تشغيل قسم ${agent.nameAr}">
-            <div class="spinner" aria-hidden="true"></div>
-            ${isRunning ? 'يعمل...' : '▶ تشغيل'}
-          </button>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${savedReports[id] ? `<button class="btn-run" onclick="showReport('تقرير ${agent.nameAr}', savedReports['${id}'])" style="background:rgba(99,102,241,0.15);border-color:var(--indigo);color:var(--indigo)" aria-label="عرض تقرير ${agent.nameAr}">📄 التقرير</button>` : ''}
+            <button class="btn-run ${isRunning ? 'running-state' : ''}"
+              onclick="runAgent('${id}')"
+              ${isRunning ? 'disabled aria-busy="true"' : ''}
+              aria-label="تشغيل قسم ${agent.nameAr}">
+              <div class="spinner" aria-hidden="true"></div>
+              ${isRunning ? 'يعمل...' : '▶ تشغيل'}
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -913,12 +917,13 @@ function runAgent(id) {
       document.getElementById('termBadge').classList.remove('active');
 
       if (reportContent) {
+        savedReports[id] = reportContent;
         showReport(`تقرير ${agent.nameAr}`, reportContent);
         toast(`✅ اكتمل: ${agent.nameAr}`, 'success');
       }
 
       src.close();
-      loadStatus(); // refresh scores
+      loadStatus(); // refresh scores — re-renders cards with report button
     }
   };
 
@@ -964,6 +969,7 @@ async function runAll() {
         if (type === 'log')    termLog(`[${agent.nameAr}] ${data}`);
         if (type === 'report') reportContent = data;
         if (type === 'done') {
+          if (reportContent) savedReports[id] = reportContent;
           runningAgents.delete(id);
           done++;
           const pctVal = Math.round((done / ids.length) * 100);

@@ -14,8 +14,8 @@ async function main() {
   const agent = new DeptAgent({
     name:      'rd-suggestions',
     nameAr:    '🔬 قسم البحث والتطوير',
-    mission:   'تحليل النظام واقتراح ميزات جديدة لعيادة الأسنان بالكويت',
-    standards: ['IFRS', 'قانون العمل الكويتي', 'Dental Clinic Best Practices', 'AI-First Design'],
+    mission:   'تحليل النظام واقتراح ميزات جديدة — الهدف بيع البرنامج لأي شركة أو عيادة',
+    standards: ['IFRS', 'قانون العمل الكويتي', 'Multi-tenant SaaS', 'AI-First Design'],
   });
 
   agent.loadMemory();
@@ -92,14 +92,15 @@ async function main() {
   // ── AI suggestions (only if no agent insights) ────────────────────────────────
   let suggestions = [];
   if (!agent._agentInsights && process.env.ANTHROPIC_API_KEY) {
-    const prompt = `أنت مستشار تطوير لنظام محاسبة عيادة أسنان كويتية (بوبيان).
+    const prompt = `أنت مستشار تطوير لنظام محاسبة SaaS يُباع لأي شركة أو عيادة.
+الهدف: تحويله لمنتج قابل للبيع لأي عميل (Multi-tenant).
 
 الوضع الحالي: ${serverLines.toLocaleString()} سطر · ${endpoints} endpoint · ${aiEndpoints} AI endpoint
 ميزات موجودة: رواتب=${hasPayroll} · مخزون=${hasInventory} · أصول=${hasAssets} · تيليجرام=${hasTelegram} · ميزانية=${hasBudget}
 مشاكل مكتشفة: approval=${!hasApprovalFlow} · voice=${!hasVoice} · forecast=${!hasForecast} · pdf=${!hasExport}
 
-اقترح 5 ميزات عملية قابلة للتنفيذ في أسبوع أو أقل. أجب بـ JSON فقط:
-[{"title":"...","description":"...","priority":"HIGH|MEDIUM|LOW","effort":"يوم|3أيام|أسبوع","category":"AI|محاسبة|تقارير|UX|أمان","ifrs_note":"...أو null"}]`;
+اقترح 5 ميزات تجعله أكثر جذباً للعملاء الجدد. أجب بـ JSON فقط:
+[{"title":"...","description":"...","priority":"HIGH|MEDIUM|LOW","effort":"يوم|3أيام|أسبوع","category":"AI|محاسبة|تقارير|UX|أمان|SaaS","ifrs_note":"...أو null"}]`;
 
     try {
       const res = await callAI({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] });
