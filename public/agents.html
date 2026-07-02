@@ -640,7 +640,7 @@ main {
 // ── Auth ─────────────────────────────────────────────────────────────
 const _params = new URLSearchParams(location.search);
 const DEMO_MODE = _params.get('demo') === '1';
-const TOKEN = localStorage.getItem('token') || sessionStorage.getItem('token') || _params.get('_token');
+const TOKEN = sessionStorage.getItem('bou_token') || localStorage.getItem('bou_token') || _params.get('_token');
 if (!TOKEN && !DEMO_MODE) { location.href = '/'; }
 
 const H = TOKEN ? { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } : {};
