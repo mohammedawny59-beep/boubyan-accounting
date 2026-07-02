@@ -3292,6 +3292,101 @@ if(expData.length && document.getElementById('expChart')){
   res.send(html);
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// AI AGENT CONTROL PANEL — لوحة التحكم الذكية
+// ═══════════════════════════════════════════════════════════════════════════════
+{
+  const { spawn } = require('child_process');
+
+  const AGENTS = {
+    'audit-quality':  { script: 'scripts/departments/audit-quality.js',  nameAr: 'التدقيق والجودة',  icon: '🔍', color: '#f97316' },
+    'security-scan':  { script: 'scripts/departments/security-scan.js',  nameAr: 'الأمن السيبراني', icon: '🔒', color: '#ef4444' },
+    'operations':     { script: 'scripts/departments/operations.js',     nameAr: 'العمليات',        icon: '⚙️', color: '#6366f1' },
+    'it-health':      { script: 'scripts/departments/it-health.js',      nameAr: 'صحة النظام',      icon: '💻', color: '#22d3ee' },
+    'hr-reminders':   { script: 'scripts/departments/hr-reminders.js',   nameAr: 'الموارد البشرية', icon: '👥', color: '#22c55e' },
+    'design-audit':   { script: 'scripts/departments/design-audit.js',   nameAr: 'التصميم وUX',     icon: '🎨', color: '#ec4899' },
+    'news-reader':    { script: 'scripts/departments/news-reader.js',    nameAr: 'متابعة الأخبار',  icon: '📰', color: '#eab308' },
+    'ai-optimizer':   { script: 'scripts/departments/ai-optimizer.js',   nameAr: 'تحسين الذكاء',    icon: '🤖', color: '#a855f7' },
+    'rd-suggestions': { script: 'scripts/departments/rd-suggestions.js', nameAr: 'البحث والتطوير',  icon: '🔬', color: '#14b8a6' },
+    'compliance':     { script: 'scripts/compliance-check.js',           nameAr: 'الامتثال القانوني', icon: '✅', color: '#84cc16' },
+  };
+
+  // Serve control panel page
+  app.get('/agents', requireAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'agents.html'));
+  });
+
+  // List all agents + memory status
+  app.get('/api/agents/status', requireAuth, (req, res) => {
+    const memDir = path.join(__dirname, '.agent-memory');
+    let companyState = {};
+    const stateFile = path.join(memDir, 'company-state.json');
+    if (fs.existsSync(stateFile)) {
+      try { companyState = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch {}
+    }
+
+    const result = {};
+    for (const [id, agent] of Object.entries(AGENTS)) {
+      const histFile = path.join(memDir, `${id}-history.json`);
+      let history = [];
+      if (fs.existsSync(histFile)) {
+        try { history = JSON.parse(fs.readFileSync(histFile, 'utf8')); } catch {}
+      }
+      const latest = history[0] || null;
+      const cs = companyState[id] || null;
+      result[id] = {
+        ...agent,
+        id,
+        score:    latest?.score    ?? cs?.score    ?? null,
+        critical: latest?.critical ?? cs?.critical ?? 0,
+        high:     latest?.high     ?? 0,
+        medium:   latest?.medium   ?? 0,
+        date:     latest?.date     ?? cs?.date     ?? null,
+        trend:    history.length >= 2
+                    ? (history[0].score > history[1].score ? 'up' : history[0].score < history[1].score ? 'down' : 'stable')
+                    : 'new',
+        sparkline: history.slice(0, 6).reverse().map(h => h.score),
+      };
+    }
+    res.json(result);
+  });
+
+  // SSE: stream a single agent run
+  app.get('/api/agents/run/:id', requireAuth, (req, res) => {
+    const agent = AGENTS[req.params.id];
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const send = (type, data) => {
+      try { res.write(`data: ${JSON.stringify({ type, data })}\n\n`); } catch {}
+    };
+
+    send('start', { id: req.params.id, name: agent.nameAr });
+
+    const proc = spawn('node', [agent.script], {
+      cwd: __dirname,
+      env: { ...process.env },
+    });
+
+    let reportBuf = '';
+    proc.stdout.on('data', c => { reportBuf += c.toString(); });
+    proc.stderr.on('data', c => {
+      c.toString().split('\n').filter(l => l.trim()).forEach(line => send('log', line));
+    });
+    proc.on('close', code => {
+      send('report', reportBuf);
+      send('done', { id: req.params.id, code, time: new Date().toISOString() });
+      res.end();
+    });
+    req.on('close', () => { try { proc.kill(); } catch {} });
+  });
+}
+
 // ── Catch unhandled promise rejections ───────────────
 process.on('unhandledRejection', (reason) => {
   console.error('⚠️ Unhandled Promise Rejection:', reason);
