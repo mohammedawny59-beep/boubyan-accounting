@@ -13,6 +13,10 @@ const {
 } = require('./lib/database');
 const { callAI, callAIVision } = require('./lib/ai');
 const { calcCommission: _calcCommission } = require('./lib/calcCommission');
+const { tenantMiddleware, getTenantInfo } = require('./lib/tenantMiddleware');
+const stripe = require('./lib/stripe');
+const Tenant = require('./models/Tenant');
+const Subscription = require('./models/Subscription');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -619,7 +623,7 @@ app.post('/api/auth/login', (req, res) => {
   // Build permissions from role
   const roleObj = (db.roles || {})[user.role] || DEFAULT_ROLES[user.role] || DEFAULT_ROLES.viewer;
   const token = jwt.sign(
-    { id: user.id, username: user.username, role: user.role, fullName: user.fullName },
+    { id: user.id, username: user.username, role: user.role, fullName: user.fullName, tenantId: user.tenantId || 'default' },
     JWT_SECRET, { expiresIn: JWT_EXPIRES }
   );
 
@@ -8557,6 +8561,205 @@ app.get('/api/settings/report', requireAuth, (req, res) => {
   const cfg = loadConfig();
   res.json({ reportEmail: cfg.reportEmail || '', smtpHost: cfg.smtpHost || '', smtpPort: cfg.smtpPort || 587, smtpUser: cfg.smtpUser || '', dailyReportEnabled: cfg.dailyReportEnabled !== false });
 });
+
+// ============================================================
+// ── MULTI-TENANCY & SUBSCRIPTION ROUTES (SaaS) ──────────────
+// ============================================================
+
+// ── Register new tenant (public — no auth required) ──────────
+app.post('/api/tenants/register', async (req, res) => {
+  const { name, email, password, slug, timezone, currency, language } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error: 'name, email, password مطلوبة' });
+  if (password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' });
+
+  try {
+    // Generate unique tenantId from slug or email
+    const base = (slug || email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20);
+    const tenantId = `${base}-${Date.now().toString(36)}`;
+
+    // Check slug uniqueness
+    const exists = await Tenant.findOne({ slug: base });
+    if (exists) return res.status(409).json({ error: 'هذا الاسم مستخدم مسبقاً — اختر اسماً آخر' });
+
+    // Create Tenant
+    const tenant = await Tenant.create({
+      tenantId,
+      name,
+      slug: base,
+      email,
+      plan:   'trial',
+      status: 'active',
+      timezone:  timezone  || 'Asia/Kuwait',
+      currency:  currency  || 'KWD',
+      language:  language  || 'ar',
+    });
+
+    // Create trial Subscription
+    await Subscription.create({
+      tenantId,
+      plan:   'trial',
+      status: 'active',
+      seats:  Subscription.LIMITS.trial.seats,
+    });
+
+    // Create admin user for this tenant inside DB
+    const { runAsTenant, warmTenantCache } = require('./lib/database');
+    await runAsTenant(tenantId, async () => {
+      await warmTenantCache(tenantId);
+      const db = loadDB();
+      const adminId = `u_${Date.now()}`;
+      (db.users = db.users || []).push({
+        id: adminId,
+        tenantId,
+        username: email,
+        email,
+        fullName: name,
+        role: 'admin',
+        passwordHash: bcrypt.hashSync(password, 10),
+        active: true,
+        createdAt: new Date().toISOString(),
+      });
+      saveDB(db);
+    });
+
+    res.status(201).json({
+      success: true,
+      tenantId,
+      message: 'تم إنشاء الحساب — تجربة مجانية 14 يوم',
+      trialEndsAt: tenant.trialEndsAt,
+    });
+  } catch (e) {
+    console.error('❌ Tenant register error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Get current tenant info ───────────────────────────────────
+app.get('/api/tenant', requireAuth, tenantMiddleware, async (req, res) => {
+  try {
+    const info = await getTenantInfo(req.tenantId);
+    res.json(info);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Stripe: Create checkout session ──────────────────────────
+app.post('/api/subscription/checkout', requireAuth, tenantMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط يمكنه تغيير الاشتراك' });
+  if (!stripe.isConfigured()) return res.status(503).json({ error: 'بوابة الدفع غير مضبوطة — تواصل مع الدعم' });
+
+  const { plan } = req.body;
+  if (!['starter', 'pro', 'enterprise'].includes(plan)) return res.status(400).json({ error: 'الخطة غير صالحة' });
+
+  try {
+    const tenant = await Tenant.findOne({ tenantId: req.tenantId });
+    if (!tenant) return res.status(404).json({ error: 'المستأجر غير موجود' });
+
+    const { url } = await stripe.createCheckoutSession({
+      tenantId: req.tenantId,
+      plan,
+      email: tenant.email,
+      name:  tenant.name,
+    });
+    res.json({ url });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Stripe: Get current subscription ─────────────────────────
+app.get('/api/subscription', requireAuth, tenantMiddleware, async (req, res) => {
+  try {
+    const sub = await Subscription.findOne({ tenantId: req.tenantId }).lean();
+    if (!sub) return res.status(404).json({ error: 'لا يوجد اشتراك' });
+    res.json(sub);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Stripe: Cancel subscription ───────────────────────────────
+app.delete('/api/subscription', requireAuth, tenantMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+  if (!stripe.isConfigured()) return res.status(503).json({ error: 'بوابة الدفع غير مضبوطة' });
+
+  try {
+    const sub = await Subscription.findOne({ tenantId: req.tenantId });
+    if (!sub?.stripeSubscriptionId) return res.status(404).json({ error: 'لا يوجد اشتراك Stripe نشط' });
+
+    await stripe.cancelSubscription(sub.stripeSubscriptionId);
+    sub.cancelAtPeriodEnd = true;
+    await sub.save();
+    res.json({ success: true, message: 'سيتم إلغاء الاشتراك عند انتهاء الفترة الحالية' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Stripe: Webhook (raw body required) ──────────────────────
+app.post('/api/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    if (!sig) return res.status(400).json({ error: 'Missing stripe-signature' });
+
+    let event;
+    try {
+      event = await stripe.handleWebhook(req.body, sig);
+    } catch (e) {
+      console.error('❌ Stripe webhook error:', e.message);
+      return res.status(400).json({ error: e.message });
+    }
+
+    const obj = event.data.object;
+    const tenantId = obj.metadata?.tenantId;
+    if (!tenantId) return res.json({ received: true }); // not our event
+
+    try {
+      if (event.type === 'checkout.session.completed') {
+        const sub = obj.subscription;
+        const plan = obj.metadata?.plan || 'starter';
+        await Subscription.findOneAndUpdate(
+          { tenantId },
+          { plan, status: 'active', stripeSubscriptionId: sub,
+            currentPeriodStart: new Date(), cancelAtPeriodEnd: false },
+          { upsert: true, new: true },
+        );
+        await Tenant.findOneAndUpdate({ tenantId }, { plan });
+        console.log(`✅ Stripe: checkout.session.completed → tenant=${tenantId} plan=${plan}`);
+      }
+
+      if (event.type === 'customer.subscription.updated') {
+        const plan = obj.metadata?.plan || obj.items?.data[0]?.price?.nickname || 'starter';
+        await Subscription.findOneAndUpdate(
+          { tenantId },
+          {
+            plan,
+            status: obj.status,
+            currentPeriodStart: new Date(obj.current_period_start * 1000),
+            currentPeriodEnd:   new Date(obj.current_period_end   * 1000),
+            cancelAtPeriodEnd:  obj.cancel_at_period_end,
+          },
+        );
+        await Tenant.findOneAndUpdate({ tenantId }, { plan });
+      }
+
+      if (event.type === 'customer.subscription.deleted') {
+        await Subscription.findOneAndUpdate(
+          { tenantId },
+          { status: 'cancelled', plan: 'trial' },
+        );
+        await Tenant.findOneAndUpdate({ tenantId }, { plan: 'trial', status: 'active' });
+        console.log(`⚠️  Stripe: subscription deleted → tenant=${tenantId}`);
+      }
+    } catch (e) {
+      console.error('❌ Stripe webhook handler error:', e.message);
+    }
+
+    res.json({ received: true });
+  }
+);
 
 // ── 404 handler — must be AFTER all routes ───────────
 app.use((req, res) => {
