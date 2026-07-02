@@ -1,73 +1,109 @@
 #!/usr/bin/env node
 'use strict';
-// News Department — weekly news reader
-// Sources: IFRS/IASB, Anthropic, npm security, Kuwait finance
+/**
+ * News Department v3.0 — DeptAgent
+ * Sources: IFRS/IASB · Anthropic · GitHub Security · Kuwait Finance
+ * Agent uses web_search to find Kuwait regulatory updates
+ */
+const https    = require('https');
+const { DeptAgent } = require('./_agent');
 
-const { today } = require('./_common');
+// ── RSS Fetcher ───────────────────────────────────────────────────────────────
+function getRaw(url) {
+  return new Promise(resolve => {
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'Boubyan-Agent/3.0' },
+      timeout: 10000,
+    }, res => {
+      let buf = '';
+      res.on('data', d => buf += d);
+      res.on('end', () => resolve({ ok: res.statusCode < 400, body: buf }));
+    });
+    req.on('error', () => resolve({ ok: false, body: '' }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, body: '' }); });
+  });
+}
 
 async function fetchRSS(url, label) {
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Boubyan-Accounting-Bot/1.0' },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return [];
-    const xml  = await res.text();
+    const { ok, body } = await getRaw(url);
+    if (!ok || !body) return { label, items: [], failed: true };
     const items = [];
-    const itemRe = /<item[\s\S]*?<\/item>/g;
+    const re    = /<item[\s\S]*?<\/item>/g;
     let match;
-    while ((match = itemRe.exec(xml)) !== null && items.length < 5) {
-      const item  = match[0];
-      const title = (item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) ||
-                     item.match(/<title>([\s\S]*?)<\/title>/))?.[1]?.trim() || '—';
-      const link  = (item.match(/<link>([\s\S]*?)<\/link>/) ||
-                     item.match(/<link\s+href="([^"]+)"/))?.[1]?.trim() || '';
-      const date  = (item.match(/<pubDate>([\s\S]*?)<\/pubDate>/))?.[1]?.trim() || '';
-      const cleanTitle = title.replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-      const cleanLink  = link.replace(/<[^>]+>/g,'').trim();
-      items.push({ title: cleanTitle, link: cleanLink, date, source: label });
+    while ((match = re.exec(body)) !== null && items.length < 5) {
+      const it    = match[0];
+      const title = (it.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) ||
+                     it.match(/<title>([\s\S]*?)<\/title>/))?.[1]?.trim() || '—';
+      const link  = (it.match(/<link>([\s\S]*?)<\/link>/) ||
+                     it.match(/<link\s+href="([^"]+)"/))?.[1]?.trim() || '';
+      const date  = (it.match(/<pubDate>([\s\S]*?)<\/pubDate>/))?.[1]?.slice(0, 16) || '';
+      const clean = title.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+      items.push({ title: clean, link: link.replace(/<[^>]+>/g,'').trim(), date });
     }
-    return items;
-  } catch { return []; }
+    return { label, items, failed: false };
+  } catch {
+    return { label, items: [], failed: true };
+  }
 }
 
 const FEEDS = [
-  { url: 'https://www.ifrs.org/news-and-events/news/rss/',          label: 'IFRS / IASB' },
-  { url: 'https://www.anthropic.com/rss.xml',                       label: 'Anthropic AI' },
-  { url: 'https://github.blog/category/security/feed/',             label: 'GitHub Security' },
-  { url: 'https://feeds.feedburner.com/TheHackersNews',             label: 'Cyber Security' },
+  { url: 'https://www.ifrs.org/news-and-events/news/rss/',      label: 'IFRS / IASB' },
+  { url: 'https://www.anthropic.com/rss.xml',                   label: 'Anthropic AI' },
+  { url: 'https://github.blog/category/security/feed/',         label: 'GitHub Security' },
+  { url: 'https://feeds.feedburner.com/TheHackersNews',         label: 'Cyber Security' },
 ];
 
 const KUWAIT_LINKS = [
-  { title: 'الجريدة الرسمية — القوانين الجديدة',       url: 'https://www.moj.gov.kw' },
-  { title: 'وزارة المالية الكويتية',                    url: 'https://www.mof.gov.kw' },
-  { title: 'بنك الكويت المركزي (CBK)',                  url: 'https://www.cbk.gov.kw' },
-  { title: 'مؤسسة التأمينات الاجتماعية (PIFSS)',        url: 'https://www.pifss.gov.kw' },
-  { title: 'وزارة الشؤون الاجتماعية والعمل',            url: 'https://www.mosal.gov.kw' },
+  { title: 'وزارة العدل — الجريدة الرسمية', url: 'https://www.moj.gov.kw' },
+  { title: 'وزارة المالية الكويتية',          url: 'https://www.mof.gov.kw' },
+  { title: 'بنك الكويت المركزي (CBK)',        url: 'https://www.cbk.gov.kw' },
+  { title: 'مؤسسة التأمينات (PIFSS)',         url: 'https://www.pifss.gov.kw' },
+  { title: 'وزارة الشؤون والعمل',             url: 'https://www.mosal.gov.kw' },
 ];
 
 async function main() {
-  const allItems = (await Promise.all(FEEDS.map(f => fetchRSS(f.url, f.label)))).flat();
-
-  const grouped = {};
-  allItems.forEach(item => {
-    if (!grouped[item.source]) grouped[item.source] = [];
-    grouped[item.source].push(item);
+  const agent = new DeptAgent({
+    name:      'news-reader',
+    nameAr:    '📰 قسم متابعة الأخبار والتشريعات',
+    mission:   'مراقبة تحديثات IFRS والأمن السيبراني والقوانين الكويتية المالية',
+    standards: ['IFRS/IASB', 'CBK Regulations', 'Kuwait MOJ', 'MOSAL'],
   });
 
-  const sections = Object.entries(grouped).map(([source, items]) => {
-    const rows = items.map(i => `- [${i.title}](${i.link})${i.date ? ` *(${i.date.slice(0,16)})*` : ''}`).join('\n');
-    return `### 📡 ${source}\n${rows}`;
-  });
+  agent.loadMemory();
 
-  const lines = [
-    `# 📰 News Department — أخبار الأسبوع`,
-    `**التاريخ:** ${today()}`,
-    '',
-    '> هذا التقرير يجمع آخر الأخبار من مصادر موثوقة تتعلق بالمحاسبة والقوانين الكويتية والذكاء الاصطناعي.',
-    '',
+  // ── Fetch all RSS feeds in parallel ──────────────────────────────────────────
+  const results = await Promise.all(FEEDS.map(f => fetchRSS(f.url, f.label)));
+
+  let failedCount = 0;
+  const newsContent = [];
+
+  for (const { label, items, failed } of results) {
+    if (failed || items.length === 0) {
+      failedCount++;
+      agent.finding('low', 'connectivity',
+        `فشل تحميل: ${label}`,
+        'تعذّر الوصول للمصدر — شبكة أو تغيير URL',
+        'تحقق من الاتصال بالإنترنت أو راجع رابط RSS');
+    } else {
+      agent.ok('connectivity', `${label} — ${items.length} خبر`);
+      const rows = items.map(i =>
+        `- [${i.title}](${i.link})${i.date ? ` *(${i.date})*` : ''}`
+      ).join('\n');
+      newsContent.push(`### 📡 ${label}\n${rows}`);
+    }
+  }
+
+  agent.metric('مصادر RSS', FEEDS.length, 'مصدر', FEEDS.length);
+  agent.metric('مصادر نشطة', FEEDS.length - failedCount, 'مصدر');
+  agent.metric('أخبار مُسترجعة', results.reduce((s, r) => s + r.items.length, 0), 'خبر');
+
+  // ── Extras: actual news content ───────────────────────────────────────────────
+  const extras = [
     '## 🌍 أخبار المصادر الدولية',
-    sections.length ? sections.join('\n\n') : '> ⚠️ لم يتم استرجاع أخبار هذا الأسبوع (تحقق من الاتصال بالإنترنت)',
+    newsContent.length
+      ? newsContent.join('\n\n')
+      : '> ⚠️ لم يُسترجع أي خبر هذا الأسبوع',
     '',
     '## 🇰🇼 مصادر الأخبار الكويتية (مراجعة يدوية)',
     '> يُرجى مراجعة هذه المصادر يدوياً للاطلاع على أي تحديثات قانونية:',
@@ -76,16 +112,15 @@ async function main() {
     '## ✅ قائمة المتابعة الأسبوعية',
     '- [ ] قراءة تحديثات IFRS/IASB أعلاه',
     '- [ ] التحقق من أي ثغرات أمنية جديدة في GitHub Security',
-    '- [ ] مراجعة الجريدة الرسمية الكويتية للقوانين الجديدة',
-    '- [ ] متابعة نشرات بنك الكويت المركزي',
-    '',
-    '---',
-    '_تقرير آلي من قسم News — بوبيان للمحاسبة_',
+    '- [ ] مراجعة الجريدة الرسمية الكويتية',
+    '- [ ] متابعة نشرات بنك الكويت المركزي (CBK)',
   ].join('\n');
 
-  process.stdout.write(lines + '\n');
+  agent.saveMemory();
+  await agent.runAgentLoop();
+
+  const report = await agent.buildReport(extras);
+  process.stdout.write(report + '\n');
 }
 
-main().catch(e => {
-  process.stdout.write(`# 📰 News Department\n\n> ❌ خطأ: ${e.message}\n`);
-});
+main().catch(e => process.stderr.write(`[news-reader] خطأ: ${e.message}\n`));

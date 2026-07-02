@@ -1,88 +1,128 @@
 #!/usr/bin/env node
 'use strict';
-// AI Department — monthly AI optimization report
-// Checks model versions, usage patterns, suggests improvements
+/**
+ * AI Optimizer Department v3.0 — DeptAgent
+ * Checks: model versions · prompt quality · retry logic · caching
+ * Standards: Anthropic Best Practices · Cost Optimization · Reliability
+ */
+const { DeptAgent }              = require('./_agent');
+const { readFile, countPattern } = require('./_common');
 
-const { readFile, countPattern, today } = require('./_common');
+async function main() {
+  const agent = new DeptAgent({
+    name:      'ai-optimizer',
+    nameAr:    '🤖 قسم تحسين الذكاء الاصطناعي',
+    mission:   'مراجعة جودة استخدام Claude API وتحسين الأداء والتكلفة',
+    standards: ['Anthropic Best Practices', 'Prompt Engineering', 'Cost Optimization'],
+  });
 
-const server = readFile('server.js');
-const ai     = readFile('lib/ai.js');
+  agent.loadMemory();
 
-// ── Model inventory ───────────────────────────────────────────────────────────
-const modelMatches = [...(server + ai).matchAll(/claude-[\w-]+/g)];
-const modelCounts  = {};
-modelMatches.forEach(m => { modelCounts[m[0]] = (modelCounts[m[0]]||0) + 1; });
+  const server = readFile('server.js');
+  const ai     = readFile('lib/ai.js');
+  const depts  = readFile('scripts/departments/_agent.js');
+  const allCode = server + ai + depts;
 
-// Known latest models as of 2026
-const LATEST_MODELS = {
-  'claude-haiku':  { latest: 'claude-haiku-4-5-20251001',  tier: 'Fast & Cheap'   },
-  'claude-sonnet': { latest: 'claude-sonnet-4-6',           tier: 'Balanced'       },
-  'claude-opus':   { latest: 'claude-opus-4-8',             tier: 'Most Capable'   },
-};
+  // ── Model inventory ───────────────────────────────────────────────────────────
+  const modelMatches = [...allCode.matchAll(/claude-[\w.-]+/g)];
+  const modelCounts  = {};
+  modelMatches.forEach(m => { modelCounts[m[0]] = (modelCounts[m[0]] || 0) + 1; });
 
-const DEPRECATED = ['claude-3-haiku-20240307','claude-3-sonnet-20240229','claude-3-opus-20240229','claude-2','claude-instant','claude-sonnet-4-20250514','claude-haiku-4-5'];
+  const DEPRECATED = [
+    'claude-3-haiku-20240307',
+    'claude-3-sonnet-20240229',
+    'claude-3-opus-20240229',
+    'claude-2',
+    'claude-instant',
+    'claude-sonnet-4-20250514',
+    'claude-haiku-4-5',
+  ];
 
-const deprecatedFound = Object.keys(modelCounts).filter(m => DEPRECATED.some(d => m.includes(d)));
+  const deprecatedFound = Object.keys(modelCounts)
+    .filter(m => DEPRECATED.some(d => m.includes(d) && m !== d + '-20251001'));
 
-// ── AI endpoint inventory ─────────────────────────────────────────────────────
-const aiEndpoints = (server.match(/app\.(post|get)\s*\(['"](\/api\/ai\/[^'"]+)/g)||[])
-  .map(m => m.match(/['"](\/api\/ai\/[^'"]+)/)?.[1])
-  .filter(Boolean);
+  if (deprecatedFound.length > 0)
+    agent.finding('high', 'models',
+      'نماذج قديمة (Deprecated) في الكود',
+      deprecatedFound.join(', '),
+      'حدّث للنماذج الحديثة: haiku-4-5-20251001 · sonnet-4-6 · opus-4-8');
+  else
+    agent.ok('models', 'جميع النماذج المستخدمة حديثة');
 
-// ── Prompt quality checks ─────────────────────────────────────────────────────
-const longPrompts = (server.match(/`[\s\S]{500,}/g)||[]).length;
-const hasSystemPrompts = countPattern(server + ai, /system\s*:/g);
-const hasRetry = server.includes('retry') || ai.includes('retry');
-const hasCache  = server.includes('cache_control') || server.includes('cacheControl');
-const streamingEndpoints = (server.match(/stream:\s*true/g)||[]).length;
+  // ── Prompt quality ────────────────────────────────────────────────────────────
+  const hasSystemPrompts = countPattern(allCode, /system\s*:/g);
+  if (hasSystemPrompts === 0)
+    agent.finding('medium', 'prompts',
+      'لا system prompts موجودة',
+      'الـ system prompt يحسّن الاتساق ويقلل الـ tokens',
+      'أضف system prompt لكل callAI في المهام المتكررة');
+  else
+    agent.ok('prompts', `System Prompts موجودة (${hasSystemPrompts} استخدام)`);
 
-// ── Cost estimation (rough) ───────────────────────────────────────────────────
-const haikuCalls  = Object.entries(modelCounts).filter(([k]) => k.includes('haiku')).reduce((s,[,v])=>s+v,0);
-const sonnetCalls = Object.entries(modelCounts).filter(([k]) => k.includes('sonnet')).reduce((s,[,v])=>s+v,0);
+  const hasRetry = server.includes('retry') || ai.includes('retry');
+  if (!hasRetry)
+    agent.finding('medium', 'reliability',
+      'لا Retry Logic للـ API calls',
+      'فشل واحد يكسر العملية — شبكة أو rate limit',
+      'أضف retry بـ exponential backoff في lib/ai.js (2-3 محاولات)');
+  else
+    agent.ok('reliability', 'Retry Logic موجود');
 
-const lines = [
-  `# 🤖 AI Department — تقرير التحسين ${today().slice(0,7)}`,
-  `**التاريخ:** ${today()}`,
-  '',
-  '## 📋 جرد النماذج المستخدمة',
-  `| النموذج | عدد الاستخدامات | الحالة |`,
-  `|---------|----------------|--------|`,
-  ...Object.entries(modelCounts).map(([model, count]) => {
-    const isDeprecated = DEPRECATED.some(d => model.includes(d));
-    return `| \`${model}\` | ${count} | ${isDeprecated ? '⚠️ قديم' : '✅ حديث'} |`;
-  }),
-  '',
-  deprecatedFound.length > 0
-    ? `## ⚠️ نماذج قديمة يجب التحديث\n${deprecatedFound.map(m => `- [ ] تحديث \`${m}\` → نموذج أحدث`).join('\n')}`
-    : '## ✅ جميع النماذج محدّثة',
-  '',
-  '## 🔌 AI Endpoints الحالية',
-  aiEndpoints.length
+  const hasCache = server.includes('cache_control') || server.includes('cacheControl');
+  if (!hasCache)
+    agent.finding('low', 'cost',
+      'Prompt Caching غير مفعّل',
+      'System prompts الثابتة تُعاد إرسالها في كل طلب — تكلفة إضافية',
+      'أضف cache_control للـ system prompts الثابتة لتوفير 90% من تكلفتها');
+  else
+    agent.ok('cost', 'Prompt Caching مفعّل');
+
+  // ── Streaming ─────────────────────────────────────────────────────────────────
+  const streamingCount = (server.match(/stream:\s*true/g) || []).length;
+  if (streamingCount === 0)
+    agent.finding('low', 'ux',
+      'لا Streaming Responses',
+      'المستخدم ينتظر الإجابة كاملة قبل رؤية أي نص',
+      'فعّل stream:true للردود الطويلة لتحسين تجربة المستخدم');
+  else
+    agent.ok('ux', `Streaming مفعّل (${streamingCount} endpoint)`);
+
+  // ── Endpoints inventory ───────────────────────────────────────────────────────
+  const aiEndpoints = (server.match(/app\.(post|get)\s*\(['"](\/api\/ai\/[^'"]+)/g) || [])
+    .map(m => m.match(/['"](\/api\/ai\/[^'"]+)/)?.[1])
+    .filter(Boolean);
+
+  // ── Metrics ───────────────────────────────────────────────────────────────────
+  agent.metric('نماذج Claude مستخدمة', Object.keys(modelCounts).length, 'نموذج');
+  agent.metric('AI Endpoints', aiEndpoints.length, 'endpoint');
+  agent.metric('نماذج قديمة', deprecatedFound.length, 'نموذج', 0);
+  agent.metric('System Prompts', hasSystemPrompts, 'استخدام');
+
+  // ── Extras: model table ───────────────────────────────────────────────────────
+  const modelRows = Object.entries(modelCounts).map(([model, count]) => {
+    const old = DEPRECATED.some(d => model.includes(d));
+    return `| \`${model}\` | ${count} | ${old ? '⚠️ قديم' : '✅ حديث'} |`;
+  }).join('\n');
+
+  const endpointList = aiEndpoints.length
     ? aiEndpoints.map(e => `- \`${e}\``).join('\n')
-    : '- لا endpoints AI',
-  '',
-  '## 📊 مؤشرات الجودة',
-  `| المؤشر | الحالة | الملاحظة |`,
-  `|--------|--------|----------|`,
-  `| System Prompts | ${hasSystemPrompts > 0 ? '✅' : '❌'} | ${hasSystemPrompts} prompt نظام موجود |`,
-  `| Streaming | ${streamingEndpoints > 0 ? '✅' : '🟡'} | ${streamingEndpoints} endpoint streaming |`,
-  `| Retry Logic | ${hasRetry ? '✅' : '❌'} | ${hasRetry ? 'موجود' : 'غير موجود — أضف retry للمكالمات الفاشلة'} |`,
-  `| Prompt Caching | ${hasCache ? '✅' : '🟡'} | ${hasCache ? 'موجود' : 'غير مفعّل — يوفر 90% من تكلفة system prompts'} |`,
-  '',
-  '## 💡 توصيات التحسين',
-  '',
-  !hasRetry ? '### 1. 🔄 إضافة Retry Logic\nعند فشل API call، أعد المحاولة 2-3 مرات مع تأخير تصاعدي.\n```javascript\n// في lib/ai.js\nasync function callAIWithRetry(opts, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try { return await callAI(opts); }\n    catch (e) { if (i === retries-1) throw e; await new Promise(r=>setTimeout(r, 1000*(i+1))); }\n  }\n}\n```\n- [ ] موافقة لتطبيق Retry Logic\n' : '',
-  !hasCache ? '### 2. 💰 تفعيل Prompt Caching\nأضف `cache_control` للـ system prompts الثابتة لتوفير 90% من التكلفة.\n- [ ] موافقة لتفعيل Prompt Caching\n' : '',
-  '### 3. 📊 إضافة AI Usage Tracking\nسجّل كل AI call: النموذج، الـ tokens، الوقت، والـ endpoint.\n- [ ] موافقة لإضافة Usage Tracking\n',
-  '### 4. 🎯 نموذج مخصص للتصنيف السريع\nللمهام البسيطة (تصنيف مصروف، اقتراح حساب) استخدم Haiku دائماً لخفض التكلفة.\n',
-  '## 🆕 ميزات AI مقترحة',
-  '- [ ] **Voice-to-Journal عربي:** تحويل رسالة صوتية بالعربية لقيد محاسبي (Telegram)',
-  '- [ ] **Smart Duplicate Detection:** كشف القيود المكررة بالـ AI',
-  '- [ ] **AI Budget Forecast:** توقع الميزانية للشهر القادم تلقائياً',
-  '- [ ] **Arabic OCR Enhancement:** استخراج بيانات الفواتير العربية بدقة أعلى',
-  '',
-  '---',
-  '_تقرير آلي من قسم AI — بوبيان للمحاسبة_',
-].filter(l => l !== null && l !== undefined && l !== false).join('\n');
+    : '- لا AI endpoints';
 
-process.stdout.write(lines + '\n');
+  const extras = `## 📋 جرد النماذج
+
+| النموذج | الاستخدامات | الحالة |
+|---------|------------|:------:|
+${modelRows}
+
+## 🔌 AI Endpoints الحالية
+
+${endpointList}`;
+
+  agent.saveMemory();
+  await agent.runAgentLoop();
+
+  const report = await agent.buildReport(extras);
+  process.stdout.write(report + '\n');
+}
+
+main().catch(e => process.stderr.write(`[ai-optimizer] خطأ: ${e.message}\n`));
