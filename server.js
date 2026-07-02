@@ -3312,7 +3312,7 @@ if(expData.length && document.getElementById('expChart')){
   };
 
   // Serve control panel page
-  app.get('/agents', requireAuth, (req, res) => {
+  app.get('/agents', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'agents.html'));
   });
 
