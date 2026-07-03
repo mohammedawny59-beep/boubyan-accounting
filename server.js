@@ -7964,30 +7964,22 @@ app.get('/api/coa/next-code', requireAuth, (req, res) => {
   const db  = loadDB();
   const coa = db.chartOfAccounts || [];
   const { prefix, parent } = req.query;
+  const { nextChildCode } = require('./lib/coaCodes');
 
-  let candidates;
-  if (prefix) {
-    // All codes that start with the given prefix (exact-length +1)
-    const plen = prefix.length;
-    candidates = coa
-      .filter(a => a.code.startsWith(prefix) && a.code.length === plen + 1)
-      .map(a => parseInt(a.code));
-  } else if (parent) {
-    const parentAcc = coa.find(a => a.id === parent || a.code === parent);
-    if (!parentAcc) return res.json({ nextCode: '' });
-    const pcode = parentAcc.code;
-    candidates = coa
-      .filter(a => a.code.startsWith(pcode) && a.code.length === pcode.length + 1)
-      .map(a => parseInt(a.code));
+  // Resolve the base code we're generating a child under
+  let baseCode = null;
+  if (parent) {
+    const p = coa.find(a => a.id === parent || a.code === parent);
+    if (!p) return res.json({ nextCode: '' });
+    baseCode = String(p.code);
+  } else if (prefix) {
+    baseCode = String(prefix);
   } else {
     return res.json({ nextCode: '' });
   }
 
-  const base = parseInt(prefix || (parent ? coa.find(a=>a.code===parent||a.id===parent)?.code||'0' : '0')) * 10;
-  let next = base + 10;
-  const taken = new Set(candidates);
-  while (taken.has(next) && next < base + 1000) next += 10;
-  res.json({ nextCode: String(next) });
+  const allCodes = coa.map(a => String(a.code));
+  res.json({ nextCode: nextChildCode(baseCode, allCodes) });
 });
 
 // ── JOURNAL: AI-Learn from correction ──────────────────────────────────────

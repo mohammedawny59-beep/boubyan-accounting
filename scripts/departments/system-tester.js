@@ -94,6 +94,41 @@ function testChartOfAccounts(db) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// اختبار 2ب — توليد كود الحساب الجديد (بق حقيقي في النظام لا في البيانات)
+// يجرّب "إضافة حساب جديد" لكل مجموعة ويتأكد أن الكود المقترح صحيح
+// ══════════════════════════════════════════════════════════════════════
+function testCodeGeneration(db) {
+  const coa = db.chartOfAccounts || [];
+  const groups = coa.filter(a => a.isGroup);
+  if (!groups.length) return;
+  say(`🧪 أجرّب "إضافة حساب جديد" تحت ${groups.length} مجموعة...`);
+
+  let nextChildCode;
+  try { ({ nextChildCode } = require('../../lib/coaCodes')); }
+  catch { say('  ↳ وحدة توليد الأكواد غير موجودة — تخطّيت'); return; }
+
+  const allCodes = coa.map(a => String(a.code));
+  const codeSet  = new Set(allCodes);
+  const widths   = new Set(allCodes.map(c => c.length));
+  const stdWidth = widths.size === 1 ? [...widths][0] : null; // fixed-width scheme?
+
+  let wrongWidth = 0, taken = 0, empty = 0, sample = null;
+  for (const g of groups) {
+    const suggested = nextChildCode(String(g.code), allCodes);
+    if (!suggested) { empty++; continue; }
+    if (codeSet.has(suggested)) { taken++; if (!sample) sample = `${g.code}→${suggested} (مستخدم مسبقاً)`; }
+    if (stdWidth && suggested.length !== stdWidth) {
+      wrongWidth++;
+      if (!sample) sample = `تحت الحساب ${g.code} يقترح "${suggested}" (${suggested.length} خانات بدل ${stdWidth})`;
+    }
+  }
+
+  if (wrongWidth) flag('critical', 'إضافة حساب', `عند إضافة حساب جديد، النظام يقترح كوداً بعدد خانات خاطئ في ${wrongWidth} مجموعة — مثال: ${sample}`, 'أصلح خوارزمية توليد كود الحساب في /api/coa/next-code');
+  if (taken)      flag('critical', 'إضافة حساب', `النظام يقترح كوداً مستخدماً مسبقاً في ${taken} حالة — مثال: ${sample}`, 'تأكد أن الكود المقترح غير موجود');
+  if (!wrongWidth && !taken) say('  ✅ توليد أكواد الحسابات الجديدة سليم');
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // اختبار 3 — منطق العمولات (نفس ما يحسبه النظام)
 // ══════════════════════════════════════════════════════════════════════
 function testCommissions(db) {
@@ -210,6 +245,7 @@ function main() {
 
   testJournalBalance(db);
   testChartOfAccounts(db);
+  testCodeGeneration(db);
   testCommissions(db);
   testInsurance(db);
   testInventory(db);
