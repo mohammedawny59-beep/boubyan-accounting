@@ -408,6 +408,117 @@ main {
 .report-body td { padding: 4px 8px; border: 1px solid var(--border); color: var(--text2); }
 .report-body blockquote { border-right: 3px solid var(--indigo); padding-right: 10px; color: var(--text2); margin: 6px 0; }
 
+/* ── Approval Drawer ────────────────────────────────────────────────── */
+.approval-overlay {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.7); backdrop-filter: blur(6px);
+  align-items: flex-end; justify-content: center;
+}
+.approval-overlay.open { display: flex; }
+.approval-drawer {
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: var(--r) var(--r) 0 0;
+  width: 100%; max-width: 680px;
+  max-height: 85dvh; display: flex; flex-direction: column;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.6);
+  animation: slideUpDrawer .25s ease;
+}
+@keyframes slideUpDrawer {
+  from { transform: translateY(40px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.drawer-title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.drawer-close {
+  background: none; border: none; color: var(--text2); cursor: pointer;
+  font-size: 18px; padding: 2px 8px; border-radius: 6px;
+}
+.drawer-close:hover { background: var(--bg4); color: var(--text); }
+.drawer-body { overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.approval-card {
+  background: var(--bg3); border: 1px solid rgba(248,81,73,.25);
+  border-radius: var(--r); padding: 16px;
+}
+.approval-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.approval-dept-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  background: rgba(248,81,73,.15); color: var(--red);
+  border: 1px solid rgba(248,81,73,.3); border-radius: 6px; padding: 2px 8px;
+  text-transform: uppercase;
+}
+.approval-title { font-size: 13px; font-weight: 600; flex: 1; }
+.approval-detail { font-size: 12px; color: var(--text2); line-height: 1.6; margin-bottom: 12px; }
+.approval-recommendation {
+  font-size: 11px; color: var(--text2); background: var(--bg4);
+  border-radius: 6px; padding: 8px 10px; margin-bottom: 12px;
+  border-right: 3px solid var(--yellow);
+}
+.approval-recommendation strong { color: var(--yellow); }
+.approval-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn-approve {
+  padding: 7px 18px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  background: rgba(63,185,80,.15); border: 1px solid rgba(63,185,80,.4);
+  color: var(--green); cursor: pointer; font-family: inherit;
+  transition: all .15s;
+}
+.btn-approve:hover { background: rgba(63,185,80,.25); }
+.btn-reject {
+  padding: 7px 18px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3);
+  color: var(--red); cursor: pointer; font-family: inherit;
+  transition: all .15s;
+}
+.btn-reject:hover { background: rgba(248,81,73,.2); }
+.approval-empty {
+  text-align: center; padding: 32px; color: var(--text2); font-size: 13px;
+}
+.approval-empty div { font-size: 2rem; margin-bottom: 8px; }
+
+/* ── Report Summary (clean format) ──────────────────────────────────── */
+.report-summary { display: flex; flex-direction: column; gap: 12px; }
+.summary-section { background: var(--bg3); border-radius: var(--r-sm); overflow: hidden; }
+.summary-section-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; font-size: 11px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+.summary-section-head.red   { background: rgba(248,81,73,.1);  color: var(--red); }
+.summary-section-head.yellow{ background: rgba(210,153,34,.1); color: var(--yellow); }
+.summary-section-head.green { background: rgba(63,185,80,.1);  color: var(--green); }
+.summary-section-head.blue  { background: rgba(56,139,253,.1); color: var(--blue); }
+.summary-items { display: flex; flex-direction: column; }
+.summary-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.summary-item:last-child { border-bottom: none; }
+.summary-item-text { flex: 1; line-height: 1.55; color: var(--text2); }
+.summary-item-text strong { color: var(--text); display: block; margin-bottom: 2px; }
+.summary-badge {
+  flex-shrink: 0; font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 5px; margin-top: 1px;
+}
+.badge-block { background: rgba(248,81,73,.15);  color: var(--red);    border: 1px solid rgba(248,81,73,.3); }
+.badge-auto  { background: rgba(63,185,80,.12);  color: var(--green);  border: 1px solid rgba(63,185,80,.3); }
+.badge-info  { background: rgba(210,153,34,.12); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+.summary-item-approve {
+  flex-shrink: 0; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  background: rgba(63,185,80,.12); border: 1px solid rgba(63,185,80,.3);
+  color: var(--green); cursor: pointer; font-family: inherit;
+}
+.summary-score-card {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px; background: var(--bg4); border-radius: var(--r-sm);
+  margin-bottom: 4px;
+}
+.summary-score-val { font-size: 2rem; font-weight: 700; }
+
 /* ── Toast ──────────────────────────────────────────────────────────── */
 #toast-container {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -579,11 +690,11 @@ main {
         <div class="stat-label">Cache Hit Rate</div>
       </div>
     </div>
-    <div class="stat-card" id="approvalsCard" style="display:none">
+    <div class="stat-card" id="approvalsCard" style="display:none;cursor:pointer;border-color:rgba(248,81,73,.3)" onclick="openApprovals()" title="اضغط لعرض الطلبات">
       <div class="stat-icon" style="background:rgba(239,68,68,.15)" aria-hidden="true">🔴</div>
       <div class="stat-info">
         <div class="stat-value" id="pendingApprovals" style="color:var(--red)">0</div>
-        <div class="stat-label">بانتظار موافقتك</div>
+        <div class="stat-label">بانتظار موافقتك — اضغط</div>
       </div>
     </div>
   </div>
@@ -645,6 +756,22 @@ main {
 
 </main>
 
+</div>
+
+<!-- Approval Drawer -->
+<div class="approval-overlay" id="approvalOverlay" onclick="closeApprovals(event)">
+  <div class="approval-drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+    <div class="drawer-header">
+      <div class="drawer-title">
+        🔴 <span id="drawerTitle">طلبات تحتاج موافقتك</span>
+        <span id="drawerCount" style="background:rgba(248,81,73,.15);color:var(--red);font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid rgba(248,81,73,.3)">0</span>
+      </div>
+      <button class="drawer-close" onclick="document.getElementById('approvalOverlay').classList.remove('open')" aria-label="إغلاق">✕</button>
+    </div>
+    <div class="drawer-body" id="drawerBody">
+      <div class="approval-empty"><div>✅</div>لا توجد طلبات معلّقة</div>
+    </div>
+  </div>
 </div>
 
 <!-- Toast container -->
@@ -844,6 +971,7 @@ function renderStats() {
       .then(r => r.ok ? r.json() : null)
       .then(list => {
         if (!list) return;
+        _pendingApprovals = list;
         document.getElementById('pendingApprovals').textContent = list.length;
         document.getElementById('approvalsCard').style.display = list.length > 0 ? '' : 'none';
       }).catch(() => {});
@@ -1057,6 +1185,219 @@ async function runAll() {
   btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> شغّل الكل`;
 
   setTimeout(() => progress.classList.remove('visible'), 4000);
+}
+
+// ── Approvals Panel ──────────────────────────────────────────────────
+let _pendingApprovals = [];
+
+function openApprovals() {
+  renderApprovalDrawer();
+  document.getElementById('approvalOverlay').classList.add('open');
+}
+
+function closeApprovals(e) {
+  if (e && e.target !== document.getElementById('approvalOverlay')) return;
+  document.getElementById('approvalOverlay').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('approvalOverlay').classList.remove('open');
+});
+
+function renderApprovalDrawer() {
+  const body = document.getElementById('drawerBody');
+  document.getElementById('drawerCount').textContent = _pendingApprovals.length;
+
+  if (_pendingApprovals.length === 0) {
+    body.innerHTML = '<div class="approval-empty"><div>✅</div>لا توجد طلبات معلّقة</div>';
+    return;
+  }
+
+  body.innerHTML = _pendingApprovals.map(item => `
+    <div class="approval-card" id="appr-${item.id}">
+      <div class="approval-card-header">
+        <span class="approval-dept-badge">${item.deptAr || item.dept}</span>
+        <span class="approval-title">${item.finding.title}</span>
+      </div>
+      <div class="approval-recommendation">
+        <strong>التوصية:</strong> ${item.finding.recommendation || 'لا توجد تفاصيل'}
+      </div>
+      <div class="approval-actions">
+        <button class="btn-reject" onclick="rejectItem('${item.id}')">✕ رفض</button>
+        <button class="btn-approve" onclick="approveItem('${item.id}')">✓ موافق — نفّذ</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function approveItem(id) {
+  try {
+    const r = await fetch(`/api/agents/approvals/${id}/approve`, { method: 'POST', headers: H });
+    const data = await r.json();
+    if (!r.ok) { toast('❌ ' + data.error, 'error'); return; }
+    document.getElementById(`appr-${id}`)?.remove();
+    _pendingApprovals = _pendingApprovals.filter(a => a.id !== id);
+    document.getElementById('drawerCount').textContent = _pendingApprovals.length;
+    if (_pendingApprovals.length === 0) {
+      document.getElementById('drawerBody').innerHTML = '<div class="approval-empty"><div>✅</div>تمت الموافقة على كل الطلبات!</div>';
+      document.getElementById('approvalsCard').style.display = 'none';
+    }
+    toast('✅ تمت الموافقة وسيتم التنفيذ', 'success');
+  } catch { toast('❌ خطأ في الاتصال', 'error'); }
+}
+
+async function rejectItem(id) {
+  try {
+    const r = await fetch(`/api/agents/approvals/${id}/reject`, { method: 'POST', headers: H });
+    const data = await r.json();
+    if (!r.ok) { toast('❌ ' + data.error, 'error'); return; }
+    document.getElementById(`appr-${id}`)?.remove();
+    _pendingApprovals = _pendingApprovals.filter(a => a.id !== id);
+    document.getElementById('drawerCount').textContent = _pendingApprovals.length;
+    if (_pendingApprovals.length === 0) {
+      document.getElementById('drawerBody').innerHTML = '<div class="approval-empty"><div>✅</div>لا توجد طلبات معلّقة</div>';
+      document.getElementById('approvalsCard').style.display = 'none';
+    }
+    toast('🚫 تم الرفض', '');
+  } catch { toast('❌ خطأ في الاتصال', 'error'); }
+}
+
+// ── Clean Report Format ───────────────────────────────────────────────
+function buildCleanReport(markdown, agentName) {
+  // Extract score
+  const scoreMatch = markdown.match(/(\d+)\s*\/\s*100/);
+  const score = scoreMatch ? parseInt(scoreMatch[1]) : null;
+  const scoreColor = score >= 80 ? 'var(--green)' : score >= 60 ? 'var(--yellow)' : 'var(--red)';
+
+  // Extract findings by type
+  const blockingItems = [];
+  const notifyItems   = [];
+  const autoItems     = [];
+
+  // Parse markdown lines for findings
+  const lines = markdown.split('\n');
+  let currentSeverity = '';
+  let currentTitle = '';
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/🔴|BLOCKING|حرج/i.test(trimmed)) currentSeverity = 'blocking';
+    else if (/🟡|NOTIFY|عالي/i.test(trimmed)) currentSeverity = 'notify';
+    else if (/🟢|AUTO|تلقائي/i.test(trimmed)) currentSeverity = 'auto';
+
+    // Extract bullet points as findings
+    if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+      const text = trimmed.replace(/^[-•]\s*/, '').replace(/\*\*/g, '');
+      if (!text || text.length < 5) continue;
+      const finding = { text };
+      if (currentSeverity === 'blocking') blockingItems.push(finding);
+      else if (currentSeverity === 'notify') notifyItems.push(finding);
+      else autoItems.push(finding);
+    }
+
+    // Also treat lines with finding keywords
+    if (/^#{1,3}\s/.test(trimmed)) {
+      currentTitle = trimmed.replace(/^#{1,3}\s/, '');
+    }
+  }
+
+  // If no structured findings found, extract any bullet points
+  if (blockingItems.length + notifyItems.length + autoItems.length === 0) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if ((trimmed.startsWith('- ') || trimmed.startsWith('• ')) && trimmed.length > 10) {
+        notifyItems.push({ text: trimmed.replace(/^[-•]\s*/, '').replace(/\*\*/g, '') });
+      }
+    }
+  }
+
+  let html = `<div class="report-summary">`;
+
+  // Score card
+  if (score !== null) {
+    html += `
+      <div class="summary-score-card">
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">نتيجة التقييم</div>
+          <div class="summary-score-val" style="color:${scoreColor}">${score}<span style="font-size:1rem;color:var(--text2)">/100</span></div>
+        </div>
+        <div style="font-size:2rem">${score >= 80 ? '✅' : score >= 60 ? '⚠️' : '🔴'}</div>
+      </div>`;
+  }
+
+  // Blocking — needs approval
+  if (blockingItems.length > 0) {
+    html += `
+      <div class="summary-section">
+        <div class="summary-section-head red">🔴 يحتاج موافقتك (${blockingItems.length})</div>
+        <div class="summary-items">
+          ${blockingItems.map(f => `
+            <div class="summary-item">
+              <span class="summary-badge badge-block">موافقة</span>
+              <div class="summary-item-text">${f.text}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // Notify — FYI
+  if (notifyItems.length > 0) {
+    html += `
+      <div class="summary-section">
+        <div class="summary-section-head yellow">🟡 للمعلومية — اقتراحات تحسين (${notifyItems.length})</div>
+        <div class="summary-items">
+          ${notifyItems.map(f => `
+            <div class="summary-item">
+              <span class="summary-badge badge-info">معلومة</span>
+              <div class="summary-item-text">${f.text}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // Auto — applied automatically
+  if (autoItems.length > 0) {
+    html += `
+      <div class="summary-section">
+        <div class="summary-section-head green">🟢 تلقائي — اكتملت بدون تدخل (${autoItems.length})</div>
+        <div class="summary-items">
+          ${autoItems.map(f => `
+            <div class="summary-item">
+              <span class="summary-badge badge-auto">تلقائي</span>
+              <div class="summary-item-text">${f.text}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // If nothing structured, show raw but cleaner
+  if (blockingItems.length + notifyItems.length + autoItems.length === 0) {
+    html += `<div class="summary-section">
+      <div class="summary-section-head blue">📋 ملخص التقرير</div>
+      <div class="summary-items">
+        <div class="summary-item"><div class="summary-item-text">${markdownToHTML(markdown)}</div></div>
+      </div>
+    </div>`;
+  }
+
+  // Pending approvals shortcut
+  if (_pendingApprovals.length > 0) {
+    html += `
+      <div style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:var(--r-sm);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <span style="font-size:12px;color:var(--red)">🔴 ${_pendingApprovals.length} طلب بانتظار موافقتك</span>
+        <button onclick="openApprovals()" style="padding:6px 14px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(248,81,73,.2);border:1px solid rgba(248,81,73,.4);color:var(--red);cursor:pointer;font-family:inherit">فتح لوحة الموافقات</button>
+      </div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+// Override showReport to use clean format
+function showReport(title, markdown) {
+  document.getElementById('reportTitle').textContent = title;
+  document.getElementById('reportBody').innerHTML = buildCleanReport(markdown, title);
+  document.getElementById('reportPanel').style.display = 'flex';
 }
 
 // ── Init ──────────────────────────────────────────────────────────────

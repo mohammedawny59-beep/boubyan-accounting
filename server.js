@@ -3433,6 +3433,25 @@ if(expData.length && document.getElementById('expChart')){
       res.json(getPendingApprovals());
     });
 
+    // Approve a pending item
+    app.post('/api/agents/approvals/:id/approve', requireAuth, (req, res) => {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط يمكنه الموافقة' });
+      const result = processCommand(`/approve ${req.params.id}`);
+      if (!result) return res.status(404).json({ error: 'الطلب غير موجود' });
+      if (!result.found) return res.status(404).json({ error: 'معرّف غير صالح' });
+      try { sendNotification({ deptNameAr: result.item.deptAr || result.item.dept, title: '✅ تمت الموافقة', detail: result.item.finding.title }); } catch {}
+      res.json({ success: true, id: req.params.id, status: 'approved' });
+    });
+
+    // Reject a pending item
+    app.post('/api/agents/approvals/:id/reject', requireAuth, (req, res) => {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط يمكنه الرفض' });
+      const result = processCommand(`/reject ${req.params.id}`);
+      if (!result) return res.status(404).json({ error: 'الطلب غير موجود' });
+      if (!result.found) return res.status(404).json({ error: 'معرّف غير صالح' });
+      res.json({ success: true, id: req.params.id, status: 'rejected' });
+    });
+
     // Get AI cache stats (CLAUDE.md §6)
     app.get('/api/agents/cache-stats', requireAuth, (req, res) => {
       res.json(getCacheStats());
