@@ -9721,7 +9721,8 @@ async function loadVouchers() {
   if(type) url+=`&type=${type}`;
   if(from) url+=`&from=${from}`;
   if(to)   url+=`&to=${to}`;
-  const data = await fetch(url).then(r=>r.json());
+  let data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  if(!Array.isArray(data)) data = [];
 
   const receipt = data.filter(v=>v.type==='receipt');
   const payment = data.filter(v=>v.type==='payment');
@@ -9962,7 +9963,8 @@ async function loadClaims() {
   const status = document.getElementById('clmStatus')?.value||'';
   let url='/api/insurance-claims?x=1';
   if(status) url+=`&status=${status}`;
-  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  let data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  if(!Array.isArray(data)) data = [];
 
   const total   = data.reduce((s,c)=>s+(c.amount||0),0);
   const pending = data.filter(c=>c.status!=='received').reduce((s,c)=>s+(c.amount||0),0);
@@ -10982,7 +10984,8 @@ async function runClosingEntry() {
 // ══════════════════════════════════════════════════════
 async function loadAgingAR() {
   const r = await fetch('/api/ar-aging');
-  const d = await r.json();
+  const d = await r.json().catch(()=>({}));
+  if (!d || !d.totals || !d.buckets) { const c=document.getElementById('agingContent'); if(c) c.innerHTML='<div style="text-align:center;color:var(--text3);padding:24px">لا توجد بيانات أعمار ديون</div>'; return; }
   const content = document.getElementById('agingContent');
   const labels = { current:'0-30 يوم', days30:'31-60 يوم', days60:'61-90 يوم', days90:'91-120 يوم', over90:'أكثر من 120 يوم' };
   const colors  = { current:'#4fe6af', days30:'#fbbf24', days60:'#f97316', days90:'#ef4444', over90:'#7f1d1d' };
@@ -11013,7 +11016,8 @@ async function loadAgingAR() {
 
 async function loadAgingAP() {
   const r = await fetch('/api/ap-aging');
-  const d = await r.json();
+  const d = await r.json().catch(()=>({}));
+  if (!d || !Array.isArray(d.rows)) { const c=document.getElementById('agingContent'); if(c) c.innerHTML='<div style="text-align:center;color:var(--text3);padding:24px">لا توجد بيانات أعمار موردين</div>'; return; }
   const content = document.getElementById('agingContent');
   const labels = { current:'0-30 يوم', days30:'31-60 يوم', days60:'61-90 يوم', over60:'أكثر من 90 يوم' };
   const colors  = { current:'#4fe6af', days30:'#fbbf24', days60:'#f97316', over60:'#ef4444' };
@@ -11173,7 +11177,8 @@ let _editingAssetId = null;
 
 async function loadFixedAssets() {
   const r = await fetch('/api/assets');
-  const assets = await r.json();
+  let assets = await r.json().catch(()=>[]);
+  if (!Array.isArray(assets)) assets = [];
 
   const fmt = n => parseFloat(n||0).toFixed(3);
   const totalCost = assets.reduce((s,a)=>s+(a.cost||0),0);

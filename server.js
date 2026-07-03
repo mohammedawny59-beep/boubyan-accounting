@@ -3003,6 +3003,7 @@ setTimeout(runScheduledTasks, 5000);
 // MONTHLY REPORT SLIDE — HTML Presentation
 // ═══════════════════════════════════════════════════
 app.get('/api/monthly-report-slide', async (req, res) => {
+  try {
   const db = loadDB();
   const now = new Date();
   const targetMonth = req.query.month || now.toISOString().substring(0, 7);
@@ -3294,6 +3295,10 @@ if(expData.length && document.getElementById('expChart')){
 
   res.setHeader('Content-Type','text/html; charset=utf-8');
   res.send(html);
+  } catch (e) {
+    console.error('❌ monthly-report-slide error:', e.message);
+    res.status(500).send('<h3 style="font-family:sans-serif;direction:rtl">تعذر توليد التقرير الشهري — ' + e.message + '</h3>');
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4941,8 +4946,8 @@ app.post('/api/ai/chat', async (req, res) => {
     });
 
     // Insurance claims summary
-    const claimPending = claims.filter(c => c.status !== 'received').reduce((s, c) => s + c.amount, 0);
-    const claimReceived = claims.filter(c => c.status === 'received').reduce((s, c) => s + (c.receivedAmount || c.amount), 0);
+    const claimPending = claims.filter(c => c.status !== 'received').reduce((s, c) => s + (c.amount || 0), 0);
+    const claimReceived = claims.filter(c => c.status === 'received').reduce((s, c) => s + (c.receivedAmount || c.amount || 0), 0);
 
     // Payroll total
     const payrollTotal = payroll.reduce((s, p) => s + (p.totalNet || 0), 0);
@@ -4957,7 +4962,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
     // Recent vouchers
     const recentVouchers = vouchers.slice(-5).map(v =>
-      `${v.number} (${v.type === 'receipt' ? 'قبض' : 'صرف'}) ${v.amount.toFixed(3)} د.ك — ${v.payee || '—'}`
+      `${v.number} (${v.type === 'receipt' ? 'قبض' : 'صرف'}) ${(v.amount || 0).toFixed(3)} د.ك — ${v.payee || '—'}`
     ).join('\n');
 
     const systemPrompt = `أنت مساعد محاسبي ذكي متخصص في عيادة الأسنان "بوبيان". لديك وصول كامل لبيانات العيادة الحقيقية.
