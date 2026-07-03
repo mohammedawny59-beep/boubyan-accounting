@@ -1,8 +1,9 @@
 name: 🪄 Design Studio — Monthly UI Proposals
 
 on:
-  schedule:
-    - cron: '0 8 1 * *'   # 1st of every month 08:00 UTC
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 8 1 * *'   # 1st of every month 08:00 UTC
   workflow_dispatch:
 
 permissions:

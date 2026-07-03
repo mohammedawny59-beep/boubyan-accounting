@@ -2696,7 +2696,8 @@ function runScheduledTasks() {
 
   // ── 1. ملخص يومي (كل مساء — الساعة القابلة للتخصيص)
   const dailyHour = Number(aut.dailySummary?.hour ?? 20);
-  if (aut.dailySummary?.enabled !== false && hour === dailyHour) {
+  // Opt-in: user explicitly disabled clinic accounting reports (2026-07-03)
+  if (aut.dailySummary?.enabled === true && hour === dailyHour) {
     const lastKey = 'lastDailySummary';
     if (cfg[lastKey] !== todayStr) {
       const dayRec = (db.dailyData||[]).find(d => d.date === todayStr);
@@ -2722,7 +2723,7 @@ function runScheduledTasks() {
   }
 
   // ── 2. تقرير أسبوعي (الأحد أو اليوم المحدد الساعة 9)
-  if (cfg.weeklyReport !== false && day === (cfg.weeklyDay ?? 0) && hour === 9) {
+  if (cfg.weeklyReport === true && day === (cfg.weeklyDay ?? 0) && hour === 9) {
     const lastKey = 'lastWeeklyReport';
     if (cfg[lastKey] !== todayStr) {
       const d7 = new Date(now); d7.setDate(d7.getDate()-7);
@@ -2744,7 +2745,7 @@ function runScheduledTasks() {
   }
 
   // ── 3. تقرير شهري (أول الشهر الساعة 9)
-  if (cfg.monthlyReport !== false && date === 1 && hour === 9) {
+  if (cfg.monthlyReport === true && date === 1 && hour === 9) {
     const lastKey = 'lastMonthlyReport';
     if (cfg[lastKey] !== todayStr) {
       const prevMonth = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().substring(0,7);
@@ -2769,7 +2770,7 @@ function runScheduledTasks() {
 
   // ── 4. تذكير عمولات معلقة (الخميس الساعة 10)
   const pendDay = Number(aut.pendingReminder?.dayOfWeek ?? 4);
-  if (aut.pendingReminder?.enabled !== false && day === pendDay && hour === 10) {
+  if (aut.pendingReminder?.enabled === true && day === pendDay && hour === 10) {
     const lastKey = 'lastPendingReminder';
     if (cfg[lastKey] !== todayStr) {
       const pending = (db.commissionHistory||[]).filter(c=>!c.paid);
@@ -3319,6 +3320,7 @@ if(expData.length && document.getElementById('expChart')){
     'ai-optimizer':     { script: 'scripts/departments/ai-optimizer.js',     nameAr: 'تحسين الذكاء',      icon: '🤖', color: '#a855f7', category: 'internal' },
     'rd-suggestions':   { script: 'scripts/departments/rd-suggestions.js',   nameAr: 'البحث والتطوير',    icon: '🔬', color: '#14b8a6', category: 'internal' },
     'compliance':       { script: 'scripts/compliance-check.js',             nameAr: 'الامتثال القانوني', icon: '✅', color: '#84cc16', category: 'internal' },
+    'system-tester':    { script: 'scripts/departments/system-tester.js',    nameAr: 'المُجرِّب',          icon: '🧪', color: '#06b6d4', category: 'internal' },
     // ── SaaS departments (CLAUDE.md §2-3) ─────────────────────────────────────
     'market-intel':     { script: 'scripts/departments/market-intel.js',     nameAr: 'أبحاث المنافسين',   icon: '🕵️', color: '#0ea5e9', category: 'saas' },
     'design-studio':    { script: 'scripts/departments/design-studio.js',    nameAr: 'التصميم الإنتاجي',  icon: '🪄', color: '#d946ef', category: 'saas' },
@@ -3519,15 +3521,18 @@ ${fileExcerpt}
 1. اشرح بجملة واحدة ماذا ستصلح
 2. قدّم أصغر تغيير ممكن (لا تعيد كتابة الملف كله)
 3. SEARCH يجب أن يكون نصاً موجوداً بالضبط في الملف أعلاه (انسخه حرفياً)
-4. إذا التغيير كبير جداً أو غير آمن أو لم تجد الكود، قل "SKIP: السبب"
+4. إذا التغيير كبير جداً أو غير آمن أو لم تجد الكود، أجب بسطر واحد فقط: SKIP: السبب
 
-الجواب بالشكل التالي فقط:
-EXPLANATION: [شرح بسيط بالعربي]
-SEARCH: [النص القديم للاستبدال — منقول حرفياً من الملف]
-REPLACE: [النص الجديد]
-
-أو إذا غير آمن:
-SKIP: [السبب]`;
+⚠️ التزم حرفياً بهذا الشكل — الكود داخل أسوار \`\`\` إجبارياً، ولا تكتب أي كلام بعد سور الإغلاق الأخير:
+EXPLANATION: [شرح بسيط بالعربي في سطر واحد]
+SEARCH:
+\`\`\`
+[النص القديم منقول حرفياً من الملف]
+\`\`\`
+REPLACE:
+\`\`\`
+[النص الجديد]
+\`\`\``;
 
         const aiResponse = await callAI({
           model: 'claude-haiku-4-5-20251001',
@@ -3546,17 +3551,26 @@ SKIP: [السبب]`;
           });
         }
 
-        const expMatch    = aiResponse.match(/EXPLANATION:\s*(.+?)(?:\n|SEARCH:)/s);
-        const searchMatch = aiResponse.match(/SEARCH:\s*([\s\S]+?)(?:\nREPLACE:)/);
-        const replaceMatch= aiResponse.match(/REPLACE:\s*([\s\S]+?)$/);
+        // Strict fenced-block parsing — prose can never leak into the file.
+        // (The old regex captured everything after REPLACE: to end of response,
+        //  which wrote AI commentary into the live page.)
+        const expMatch     = aiResponse.match(/EXPLANATION:\s*(.+)/);
+        const searchFence  = aiResponse.match(/SEARCH:\s*```[\w]*\n([\s\S]*?)\n?```/);
+        const replaceFence = aiResponse.match(/REPLACE:\s*```[\w]*\n([\s\S]*?)\n?```/);
 
-        if (!searchMatch || !replaceMatch) {
-          return res.json({ success: false, reason: 'لم يتمكن الذكاء الاصطناعي من توليد إصلاح محدد', raw: aiResponse });
+        if (!searchFence || !replaceFence) {
+          return res.json({ success: false, skipped: true, reason: 'الذكاء الاصطناعي لم يلتزم بصيغة الإصلاح الآمنة — يحتاج مراجعة يدوية' });
         }
 
-        const searchText  = searchMatch[1].trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
-        const replaceText = replaceMatch[1].trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+        const searchText  = searchFence[1];
+        const replaceText = replaceFence[1];
         const explanation = expMatch ? expMatch[1].trim() : suggestion;
+
+        // Safety net: reject any patch that still carries response markers or fences
+        const LEAK = /(EXPLANATION:|SEARCH:|REPLACE:|SKIP:|```)/;
+        if (!searchText.trim() || LEAK.test(replaceText) || LEAK.test(searchText)) {
+          return res.json({ success: false, skipped: true, reason: 'الإصلاح المُولَّد يحتوي نصاً غير آمن — رُفض تلقائياً لحماية الصفحة' });
+        }
 
         if (!fileContent.includes(searchText)) {
           return res.json({
@@ -3570,19 +3584,21 @@ SKIP: [السبب]`;
         const newContent = fileContent.replace(searchText, replaceText);
         await fs.writeFile(filePath, newContent, 'utf8');
 
-        // Log to agent memory
+        // Log to agent memory — full diff stored so the fix can be undone
         const logPath = path.join(__dirname, '.agent-memory', 'auto-fixes.json');
         await fs.ensureDir(path.dirname(logPath));
         let fixes = [];
         try { fixes = JSON.parse(await fs.readFile(logPath, 'utf8')); } catch {}
+        const fixId = `fix_${Date.now()}`;
         fixes.push({
-          id:          `fix_${Date.now()}`,
+          id:          fixId,
           appliedAt:   new Date().toISOString(),
           appliedBy:   req.user.username,
           targetFile:  target,
           suggestion,
           explanation,
-          diff:        { search: searchText.slice(0, 100), replace: replaceText.slice(0, 100) },
+          diff:        { search: searchText, replace: replaceText },
+          undone:      false,
         });
         const tmpLog = logPath + '.tmp';
         await fs.writeFile(tmpLog, JSON.stringify(fixes, null, 2), 'utf8');
@@ -3592,11 +3608,47 @@ SKIP: [السبب]`;
           success: true,
           message: `✅ تم التطبيق: ${explanation}`,
           file: target,
+          fixId,
           explanation,
         });
 
       } catch (e) {
         console.error('❌ apply-fix error:', e.message);
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Undo an applied fix (reverse the search/replace)
+    app.post('/api/agents/fixes/:id/undo', requireAuth, async (req, res) => {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+      try {
+        const fs   = require('fs-extra');
+        const path = require('path');
+        const logPath = path.join(__dirname, '.agent-memory', 'auto-fixes.json');
+        let fixes = [];
+        try { fixes = JSON.parse(await fs.readFile(logPath, 'utf8')); } catch {}
+        const fix = fixes.find(f => f.id === req.params.id);
+        if (!fix) return res.status(404).json({ error: 'الإصلاح غير موجود في السجل' });
+        if (fix.undone) return res.json({ success: false, reason: 'تم التراجع عن هذا الإصلاح مسبقاً' });
+        if (!fix.diff || !fix.diff.search || !fix.diff.replace) {
+          return res.json({ success: false, reason: 'هذا الإصلاح قديم ولا يحمل تفاصيل كافية للتراجع' });
+        }
+
+        const filePath = path.join(__dirname, fix.targetFile);
+        const content  = await fs.readFile(filePath, 'utf8');
+        if (!content.includes(fix.diff.replace)) {
+          return res.json({ success: false, reason: 'الكود تغيّر منذ التطبيق — لا يمكن التراجع تلقائياً' });
+        }
+        await fs.writeFile(filePath, content.replace(fix.diff.replace, fix.diff.search), 'utf8');
+
+        fix.undone   = true;
+        fix.undoneAt = new Date().toISOString();
+        const tmpLog = logPath + '.tmp';
+        await fs.writeFile(tmpLog, JSON.stringify(fixes, null, 2), 'utf8');
+        await fs.rename(tmpLog, logPath);
+
+        res.json({ success: true, message: '↩️ تم التراجع عن الإصلاح' });
+      } catch (e) {
         res.status(500).json({ error: e.message });
       }
     });

@@ -1,9 +1,10 @@
 name: 👥 HR Department — Monthly Reminders
 
 on:
-  schedule:
-    - cron: '0 7 1 * *'   # 1st of every month
-    - cron: '0 7 10 * *'  # 10th of every month (PIFSS warning)
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 7 1 * *'   # 1st of every month
+  #     - cron: '0 7 10 * *'  # 10th of every month (PIFSS warning)
   workflow_dispatch:
 
 permissions:

@@ -1,8 +1,9 @@
 name: ⚙️ Operations Department — Weekly System Check
 
 on:
-  schedule:
-    - cron: '0 5 * * 1'   # Every Monday 05:00 UTC (before other depts)
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 5 * * 1'   # Every Monday 05:00 UTC (before other depts)
   workflow_dispatch:
 
 permissions:

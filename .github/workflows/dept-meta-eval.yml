@@ -1,8 +1,9 @@
 name: 🔎 Meta-Eval — Weekly Self-Verification
 
 on:
-  schedule:
-    - cron: '0 10 * * 0'   # Every Sunday 10:00 UTC
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 10 * * 0'   # Every Sunday 10:00 UTC
   workflow_dispatch:
 
 permissions:

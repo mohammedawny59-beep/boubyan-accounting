@@ -1,8 +1,9 @@
 name: 🎨 Design/UX Department — Monthly Audit
 
 on:
-  schedule:
-    - cron: '0 9 15 * *'  # 15th of every month
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 9 15 * *'  # 15th of every month
   workflow_dispatch:
 
 permissions:

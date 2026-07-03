@@ -1,8 +1,9 @@
 name: 🕵️ Market Intelligence — Weekly Research
 
 on:
-  schedule:
-    - cron: '0 6 * * 1'   # Every Monday 06:00 UTC
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 6 * * 1'   # Every Monday 06:00 UTC
   workflow_dispatch:
 
 permissions:
