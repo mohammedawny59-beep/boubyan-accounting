@@ -5294,10 +5294,10 @@ async function loadDashboard() {
     animateCount(document.getElementById('kPend'),  s.pendingComm);
     // Add refreshed pulse on KPI cards
     document.querySelectorAll('.kc').forEach(c => { c.classList.remove('refreshed'); void c.offsetWidth; c.classList.add('refreshed'); });
-    document.getElementById('iRec').textContent   = s.insRecorded.fmt() + ' د.ك';
-    document.getElementById('iOrig').textContent  = s.insOriginal.fmt() + ' د.ك';
-    document.getElementById('iShare').textContent = s.insShare.fmt()    + ' د.ك';
-    document.getElementById('iNet').textContent   = s.insNet.fmt()      + ' د.ك';
+    document.getElementById('iRec').textContent   = (s.insRecorded  || 0).fmt() + ' د.ك';
+    document.getElementById('iOrig').textContent  = (s.insOriginal  || 0).fmt() + ' د.ك';
+    document.getElementById('iShare').textContent = (s.insShare     || 0).fmt() + ' د.ك';
+    document.getElementById('iNet').textContent   = (s.insNet       || 0).fmt() + ' د.ك';
     if (s.insRate) {
       const pct = (s.insRate * 100).toFixed(0);
       const div = (1 / (1 - s.insRate)).toFixed(2);
@@ -5321,13 +5321,13 @@ async function loadDashboard() {
     document.getElementById('dailyBody').innerHTML = filtered.length ?
       filtered.map(d => `<tr>
         <td>${d.date}</td>
-        <td class="num">${d.cash.fmt()}</td>
-        <td class="num">${d.knet.fmt()}</td>
-        <td class="num">${d.visa.fmt()}</td>
-        <td class="num">${d.master.fmt()}</td>
-        <td class="num" style="color:var(--warning)">${d.insurance.fmt()}</td>
+        <td class="num">${(d.cash||0).fmt()}</td>
+        <td class="num">${(d.knet||0).fmt()}</td>
+        <td class="num">${(d.visa||0).fmt()}</td>
+        <td class="num">${(d.master||0).fmt()}</td>
+        <td class="num" style="color:var(--warning)">${(d.insurance||0).fmt()}</td>
         <td class="num">${(d.link||0).fmt()}</td>
-        <td class="num pos">${d.total.fmt()}</td>
+        <td class="num pos">${(d.total||0).fmt()}</td>
       </tr>`).join('') :
       '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا بيانات للفترة المحددة</td></tr>';
 
@@ -5520,15 +5520,15 @@ function loadDoctors() {
   
   document.getElementById('drGrid').innerHTML = filtDocs.map(dr => {
     const entries = comms.filter(c => c.doctor === dr.name && (fMonth === 'all' || c.month === fMonth));
-    const totalRev = entries.reduce((s, c) => s + c.revenue, 0);
-    const totalComm = entries.reduce((s, c) => s + c.commission, 0);
-    const paidComm = entries.filter(c => c.paid).reduce((s, c) => s + c.commission, 0);
+    const totalRev = entries.reduce((s, c) => s + (c.revenue||0), 0);
+    const totalComm = entries.reduce((s, c) => s + (c.commission||0), 0);
+    const paidComm = entries.filter(c => c.paid).reduce((s, c) => s + (c.commission||0), 0);
     const pending = totalComm - paidComm;
     const pct = Math.min(100, dr.target > 0 ? Math.round(totalRev / dr.target * 100) : 0);
     const init = dr.name.replace(/DR\.|Dr\./g,'').trim().substring(0,2) || 'DR';
     return `<div class="dc">
       <div class="dc-hdr"><div class="dc-name">${dr.name}</div><div class="dc-av">${init}</div></div>
-      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${dr.target.toLocaleString()}</span></div>
+      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${(dr.target||0).toLocaleString()}</span></div>
       <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
       <div class="ds">
         <div><div class="dsl">إجمالي العمولات</div><div class="dsv">${totalComm.fmt()}</div></div>
@@ -5548,8 +5548,8 @@ function loadDoctors() {
       return `<tr>
         <td><span class="badge bb">${c.doctor}</span></td>
         <td>${monthLbl(c.month)}</td>
-        <td class="num">${c.revenue.fmt()} د.ك</td>
-        <td class="num pos">${c.commission.fmt()} د.ك${expBadge}${grossRow}</td>
+        <td class="num">${(c.revenue||0).fmt()} د.ك</td>
+        <td class="num pos">${(c.commission||0).fmt()} د.ك${expBadge}${grossRow}</td>
         <td>${c.paid ? '<span class="badge bg">✅ مدفوع</span>' : '<span class="badge br">⏳ معلّق</span>'}</td>
         <td>${c.payMethod || '—'}</td>
         <td>${c.payDate || '—'}</td>
@@ -6998,8 +6998,8 @@ async function loadJournal() {
   
   filtered.sort((a,b) => b.date.localeCompare(a.date));
   
-  const totalDebit  = filtered.reduce((s,e) => s + e.totalDebit, 0);
-  const totalCredit = filtered.reduce((s,e) => s + e.totalCredit, 0);
+  const totalDebit  = filtered.reduce((s,e) => s + (e.totalDebit||0), 0);
+  const totalCredit = filtered.reduce((s,e) => s + (e.totalCredit||0), 0);
   const diff = Math.abs(totalDebit - totalCredit);
   
   document.getElementById('jTotalDebit').textContent  = totalDebit.fmt();
@@ -7650,18 +7650,18 @@ async function loadReports() {
     return (!from || m >= from) && (!to || m <= to);
   });
 
-  const totalRev    = daily.reduce((s,d) => s+d.total, 0);
-  const insRecorded = daily.reduce((s,d) => s+d.insurance, 0);
+  const totalRev    = daily.reduce((s,d) => s+(d.total||0), 0);
+  const insRecorded = daily.reduce((s,d) => s+(d.insurance||0), 0);
   const insOrig     = insRecorded > 0 ? insRecorded/0.75 : 0;
   const insShare    = insOrig * 0.25;
   const netRev      = totalRev - insShare;
   const totalExp    = expenses.reduce((s,e) => s+(parseFloat(e.amount)||0), 0);
   const netIncome   = netRev - totalExp;
 
-  const knet   = daily.reduce((s,d)=>s+d.knet,0);
-  const visa   = daily.reduce((s,d)=>s+d.visa,0);
-  const master = daily.reduce((s,d)=>s+d.master,0);
-  const cash   = daily.reduce((s,d)=>s+d.cash,0);
+  const knet   = daily.reduce((s,d)=>s+(d.knet||0),0);
+  const visa   = daily.reduce((s,d)=>s+(d.visa||0),0);
+  const master = daily.reduce((s,d)=>s+(d.master||0),0);
+  const cash   = daily.reduce((s,d)=>s+(d.cash||0),0);
   const link   = daily.reduce((s,d)=>s+(d.link||0),0);
 
   // Income Statement
@@ -7711,8 +7711,8 @@ function exportReport() {
   const to   = document.getElementById('repTo')?.value || '';
   const daily = (DB.dailyData||[]).filter(d=>{const m=d.date?.substring(0,7);return(!from||m>=from)&&(!to||m<=to);});
   const expenses = (DB.expenses||[]).filter(e=>{const m=e.date?.substring(0,7);return(!from||m>=from)&&(!to||m<=to);});
-  const totalRev=daily.reduce((s,d)=>s+d.total,0);
-  const insShare=(daily.reduce((s,d)=>s+d.insurance,0)/0.75)*0.25;
+  const totalRev=daily.reduce((s,d)=>s+(d.total||0),0);
+  const insShare=(daily.reduce((s,d)=>s+(d.insurance||0),0)/0.75)*0.25;
   const totalExp=expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const rows=[['البند','المبلغ (د.ك)'],['إجمالي الإيرادات',totalRev.fmt()],['حصة التأمين',(insShare).fmt()],['صافي الإيرادات',(totalRev-insShare).fmt()],['إجمالي المصاريف',totalExp.fmt()],['صافي الدخل',(totalRev-insShare-totalExp).fmt()]];
   const csv=rows.map(r=>r.join(',')).join('\n');
@@ -7962,7 +7962,7 @@ async function loadRecurring() {
     items.map((r,i)=>`<tr>
       <td>${r.desc}</td>
       <td><span class="badge bo">${r.cat}</span></td>
-      <td class="num neg">${r.amount.fmt()} د.ك</td>
+      <td class="num neg">${(r.amount||0).fmt()} د.ك</td>
       <td>اليوم ${r.day}</td>
       <td>${r.active?'<span class="badge bg">فعّال</span>':'<span class="badge br">موقوف</span>'}</td>
       <td style="font-size:10px;color:var(--text3);">${r.lastApplied||'لم يطبّق بعد'}</td>
@@ -8303,8 +8303,8 @@ function renderInvItems() {
         <td style="font-size:10px;">${i.unit}</td>
         <td class="num ${i.qty<=0?'neg':i.qty<=i.minQty?'':'pos'}" style="font-weight:600;">${i.qty}</td>
         <td class="num">${i.minQty}</td>
-        <td class="num">${i.cost.fmt()}</td>
-        <td class="num pos">${(i.qty*i.cost).fmt()}</td>
+        <td class="num">${(i.cost||0).fmt()}</td>
+        <td class="num pos">${((i.qty||0)*(i.cost||0)).fmt()}</td>
         <td><span class="badge ${st.cls}">${st.label}</span></td>
         <td style="display:flex;gap:4px;">
           <button class="btn bw bsm" onclick="openItemModal('${i.id}')">✏️</button>
@@ -8336,8 +8336,8 @@ function renderInvMovements() {
       <td><span class="badge ${typeCls[m.type]}">${typeLabels[m.type]||m.type}</span></td>
       <td>${iMap[l.itemId]?.nameAr||l.itemId}</td>
       <td class="num">${l.qty > 0 ? '+' : ''}${l.qty}</td>
-      <td class="num">${l.cost.fmt()}</td>
-      <td class="num pos">${Math.abs(l.qty*l.cost).fmt()}</td>
+      <td class="num">${(l.cost||0).fmt()}</td>
+      <td class="num pos">${Math.abs((l.qty||0)*(l.cost||0)).fmt()}</td>
       <td style="font-family:monospace;font-size:10px;">${m.journalId||'—'}</td>
       <td style="font-size:10px;">${m.notes||'—'}</td>
     </tr>`).join('')).join('') :
@@ -8356,8 +8356,8 @@ function renderInvReport() {
       <td>${i.nameAr}</td>
       <td>${catMap[i.catId]||'—'}</td>
       <td class="num">${i.qty} ${i.unit}</td>
-      <td class="num">${i.cost.fmt()}</td>
-      <td class="num pos" style="font-weight:600;">${(i.qty*i.cost).fmt()}</td>
+      <td class="num">${(i.cost||0).fmt()}</td>
+      <td class="num pos" style="font-weight:600;">${((i.qty||0)*(i.cost||0)).fmt()}</td>
       <td><span class="badge ${st.cls}">${st.label}</span></td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">لا توجد أصناف</td></tr>';
@@ -9741,7 +9741,7 @@ async function loadVouchers() {
       <td>${v.payee||'—'}</td>
       <td>${v.assetAccName||(v.type==='receipt'?(v.debitAccName||'—'):(v.creditAccName||'—'))}</td>
       <td style="font-size:11px;color:var(--text3)">${v.lines?v.lines.length+' بنود':(v.category||'—')}</td>
-      <td class="num ${v.type==='receipt'?'pos':'neg'}" style="font-weight:700">${v.amount.fmt()}</td>
+      <td class="num ${v.type==='receipt'?'pos':'neg'}" style="font-weight:700">${(v.amount||0).fmt()}</td>
       <td><button class="btn bd bsm" onclick="deleteVoucher('${v.id}')">حذف</button></td>
     </tr>`).join('');
 }
@@ -9964,9 +9964,9 @@ async function loadClaims() {
   if(status) url+=`&status=${status}`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
 
-  const total   = data.reduce((s,c)=>s+c.amount,0);
-  const pending = data.filter(c=>c.status!=='received').reduce((s,c)=>s+c.amount,0);
-  const recvd   = data.filter(c=>c.status==='received').reduce((s,c)=>s+(c.receivedAmount||c.amount),0);
+  const total   = data.reduce((s,c)=>s+(c.amount||0),0);
+  const pending = data.filter(c=>c.status!=='received').reduce((s,c)=>s+(c.amount||0),0);
+  const recvd   = data.filter(c=>c.status==='received').reduce((s,c)=>s+(c.receivedAmount||c.amount||0),0);
   document.getElementById('clmTotal').textContent   = total.fmt();
   document.getElementById('clmPending').textContent = pending.fmt();
   document.getElementById('clmReceived').textContent= recvd.fmt();
@@ -9983,7 +9983,7 @@ async function loadClaims() {
       <td><span class="badge bb">${c.claimNo}</span></td>
       <td>${c.company}</td><td>${c.claimDate}</td>
       <td>${c.period||'—'}</td>
-      <td class="num or" style="font-weight:700">${c.amount.fmt()}</td>
+      <td class="num or" style="font-weight:700">${(c.amount||0).fmt()}</td>
       <td><span class="badge ${cls}">${lbl}</span></td>
       <td>${actions}<button class="btn bd bsm" onclick="deleteClaim('${c.id}')">حذف</button></td>
     </tr>`;

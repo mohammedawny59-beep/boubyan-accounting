@@ -3478,27 +3478,47 @@ if(expData.length && document.getElementById('expChart')){
 
         const fileContent = await fs.readFile(filePath, 'utf8');
 
+        // Extract relevant portion around the suggestion keywords to keep context focused
+        const MAX_EXCERPT = 60000;
+        let fileExcerpt = fileContent;
+        if (fileContent.length > MAX_EXCERPT) {
+          // Try to find a relevant region based on keywords in the suggestion
+          const keywords = suggestion.match(/[؀-ۿ\w]{4,}/g) || [];
+          let bestIdx = -1;
+          for (const kw of keywords) {
+            const idx = fileContent.indexOf(kw);
+            if (idx > 0) { bestIdx = idx; break; }
+          }
+          if (bestIdx > 5000) {
+            const start = Math.max(0, bestIdx - 5000);
+            fileExcerpt = '…[مقتطع ذو صلة]\n' + fileContent.slice(start, start + MAX_EXCERPT);
+          } else {
+            fileExcerpt = fileContent.slice(0, MAX_EXCERPT);
+          }
+        }
+
         // Use Claude to generate the specific fix
-        const prompt = `أنت مطوّر ويب خبير. لديك ملف HTML/CSS يحتاج إصلاح.
+        const prompt = `أنت مطوّر ويب خبير. لديك ملف HTML يحتاج إصلاح.
 
 المشكلة المُكتشَفة:
 ${suggestion}
 
 ${context ? `سياق إضافي:\n${context}\n` : ''}
 
-محتوى الملف (أول 3000 حرف):
+محتوى الملف (${fileExcerpt.length} حرف من أصل ${fileContent.length}):
 \`\`\`html
-${fileContent.slice(0, 3000)}
+${fileExcerpt}
 \`\`\`
 
 مهمتك:
 1. اشرح بجملة واحدة ماذا ستصلح
-2. قدّم ONLY الكود المُصلَح لأصغر تغيير ممكن (لا تعيد كتابة الملف كله)
-3. إذا التغيير كبير جداً أو غير آمن، قل "SKIP: السبب"
+2. قدّم أصغر تغيير ممكن (لا تعيد كتابة الملف كله)
+3. SEARCH يجب أن يكون نصاً موجوداً بالضبط في الملف أعلاه (انسخه حرفياً)
+4. إذا التغيير كبير جداً أو غير آمن أو لم تجد الكود، قل "SKIP: السبب"
 
-الجواب بالشكل:
+الجواب بالشكل التالي فقط:
 EXPLANATION: [شرح بسيط بالعربي]
-SEARCH: [النص القديم للاستبدال]
+SEARCH: [النص القديم للاستبدال — منقول حرفياً من الملف]
 REPLACE: [النص الجديد]
 
 أو إذا غير آمن:
@@ -3506,7 +3526,7 @@ SKIP: [السبب]`;
 
         const aiResponse = await callAI({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1500,
+          max_tokens: 2000,
           messages: [{ role: 'user', content: prompt }],
         });
 
@@ -3533,7 +3553,11 @@ SKIP: [السبب]`;
         const explanation = expMatch ? expMatch[1].trim() : suggestion;
 
         if (!fileContent.includes(searchText)) {
-          return res.json({ success: false, reason: 'النص المُراد تعديله غير موجود بالضبط في الملف — يحتاج مراجعة يدوية' });
+          return res.json({
+            success: false,
+            reason: 'النص المُراد تعديله غير موجود بالضبط في الملف — يحتاج مراجعة يدوية',
+            searchAttempted: searchText.slice(0, 200),
+          });
         }
 
         // Apply the fix
