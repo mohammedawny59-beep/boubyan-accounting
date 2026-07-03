@@ -1046,14 +1046,21 @@ async function loadFixes() {
       body.innerHTML = '<div class="fixes-empty">لا توجد إصلاحات مطبقة بعد — كل إصلاح يظهر هنا مع زر تراجع</div>';
       return;
     }
-    body.innerHTML = fixes.slice().reverse().map(f => `
+    body.innerHTML = fixes.slice().reverse().map(f => {
+      const badge = f.undone
+        ? '<span style="color:var(--text3)">· تم التراجع</span>'
+        : f.permanent
+          ? `<span style="color:var(--green)">· ✅ محفوظ نهائياً${f.commitUrl ? ` · <a href="${f.commitUrl}" target="_blank" style="color:var(--blue)">عرض</a>` : ''}</span>`
+          : '<span style="color:var(--yellow)">· ⚠️ مؤقت</span>';
+      return `
       <div class="fix-row ${f.undone ? 'undone' : ''}" id="fixrow-${f.id}">
         <div class="fix-info">
           <div class="fix-exp">${f.undone ? '↩️' : '✅'} ${escapeHTML(f.explanation || f.suggestion || '')}</div>
-          <div class="fix-meta">${escapeHTML(f.targetFile || '')} · ${new Date(f.appliedAt).toLocaleString('ar-KW')} ${f.undone ? '· تم التراجع' : ''}</div>
+          <div class="fix-meta">${escapeHTML(f.targetFile || '')} · ${new Date(f.appliedAt).toLocaleString('ar-KW')} ${badge}</div>
         </div>
         ${f.undone ? '' : `<button class="fix-undo" onclick="undoFix('${f.id}')">↩ تراجع</button>`}
-      </div>`).join('');
+      </div>`;
+    }).join('');
   } catch {}
 }
 

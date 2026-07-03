@@ -3572,17 +3572,41 @@ REPLACE:
           return res.json({ success: false, skipped: true, reason: 'الإصلاح المُولَّد يحتوي نصاً غير آمن — رُفض تلقائياً لحماية الصفحة' });
         }
 
-        if (!fileContent.includes(searchText)) {
+        // Guard against "file completion": the AI sees only an excerpt, so it must
+        // never balloon a targeted edit into appending large blocks of markup.
+        if (replaceText.length > searchText.length + 1500) {
+          return res.json({ success: false, skipped: true, reason: 'الإصلاح يضيف كوداً كبيراً جداً (قد يكون محاولة إكمال ملف) — رُفض لحماية الصفحة' });
+        }
+
+        // Must appear exactly once — replacing an ambiguous match could corrupt elsewhere
+        const occurrences = fileContent.split(searchText).length - 1;
+        if (occurrences === 0) {
           return res.json({
             success: false,
             reason: 'النص المُراد تعديله غير موجود بالضبط في الملف — يحتاج مراجعة يدوية',
             searchAttempted: searchText.slice(0, 200),
           });
         }
+        if (occurrences > 1) {
+          return res.json({ success: false, skipped: true, reason: `النص المُراد تعديله موجود ${occurrences} مرات — غامض، يحتاج مراجعة يدوية` });
+        }
 
-        // Apply the fix
+        // Apply the fix locally
         const newContent = fileContent.replace(searchText, replaceText);
         await fs.writeFile(filePath, newContent, 'utf8');
+
+        // Make it PERMANENT: commit to GitHub if configured (Render disk is ephemeral)
+        const github = require('./lib/github');
+        let persistence = { permanent: false, url: null };
+        if (github.isConfigured()) {
+          try {
+            const r = await github.commitFile(target, newContent, `fix(agent): ${explanation}\n\nطُبِّق تلقائياً بواسطة ${req.user.username} عبر لوحة الوكلاء`);
+            persistence = { permanent: true, url: r.url };
+          } catch (ghErr) {
+            console.error('⚠️ GitHub commit failed:', ghErr.message);
+            persistence = { permanent: false, url: null, error: ghErr.message };
+          }
+        }
 
         // Log to agent memory — full diff stored so the fix can be undone
         const logPath = path.join(__dirname, '.agent-memory', 'auto-fixes.json');
@@ -3598,18 +3622,32 @@ REPLACE:
           suggestion,
           explanation,
           diff:        { search: searchText, replace: replaceText },
+          permanent:   persistence.permanent,
+          commitUrl:   persistence.url,
           undone:      false,
         });
         const tmpLog = logPath + '.tmp';
         await fs.writeFile(tmpLog, JSON.stringify(fixes, null, 2), 'utf8');
         await fs.rename(tmpLog, logPath);
 
+        // Clear message about whether the change is permanent
+        let msg;
+        if (persistence.permanent) {
+          msg = `✅ تم التطبيق وحُفظ في الكود نهائياً: ${explanation}`;
+        } else if (persistence.error) {
+          msg = `⚠️ طُبِّق مؤقتاً فقط — تعذّر الحفظ في GitHub: ${persistence.error}`;
+        } else {
+          msg = `⚠️ طُبِّق مؤقتاً — لجعله دائماً أضف GITHUB_TOKEN في الإعدادات. (${explanation})`;
+        }
+
         res.json({
           success: true,
-          message: `✅ تم التطبيق: ${explanation}`,
+          message: msg,
           file: target,
           fixId,
           explanation,
+          permanent: persistence.permanent,
+          commitUrl: persistence.url,
         });
 
       } catch (e) {
@@ -3639,7 +3677,18 @@ REPLACE:
         if (!content.includes(fix.diff.replace)) {
           return res.json({ success: false, reason: 'الكود تغيّر منذ التطبيق — لا يمكن التراجع تلقائياً' });
         }
-        await fs.writeFile(filePath, content.replace(fix.diff.replace, fix.diff.search), 'utf8');
+        const reverted = content.replace(fix.diff.replace, fix.diff.search);
+        await fs.writeFile(filePath, reverted, 'utf8');
+
+        // Also revert on GitHub so the undo is permanent too
+        const github = require('./lib/github');
+        let undoPermanent = false;
+        if (github.isConfigured()) {
+          try {
+            await github.commitFile(fix.targetFile, reverted, `revert(agent): تراجع عن "${fix.explanation}"\n\nبواسطة ${req.user.username}`);
+            undoPermanent = true;
+          } catch (ghErr) { console.error('⚠️ GitHub undo commit failed:', ghErr.message); }
+        }
 
         fix.undone   = true;
         fix.undoneAt = new Date().toISOString();
@@ -3647,7 +3696,7 @@ REPLACE:
         await fs.writeFile(tmpLog, JSON.stringify(fixes, null, 2), 'utf8');
         await fs.rename(tmpLog, logPath);
 
-        res.json({ success: true, message: '↩️ تم التراجع عن الإصلاح' });
+        res.json({ success: true, message: undoPermanent ? '↩️ تم التراجع وحُفظ في الكود' : '↩️ تم التراجع (مؤقتاً)' });
       } catch (e) {
         res.status(500).json({ error: e.message });
       }
