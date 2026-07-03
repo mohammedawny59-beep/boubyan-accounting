@@ -1203,6 +1203,11 @@ async function applyFix(idx, suggestion) {
   const item = document.getElementById(`fix-item-${idx}`);
   if (!btn || btn.disabled) return;
 
+  if (DEMO_MODE || !TOKEN) {
+    toast('⚠️ يجب تسجيل الدخول أولاً — اذهب إلى الصفحة الرئيسية وسجّل دخولك', 'error');
+    return;
+  }
+
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner" style="width:10px;height:10px;border-width:2px"></span> جارٍ...';
 
