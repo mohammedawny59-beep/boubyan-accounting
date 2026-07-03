@@ -1333,8 +1333,8 @@ function buildCleanReport(markdown, agentName) {
         <div class="summary-items">
           ${blockingItems.map(f => `
             <div class="summary-item">
-              <span class="summary-badge badge-block">موافقة</span>
               <div class="summary-item-text">${f.text}</div>
+              <button class="summary-item-approve" onclick="openApprovals()">موافقة ←</button>
             </div>`).join('')}
         </div>
       </div>`;
