@@ -22,8 +22,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ===== PATHS =====
-const DATA_FILE   = path.join(__dirname, 'data', 'database.json');
-const CONFIG_FILE = path.join(__dirname, 'data', 'config.json');
+// DATA_FILE/CONFIG_FILE are env-overridable so the system-tester can boot an
+// isolated sandbox instance against a throwaway database (real data untouched).
+const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data', 'database.json');
+const CONFIG_FILE = process.env.CONFIG_FILE || path.join(__dirname, 'data', 'config.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 fs.ensureDirSync(path.join(__dirname, 'data'));
 fs.ensureDirSync(UPLOADS_DIR);

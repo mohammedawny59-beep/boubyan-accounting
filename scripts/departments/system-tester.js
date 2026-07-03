@@ -195,6 +195,92 @@ function testInventory(db) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// اختبار 6 — تجارب حية END-TO-END في بيئة معزولة
+// المُجرِّب "يقعد يعمل قيود ويجرب" النظام فعلياً — بدون لمس بيانات الإنتاج
+// ══════════════════════════════════════════════════════════════════════
+async function testEndToEnd(db) {
+  let startSandbox;
+  try { ({ startSandbox } = require('./_sandbox')); }
+  catch { return; }
+
+  say('🧪 أبدأ تجارب حية — سأعمل قيوداً وأجرّب النظام في بيئة معزولة...');
+
+  // Seed the sandbox with a COPY of the real chart of accounts (read-only copy)
+  const coaCopy = JSON.parse(JSON.stringify(db.chartOfAccounts || []));
+  if (!coaCopy.length) { say('  ↳ لا توجد شجرة حسابات لأجرّب عليها — تخطّيت'); return; }
+
+  let sb;
+  try {
+    sb = await startSandbox({ seed: { chartOfAccounts: coaCopy }, log: say });
+  } catch (e) {
+    say('  ⚠️ تعذّر إقلاع البيئة التجريبية — تخطّيت التجارب الحية (' + e.message + ')');
+    return;
+  }
+
+  const api = async (method, p, body) => {
+    const r = await fetch(sb.baseUrl + p, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sb.token },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let data = null; try { data = await r.json(); } catch {}
+    return { status: r.status, ok: r.ok, data };
+  };
+
+  try {
+    const leaves = coaCopy.filter(a => !a.isGroup);
+    const existingCodes = new Set(coaCopy.map(a => String(a.code)));
+
+    // ── تجربة 1: إضافة حساب جديد + صحة الكود المقترح ──
+    const nc = await api('GET', '/api/coa/next-code?parent=1000');
+    const suggested = nc.data && nc.data.nextCode;
+    if (suggested) {
+      if (String(suggested).length !== 4 || existingCodes.has(String(suggested))) {
+        flag('critical', 'تجربة: إضافة حساب', `النظام اقترح كود حساب خاطئ "${suggested}" عند الإضافة تحت 1000`, 'أصلح /api/coa/next-code');
+      } else {
+        const create = await api('POST', '/api/coa/account', { code: suggested, name: 'حساب اختبار آلي', type: 'asset', parent: '1000' });
+        if (!create.ok || !create.data?.success) flag('high', 'تجربة: إضافة حساب', `فشل إنشاء حساب جديد بكود صحيح (${create.status})`, 'راجع POST /api/coa/account');
+        else say(`  ✅ أضفت حساباً جديداً بكود ${suggested} — نجح`);
+      }
+    }
+
+    // ── تجربة 2: منطق القيد المزدوج (متوازن يُقبل، غير متوازن يُرفض) ──
+    if (leaves.length >= 2) {
+      const [a1, a2] = leaves;
+      const line = (acc, d, c) => ({ accountId: acc.code, accountCode: acc.code, accountName: acc.name, debit: d, credit: c });
+
+      const balanced = await api('POST', '/api/journal', {
+        date: '2026-01-15', desc: 'قيد اختبار متوازن',
+        lines: [line(a1, 100, 0), line(a2, 0, 100)],
+      });
+      if (!balanced.ok || !balanced.data?.success) flag('critical', 'تجربة: قيد محاسبي', `النظام رفض قيداً متوازناً صحيحاً (${balanced.status}) — خطأ في التحقق`, 'راجع POST /api/journal');
+      else say('  ✅ قيد متوازن (مدين=دائن) → قُبل بشكل صحيح');
+
+      const unbalanced = await api('POST', '/api/journal', {
+        date: '2026-01-15', desc: 'قيد اختبار غير متوازن',
+        lines: [line(a1, 100, 0), line(a2, 0, 50)],
+      });
+      if (unbalanced.ok && unbalanced.data?.success) flag('critical', 'تجربة: قيد محاسبي', 'النظام قَبِل قيداً غير متوازن (مدين 100 ≠ دائن 50)! — ثغرة محاسبية خطيرة', 'يجب رفض أي قيد مدينه لا يساوي دائنه');
+      else say('  ✅ قيد غير متوازن → رُفض بشكل صحيح');
+    }
+
+    // ── تجربة 3: ميزان المراجعة يجب أن يتوازن ──
+    const tb = await api('GET', '/api/trial-balance');
+    if (tb.ok && tb.data) {
+      if (tb.data.isBalanced === false || Math.abs((tb.data.grandDebit||0) - (tb.data.grandCredit||0)) > 0.01) {
+        flag('critical', 'تجربة: ميزان المراجعة', `ميزان المراجعة غير متوازن بعد قيد صحيح (مدين ${tb.data.grandDebit} ≠ دائن ${tb.data.grandCredit})`, 'راجع منطق ميزان المراجعة');
+      } else say('  ✅ ميزان المراجعة متوازن بعد القيود');
+    }
+
+    say('  ✅ انتهت التجارب الحية — البيئة التجريبية تُحذف الآن');
+  } catch (e) {
+    say('  ⚠️ خطأ أثناء التجارب الحية: ' + e.message);
+  } finally {
+    sb.stop();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // بناء التقرير
 // ══════════════════════════════════════════════════════════════════════
 function buildReport() {
@@ -229,13 +315,13 @@ function buildReport() {
   }
   L.push('');
   L.push('---');
-  L.push('_المُجرِّب — يفحص النظام للقراءة فقط ولا يعدّل أي بيانات إنتاج._');
+  L.push('_المُجرِّب — يفحص البيانات للقراءة فقط، ويجري التجارب الحية في بيئة معزولة. بيانات الإنتاج لا تُمَس._');
   return L.join('\n');
 }
 
 // ══════════════════════════════════════════════════════════════════════
-function main() {
-  say('▶ المُجرِّب بدأ — سأختبر النظام مثل محاسب حقيقي (قراءة فقط)...');
+async function main() {
+  say('▶ المُجرِّب بدأ — سأختبر النظام مثل محاسب حقيقي...');
   const db = loadDB();
   if (!db) {
     say('❌ تعذّر قراءة قاعدة البيانات');
@@ -243,6 +329,7 @@ function main() {
     process.exit(0);
   }
 
+  // Read-only integrity checks on real data
   testJournalBalance(db);
   testChartOfAccounts(db);
   testCodeGeneration(db);
@@ -250,8 +337,15 @@ function main() {
   testInsurance(db);
   testInventory(db);
 
+  // Live end-to-end trials in an isolated sandbox (real data physically untouched)
+  await testEndToEnd(db);
+
   say(`✅ انتهيت — اكتشفت ${issues.length} ملاحظة. التقرير جاهز.`);
   process.stdout.write(buildReport() + '\n');
 }
 
-main();
+main().catch(e => {
+  say('❌ خطأ عام: ' + e.message);
+  try { process.stdout.write(buildReport() + '\n'); } catch {}
+  process.exit(0);
+});
