@@ -3535,12 +3535,13 @@ SKIP: [السبب]`;
           messages: [{ role: 'user', content: prompt }],
         });
 
-        // Parse AI response
-        if (aiResponse.startsWith('SKIP:')) {
+        // Parse AI response — SKIP may appear after EXPLANATION, not only at the start
+        const skipMatch = aiResponse.match(/^SKIP:\s*([\s\S]+)/m);
+        if (skipMatch && !/^SEARCH:/m.test(aiResponse)) {
           return res.json({
             success: false,
             skipped: true,
-            reason: aiResponse.replace('SKIP:', '').trim(),
+            reason: skipMatch[1].trim(),
             message: 'الإصلاح يحتاج مراجعة يدوية',
           });
         }
