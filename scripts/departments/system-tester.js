@@ -272,6 +272,60 @@ async function testEndToEnd(db) {
       } else say('  ✅ ميزان المراجعة متوازن بعد القيود');
     }
 
+    const line = (acc, d, c) => ({ accountId: acc.code, accountCode: acc.code, accountName: acc.name, debit: d, credit: c });
+    const assetLeaf = leaves.find(a => String(a.code).startsWith('1'));
+    const revLeaf   = leaves.find(a => String(a.code).startsWith('4'));
+    const expLeaf   = leaves.find(a => String(a.code).startsWith('5'));
+
+    // ── تجربة 4: تسجيل مصروف يجب أن ينعكس في الأرباح والخسائر ──
+    if (expLeaf) {
+      const before = await api('GET', '/api/reports/pnl');
+      const beforeExp = before.data?.totalExpenses || 0;
+      const exp = await api('POST', '/api/expenses', { date: '2026-02-01', amount: 50, accountCode: expLeaf.code, desc: 'مصروف اختبار آلي' });
+      if (!exp.ok || !exp.data?.success) flag('high', 'تجربة: مصروف', `فشل تسجيل مصروف (${exp.status})`, 'راجع POST /api/expenses');
+      else {
+        const after = await api('GET', '/api/reports/pnl');
+        if ((after.data?.totalExpenses || 0) < beforeExp + 49.9) flag('high', 'تجربة: مصروف', `المصروف لم ينعكس في قائمة الأرباح والخسائر`, 'راجع ربط المصاريف بالتقارير');
+        else say('  ✅ سجّلت مصروفاً وانعكس في الأرباح والخسائر');
+      }
+    }
+
+    // ── تجربة 5: المعادلة المحاسبية (أصول = خصوم + حقوق + صافي الدخل) ──
+    if (assetLeaf && revLeaf) {
+      await api('POST', '/api/journal', { date: '2026-02-02', desc: 'إيراد اختبار', lines: [line(assetLeaf, 100, 0), line(revLeaf, 0, 100)] });
+      const bs = await api('GET', '/api/reports/balance-sheet');
+      const pl = await api('GET', '/api/reports/pnl');
+      if (bs.ok && pl.ok && bs.data && pl.data) {
+        const A = bs.data.totalAssets || 0, L = bs.data.totalLiabilities || 0, E = bs.data.totalEquity || 0, NI = pl.data.netIncome || 0;
+        if (Math.abs(A - (L + E + NI)) > 0.5) flag('critical', 'تجربة: المعادلة المحاسبية', `الأصول (${A}) لا تساوي الخصوم+حقوق الملكية+صافي الدخل (${(L + E + NI).toFixed(3)})`, 'خلل في التقارير المالية — يخالف المعادلة المحاسبية الأساسية');
+        else say('  ✅ المعادلة المحاسبية متوازنة (أصول = خصوم + حقوق + صافي الدخل)');
+      }
+    }
+
+    // ── تجربة 6: مسح استقرار — أي تقرير ينهار (500)؟ ──
+    const reportEps = ['/api/reports/pnl', '/api/reports/balance-sheet', '/api/reports/cashflow', '/api/trial-balance', '/api/financial-statements', '/api/stats', '/api/ar-aging', '/api/ap-aging', '/api/coa/balances', '/api/anomalies', '/api/audit-log'];
+    const crashed = [];
+    for (const p of reportEps) { const r = await api('GET', p); if (r.status >= 500) crashed.push(p); }
+    if (crashed.length) flag('critical', 'تجربة: استقرار', `${crashed.length} تقرير/شاشة تنهار: ${crashed.join('، ')}`, 'راجع معالجة الأخطاء في هذه الـ endpoints');
+    else say(`  ✅ فحصت ${reportEps.length} تقرير/شاشة — كلها تعمل بدون انهيار`);
+
+    // ── تجربة 7: إضافة صنف مخزون وحفظ الكمية بشكل صحيح ──
+    const inv = await api('POST', '/api/inv/items', { id: 'sbx-item', name: 'صنف اختبار', code: 'SBX-1', quantity: 10, costPrice: 5, minQty: 3, unit: 'حبة' });
+    if (inv.ok && inv.data?.success) {
+      const list = await api('GET', '/api/inv/items');
+      const item = (Array.isArray(list.data) ? list.data : []).find(i => i.id === 'sbx-item');
+      if (!item) flag('medium', 'تجربة: مخزون', 'الصنف المُضاف لم يظهر في القائمة', 'راجع حفظ أصناف المخزون');
+      else if (Number(item.quantity) !== 10) flag('medium', 'تجربة: مخزون', `كمية الصنف غير صحيحة (${item.quantity} بدل 10)`, 'راجع حفظ الكمية');
+      else say('  ✅ إضافة صنف مخزون تعمل وتحفظ الكمية صحيحة');
+    }
+
+    // ── تجربة 8: سند قبض ──
+    if (assetLeaf && revLeaf) {
+      const v = await api('POST', '/api/vouchers', { type: 'receipt', date: '2026-02-03', payee: 'اختبار', assetAccId: assetLeaf.id || assetLeaf.code, lines: [{ accountId: revLeaf.id || revLeaf.code, amount: 75, desc: 'قبض اختبار' }] });
+      if (v.status >= 500) flag('high', 'تجربة: سند', `سند القبض ينهار (${v.status})`, 'راجع POST /api/vouchers');
+      else if (v.status < 400) say('  ✅ سند قبض أُنشئ بنجاح');
+    }
+
     say('  ✅ انتهت التجارب الحية — البيئة التجريبية تُحذف الآن');
   } catch (e) {
     say('  ⚠️ خطأ أثناء التجارب الحية: ' + e.message);
@@ -297,7 +351,7 @@ function buildReport() {
   L.push('# 🧪 تقرير المُجرِّب — فحص شامل للنظام المحاسبي');
   L.push(`**التاريخ:** ${today()} | **النتيجة:** ${score}/100 | **الحالة:** ${crit ? '🔴 يحتاج انتباهك' : score >= 80 ? '✅ سليم' : '🟡 مقبول'}`);
   L.push('');
-  L.push('> جرّبت النظام مثل محاسب حقيقي: فحصت القيود، شجرة الحسابات، العمولات، التأمين، والمخزون — للقراءة فقط دون تعديل أي بيانات.');
+  L.push('> جرّبت النظام مثل محاسب حقيقي: فحصت البيانات (قيود، شجرة حسابات، عمولات، تأمين، مخزون)، وأجريت تجارب حية في بيئة معزولة (أضفت حسابات، عملت قيوداً، سجّلت مصاريف، أنشأت سندات، ودقّقت التقارير والمعادلة المحاسبية). بيانات عيادتك الحقيقية لم تُمَس.');
   L.push('');
 
   if (!issues.length) {
