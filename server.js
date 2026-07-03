@@ -3452,6 +3452,136 @@ if(expData.length && document.getElementById('expChart')){
       res.json({ success: true, id: req.params.id, status: 'rejected' });
     });
 
+    // Apply a fix suggestion automatically (AUTO level — CLAUDE.md §4)
+    // Only for bug fixes, not new features
+    app.post('/api/agents/apply-fix', requireAuth, async (req, res) => {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+
+      const { suggestion, context, targetFile } = req.body;
+      if (!suggestion) return res.status(400).json({ error: 'suggestion مطلوب' });
+
+      // Only allow editing files inside public/ or specific safe paths
+      const SAFE_PATHS = ['public/index.html', 'public/agents.html', 'public/landing.html'];
+      const target = targetFile || 'public/index.html';
+      if (!SAFE_PATHS.includes(target)) {
+        return res.status(403).json({ error: 'لا يمكن تعديل هذا الملف تلقائياً — يحتاج موافقة يدوية' });
+      }
+
+      try {
+        const fs   = require('fs-extra');
+        const path = require('path');
+        const filePath = path.join(__dirname, target);
+
+        if (!await fs.pathExists(filePath)) {
+          return res.status(404).json({ error: 'الملف غير موجود: ' + target });
+        }
+
+        const fileContent = await fs.readFile(filePath, 'utf8');
+
+        // Use Claude to generate the specific fix
+        const prompt = `أنت مطوّر ويب خبير. لديك ملف HTML/CSS يحتاج إصلاح.
+
+المشكلة المُكتشَفة:
+${suggestion}
+
+${context ? `سياق إضافي:\n${context}\n` : ''}
+
+محتوى الملف (أول 3000 حرف):
+\`\`\`html
+${fileContent.slice(0, 3000)}
+\`\`\`
+
+مهمتك:
+1. اشرح بجملة واحدة ماذا ستصلح
+2. قدّم ONLY الكود المُصلَح لأصغر تغيير ممكن (لا تعيد كتابة الملف كله)
+3. إذا التغيير كبير جداً أو غير آمن، قل "SKIP: السبب"
+
+الجواب بالشكل:
+EXPLANATION: [شرح بسيط بالعربي]
+SEARCH: [النص القديم للاستبدال]
+REPLACE: [النص الجديد]
+
+أو إذا غير آمن:
+SKIP: [السبب]`;
+
+        const aiResponse = await callAI({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: prompt }],
+        });
+
+        // Parse AI response
+        if (aiResponse.startsWith('SKIP:')) {
+          return res.json({
+            success: false,
+            skipped: true,
+            reason: aiResponse.replace('SKIP:', '').trim(),
+            message: 'الإصلاح يحتاج مراجعة يدوية',
+          });
+        }
+
+        const expMatch    = aiResponse.match(/EXPLANATION:\s*(.+?)(?:\n|SEARCH:)/s);
+        const searchMatch = aiResponse.match(/SEARCH:\s*([\s\S]+?)(?:\nREPLACE:)/);
+        const replaceMatch= aiResponse.match(/REPLACE:\s*([\s\S]+?)$/);
+
+        if (!searchMatch || !replaceMatch) {
+          return res.json({ success: false, reason: 'لم يتمكن الذكاء الاصطناعي من توليد إصلاح محدد', raw: aiResponse });
+        }
+
+        const searchText  = searchMatch[1].trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+        const replaceText = replaceMatch[1].trim().replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+        const explanation = expMatch ? expMatch[1].trim() : suggestion;
+
+        if (!fileContent.includes(searchText)) {
+          return res.json({ success: false, reason: 'النص المُراد تعديله غير موجود بالضبط في الملف — يحتاج مراجعة يدوية' });
+        }
+
+        // Apply the fix
+        const newContent = fileContent.replace(searchText, replaceText);
+        await fs.writeFile(filePath, newContent, 'utf8');
+
+        // Log to agent memory
+        const logPath = path.join(__dirname, '.agent-memory', 'auto-fixes.json');
+        await fs.ensureDir(path.dirname(logPath));
+        let fixes = [];
+        try { fixes = JSON.parse(await fs.readFile(logPath, 'utf8')); } catch {}
+        fixes.push({
+          id:          `fix_${Date.now()}`,
+          appliedAt:   new Date().toISOString(),
+          appliedBy:   req.user.username,
+          targetFile:  target,
+          suggestion,
+          explanation,
+          diff:        { search: searchText.slice(0, 100), replace: replaceText.slice(0, 100) },
+        });
+        const tmpLog = logPath + '.tmp';
+        await fs.writeFile(tmpLog, JSON.stringify(fixes, null, 2), 'utf8');
+        await fs.rename(tmpLog, logPath);
+
+        res.json({
+          success: true,
+          message: `✅ تم التطبيق: ${explanation}`,
+          file: target,
+          explanation,
+        });
+
+      } catch (e) {
+        console.error('❌ apply-fix error:', e.message);
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Get auto-fix history
+    app.get('/api/agents/fixes', requireAuth, async (req, res) => {
+      try {
+        const fs   = require('fs-extra');
+        const path = require('path');
+        const logPath = path.join(__dirname, '.agent-memory', 'auto-fixes.json');
+        const fixes = await fs.pathExists(logPath) ? JSON.parse(await fs.readFile(logPath, 'utf8')) : [];
+        res.json(fixes.slice(-20).reverse());
+      } catch { res.json([]); }
+    });
+
     // Get AI cache stats (CLAUDE.md §6)
     app.get('/api/agents/cache-stats', requireAuth, (req, res) => {
       res.json(getCacheStats());

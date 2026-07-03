@@ -512,6 +512,16 @@ main {
   background: rgba(63,185,80,.12); border: 1px solid rgba(63,185,80,.3);
   color: var(--green); cursor: pointer; font-family: inherit;
 }
+.btn-apply {
+  flex-shrink: 0; padding: 5px 13px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  background: rgba(56,139,253,.12); border: 1px solid rgba(56,139,253,.3);
+  color: var(--blue); cursor: pointer; font-family: inherit; transition: all .15s;
+  display: flex; align-items: center; gap: 5px;
+}
+.btn-apply:hover { background: rgba(56,139,253,.22); }
+.btn-apply:disabled { opacity: .45; cursor: not-allowed; }
+.btn-apply.done { background: rgba(63,185,80,.12); border-color: rgba(63,185,80,.3); color: var(--green); }
+.btn-apply.failed { background: rgba(248,81,73,.1); border-color: rgba(248,81,73,.3); color: var(--red); }
 .summary-score-card {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px; background: var(--bg4); border-radius: var(--r-sm);
@@ -1187,6 +1197,56 @@ async function runAll() {
   setTimeout(() => progress.classList.remove('visible'), 4000);
 }
 
+// ── Apply Fix ────────────────────────────────────────────────────────
+async function applyFix(idx, suggestion) {
+  const btn = document.getElementById(`fix-btn-${idx}`);
+  const item = document.getElementById(`fix-item-${idx}`);
+  if (!btn || btn.disabled) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="width:10px;height:10px;border-width:2px"></span> جارٍ...';
+
+  try {
+    const r = await fetch('/api/agents/apply-fix', {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ suggestion, targetFile: 'public/index.html' }),
+    });
+    const data = await r.json();
+
+    if (data.skipped) {
+      btn.className = 'btn-apply failed';
+      btn.innerHTML = '⚠️ يحتاج مراجعة';
+      btn.title = data.reason || 'لا يمكن تطبيقه تلقائياً';
+      btn.disabled = false;
+      toast('⚠️ ' + (data.reason || 'يحتاج مراجعة يدوية'), '');
+      return;
+    }
+
+    if (!r.ok || !data.success) {
+      btn.className = 'btn-apply failed';
+      btn.innerHTML = '❌ فشل';
+      btn.title = data.error || data.reason || 'حدث خطأ';
+      btn.disabled = false;
+      toast('❌ ' + (data.error || data.reason || 'فشل التطبيق'), 'error');
+      return;
+    }
+
+    // Success
+    btn.className = 'btn-apply done';
+    btn.innerHTML = '✅ طُبِّق';
+    btn.disabled = true;
+    item.style.opacity = '.6';
+    toast('✅ ' + (data.message || 'تم التطبيق'), 'success');
+
+  } catch (e) {
+    btn.className = 'btn-apply failed';
+    btn.innerHTML = '❌ خطأ';
+    btn.disabled = false;
+    toast('❌ تعذّر الاتصال بالخادم', 'error');
+  }
+}
+
 // ── Approvals Panel ──────────────────────────────────────────────────
 let _pendingApprovals = [];
 
@@ -1341,16 +1401,20 @@ function buildCleanReport(markdown, agentName) {
       </div>`;
   }
 
-  // Notify — FYI
+  // Notify — suggestions with Apply button
   if (notifyItems.length > 0) {
     html += `
       <div class="summary-section">
-        <div class="summary-section-head yellow">🟡 للمعلومية — اقتراحات تحسين (${notifyItems.length})</div>
+        <div class="summary-section-head yellow">🟡 اقتراحات تحسين (${notifyItems.length}) — اضغط "تطبيق" لتنفيذها</div>
         <div class="summary-items">
-          ${notifyItems.map(f => `
-            <div class="summary-item">
-              <span class="summary-badge badge-info">معلومة</span>
+          ${notifyItems.map((f, i) => `
+            <div class="summary-item" id="fix-item-${i}">
               <div class="summary-item-text">${f.text}</div>
+              <button class="btn-apply" id="fix-btn-${i}"
+                onclick="applyFix(${i}, ${JSON.stringify(f.text).replace(/'/g,"\\'")})"
+                title="تطبيق هذا الإصلاح تلقائياً">
+                🔧 تطبيق
+              </button>
             </div>`).join('')}
         </div>
       </div>`;
