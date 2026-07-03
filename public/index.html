@@ -1,5 +1,5 @@
 ﻿<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -284,7 +284,7 @@ header{
 }
 /* Touch targets min 44×44px */
 .nav-item, .btn, .bex, .btn-sm {
-  min-height: 44px;
+  min-height: 36px;
 }
 /* Skip to main content link for screen readers */
 .skip-link {
@@ -2342,6 +2342,11 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <button class="qd-btn" onclick="qdApply('year')">هذه السنة</button>
       </div>
     </div>
+    <style>
+      .touch {
+        touch-action: manipulation;
+      }
+    </style>
     <div class="kpi-grid" id="w-kpi-grid">
       <div class="kc bl" id="w-kTotal"><div class="kl" id="kl-kTotal" data-i18n="kpi.revenue">إجمالي الإيرادات</div><div class="kv" id="kTotal">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-total" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-total"></div></div>
       <div class="kc gr" id="w-kNet"><div class="kl" id="kl-kNet" data-i18n="kpi.net">صافي (بدون تأمين)</div><div class="kv" id="kNet">—</div><div class="ks" data-i18n="kpi.unit.cash">د.ك نقداً وشبكة</div><div class="kc-sparkline"><svg id="spk-net" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-net"></div></div>
