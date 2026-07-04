@@ -1,7 +1,6 @@
 ﻿<!DOCTYPE html>
-<html lang="ar" dir="rtl" role="document">
+<html lang="ar" dir="rtl">
 <head>
-<meta name="language" content="ar">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
@@ -5532,8 +5531,7 @@ function loadDoctors() {
     const init = dr.name.replace(/DR\.|Dr\./g,'').trim().substring(0,2) || 'DR';
     return `<div class="dc">
       <div class="dc-hdr"><div class="dc-name">${dr.name}</div><div class="dc-av">${init}</div></div>
-      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${(dr.target||0).toLocaleString()}</span></div>
-      <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
+      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${(dr.target||0).toLocaleString()}</span></div> <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
       <div class="ds">
         <div><div class="dsl">إجمالي العمولات</div><div class="dsv">${totalComm.fmt()}</div></div>
         <div><div class="dsl">مدفوع</div><div class="dsv" style="color:var(--accent2)">${paidComm.fmt()}</div></div>
