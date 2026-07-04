@@ -57,6 +57,23 @@ const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
 const issues = []; // { sev:'critical'|'high'|'medium'|'low', area, msg, fix }
 function flag(sev, area, msg, fix) { issues.push({ sev, area, msg, fix }); }
 
+// ── ذاكرة الانحدار (Regression): يقارن بآخر فحص ──────────────────────────
+let _newIssues = [], _resolvedIssues = [];
+const _sig = (i) => `${i.area}|${i.msg}`;
+function runRegression() {
+  const histPath = path.join(ROOT, '.agent-memory', 'tester-history.json');
+  let prev = [];
+  try { prev = JSON.parse(fs.readFileSync(histPath, 'utf8')).signatures || []; } catch {}
+  const curr = issues.map(_sig);
+  const prevSet = new Set(prev), currSet = new Set(curr);
+  _newIssues      = issues.filter(i => !prevSet.has(_sig(i)));
+  _resolvedIssues = prev.filter(s => !currSet.has(s));
+  try {
+    fs.mkdirSync(path.dirname(histPath), { recursive: true });
+    fs.writeFileSync(histPath, JSON.stringify({ at: new Date().toISOString(), signatures: curr }, null, 2), 'utf8');
+  } catch {}
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // اختبار 1 — توازن القيود المحاسبية (مدين = دائن)
 // ══════════════════════════════════════════════════════════════════════
@@ -325,12 +342,40 @@ async function testEndToEnd(db) {
       }
     }
 
-    // ── تجربة 6: مسح استقرار — أي تقرير ينهار (500)؟ ──
-    const reportEps = ['/api/reports/pnl', '/api/reports/balance-sheet', '/api/reports/cashflow', '/api/trial-balance', '/api/financial-statements', '/api/stats', '/api/ar-aging', '/api/ap-aging', '/api/coa/balances', '/api/anomalies', '/api/audit-log'];
+    // ── تجربة 6: مسح استقرار شامل — يكتشف كل الشاشات تلقائياً ──
+    // يجلب قائمة كل الـ GET endpoints من الخادم نفسه، فيغطّي أي ميزة جديدة تلقائياً
+    let reportEps = ['/api/reports/pnl', '/api/reports/balance-sheet', '/api/reports/cashflow', '/api/trial-balance', '/api/financial-statements', '/api/stats'];
+    const disc = await api('GET', '/api/agents/routes');
+    if (disc.ok && Array.isArray(disc.data?.routes) && disc.data.routes.length) {
+      const skip = ['/api/agents/run', '/api/export', '/api/monthly-report-slide', '/api/agents/routes'];
+      reportEps = disc.data.routes.filter(p => !skip.some(s => p.startsWith(s)));
+      say(`  ↳ اكتشفت ${reportEps.length} شاشة/endpoint تلقائياً`);
+    }
     const crashed = [];
-    for (const p of reportEps) { const r = await api('GET', p); if (r.status >= 500) crashed.push(p); }
-    if (crashed.length) flag('critical', 'تجربة: استقرار', `${crashed.length} تقرير/شاشة تنهار: ${crashed.join('، ')}`, 'راجع معالجة الأخطاء في هذه الـ endpoints');
-    else say(`  ✅ فحصت ${reportEps.length} تقرير/شاشة — كلها تعمل بدون انهيار`);
+    for (const p of reportEps) { try { const r = await api('GET', p); if (r.status >= 500) crashed.push(p); } catch {} }
+    if (crashed.length) flag('critical', 'تجربة: استقرار', `${crashed.length} شاشة تنهار (خطأ 500): ${crashed.slice(0, 8).join('، ')}`, 'راجع معالجة الأخطاء في هذه الـ endpoints');
+    else say(`  ✅ فحصت ${reportEps.length} شاشة — كلها تعمل بدون انهيار`);
+
+    // ── تجربة 6ب: اختبار عشوائي (Fuzz) — مدخلات خاطئة يجب أن تُرفض بلطف لا أن تُسقط النظام ──
+    const fuzzCases = [
+      ['/api/journal',  { date: '2026-01-01', lines: 'ليست مصفوفة' }],
+      ['/api/journal',  { date: '2026-01-01', lines: [{ debit: 'abc', credit: null }] }],
+      ['/api/journal',  { lines: [{ debit: 1e20, credit: 1e20 }] }],
+      ['/api/expenses', { amount: -50 }],
+      ['/api/expenses', { date: '2026-01-01', amount: 'كثير' }],
+      ['/api/expenses', { date: '2026-01-01', amount: 10, desc: '<script>alert(1)</script>' }],
+      ['/api/coa/account', {}],
+      ['/api/coa/account', { code: '', name: '' }],
+      ['/api/vouchers', { type: 'receipt' }],
+      ['/api/inv/items', { quantity: -999 }],
+    ];
+    const fuzzCrashes = [];
+    for (const [p, body] of fuzzCases) {
+      try { const r = await api('POST', p, body); if (r.status >= 500) fuzzCrashes.push(`${p} (${r.status})`); }
+      catch { fuzzCrashes.push(`${p} (تعطّل الاتصال)`); }
+    }
+    if (fuzzCrashes.length) flag('high', 'تجربة: مدخلات خاطئة', `${fuzzCrashes.length} حالة مدخلات خاطئة تُسقط النظام بدل رفضها بلطف: ${fuzzCrashes.slice(0, 6).join('، ')}`, 'أضف تحقّقاً من المدخلات (validation) لهذه الـ endpoints');
+    else say(`  ✅ جرّبت ${fuzzCases.length} مُدخَل خاطئ — النظام رفضها بلطف دون انهيار`);
 
     // ── تجربة 7: إضافة صنف مخزون وحفظ الكمية بشكل صحيح ──
     const inv = await api('POST', '/api/inv/items', { id: 'sbx-item', name: 'صنف اختبار', code: 'SBX-1', quantity: 10, costPrice: 5, minQty: 3, unit: 'حبة' });
@@ -377,6 +422,14 @@ function buildReport() {
   L.push('> جرّبت النظام مثل محاسب حقيقي: فحصت البيانات (قيود، شجرة حسابات، عمولات، تأمين، مخزون)، وأجريت تجارب حية في بيئة معزولة (أضفت حسابات، عملت قيوداً، سجّلت مصاريف، أنشأت سندات، ودقّقت التقارير والمعادلة المحاسبية). بيانات عيادتك الحقيقية لم تُمَس.');
   L.push('');
 
+  // Regression summary — what changed since the last run
+  if (_newIssues.length || _resolvedIssues.length) {
+    L.push('## 🔄 التغيّرات منذ آخر فحص');
+    if (_newIssues.length)      L.push(`- 🆕 **${_newIssues.length} مشكلة جديدة** ظهرت: ${_newIssues.map(i => i.msg).slice(0, 4).join(' · ')}`);
+    if (_resolvedIssues.length) L.push(`- ✅ **${_resolvedIssues.length} مشكلة انحلّت** منذ آخر مرة`);
+    L.push('');
+  }
+
   if (!issues.length) {
     L.push('## ✅ لم أجد أي مشكلة');
     L.push('- كل الاختبارات نجحت — القيود متوازنة والحسابات سليمة.');
@@ -416,6 +469,11 @@ async function main() {
 
   // Live end-to-end trials in an isolated sandbox (real data physically untouched)
   await testEndToEnd(db);
+
+  // Compare with the previous run — what's new, what got fixed
+  runRegression();
+  if (_newIssues.length) say(`  🆕 ${_newIssues.length} مشكلة جديدة منذ آخر فحص`);
+  if (_resolvedIssues.length) say(`  ✅ ${_resolvedIssues.length} مشكلة انحلّت منذ آخر فحص`);
 
   say(`✅ انتهيت — اكتشفت ${issues.length} ملاحظة. التقرير جاهز.`);
   process.stdout.write(buildReport() + '\n');

@@ -3593,6 +3593,32 @@ REPLACE:
           return res.json({ success: false, skipped: true, reason: `النص المُراد تعديله موجود ${occurrences} مرات — غامض، يحتاج مراجعة يدوية` });
         }
 
+        // ── Second-AI safety review — a different model double-checks the patch
+        // before it touches the live page (blocks bad "fixes" like removing dir=rtl).
+        try {
+          const reviewPrompt = `أنت مراجع كود صارم. اقترح أحدهم هذا التغيير على ملف واجهة عربية (RTL) لنظام محاسبي حي.
+
+قديم:
+${searchText}
+
+جديد:
+${replaceText}
+
+هل التغيير آمن وصحيح ولا يكسر التخطيط أو اللغة العربية (مثلاً حذف dir="rtl" أو تغيير جذري أو كود ضار)؟
+أجب بكلمة واحدة في أول سطر: APPROVE أو REJECT، ثم سبب مختصر.`;
+          const review = await callAI({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 200,
+            messages: [{ role: 'user', content: reviewPrompt }],
+          });
+          if (/^\s*REJECT/i.test(review)) {
+            const why = review.replace(/^\s*REJECT:?\s*/i, '').trim().slice(0, 200);
+            return res.json({ success: false, skipped: true, reason: 'رفضه المراجع الثاني (فحص أمان): ' + (why || 'قد يكسر الصفحة') });
+          }
+        } catch (e) {
+          console.error('⚠️ second-AI review failed (allowing):', e.message);
+        }
+
         // Apply the fix locally
         const newContent = fileContent.replace(searchText, replaceText);
         await fs.writeFile(filePath, newContent, 'utf8');
@@ -3718,6 +3744,22 @@ REPLACE:
     // Get AI cache stats (CLAUDE.md §6)
     app.get('/api/agents/cache-stats', requireAuth, (req, res) => {
       res.json(getCacheStats());
+    });
+
+    // Introspect registered GET routes — lets the system-tester auto-discover
+    // every feature endpoint (so new features are covered without manual work).
+    app.get('/api/agents/routes', requireAuth, (req, res) => {
+      const routes = [];
+      const stack = (app._router && app._router.stack) || [];
+      for (const layer of stack) {
+        if (layer.route && layer.route.methods && layer.route.methods.get) {
+          const p = layer.route.path;
+          if (typeof p === 'string' && p.startsWith('/api/') && !p.includes(':') && !p.includes('*')) {
+            routes.push(p);
+          }
+        }
+      }
+      res.json({ routes: [...new Set(routes)] });
     });
   }
 }
@@ -8911,6 +8953,10 @@ app.post('/api/tenants/register', async (req, res) => {
 // ── Get current tenant info ───────────────────────────────────
 app.get('/api/tenant', requireAuth, tenantMiddleware, async (req, res) => {
   try {
+    // Single-clinic / file-fallback mode: multi-tenancy needs MongoDB.
+    if (require('mongoose').connection.readyState !== 1) {
+      return res.json({ tenant: { tenantId: 'default', name: 'العيادة', plan: 'enterprise', status: 'active', mode: 'local' }, subscription: null });
+    }
     const info = await getTenantInfo(req.tenantId);
     res.json(info);
   } catch (e) {
@@ -8945,6 +8991,10 @@ app.post('/api/subscription/checkout', requireAuth, tenantMiddleware, async (req
 // ── Stripe: Get current subscription ─────────────────────────
 app.get('/api/subscription', requireAuth, tenantMiddleware, async (req, res) => {
   try {
+    // Single-clinic / file-fallback mode: subscriptions require MongoDB.
+    if (require('mongoose').connection.readyState !== 1) {
+      return res.json({ tenantId: 'default', plan: 'enterprise', status: 'active', mode: 'local' });
+    }
     const sub = await Subscription.findOne({ tenantId: req.tenantId }).lean();
     if (!sub) return res.status(404).json({ error: 'لا يوجد اشتراك' });
     res.json(sub);

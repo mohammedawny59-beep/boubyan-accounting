@@ -83,3 +83,4 @@ dumps/
 *.pid.lock
 .cache/
 .agent-memory/auto-fixes.json
+.agent-memory/tester-history.json
