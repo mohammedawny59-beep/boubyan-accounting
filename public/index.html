@@ -448,6 +448,11 @@ input[type=file]{display:none;}
 .finp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 12px;color:var(--text);font-family:'IBM Plex Sans Arabic',sans-serif;font-size:12px;outline:none;transition:border-color var(--t-base),box-shadow var(--t-base);direction:rtl;}
 input:not([type="file"]),select,textarea{display:block;}
 label{display:block;}
+input:not([type="file"]):not([aria-label]):not([id]),
+select:not([aria-label]):not([id]),
+textarea:not([aria-label]):not([id]) {
+  /* Inputs should have either id for label[for], aria-label, or aria-labelledby */
+}
 .finp:focus,.finp:focus-visible{border-color:var(--borderFoc);box-shadow:0 0 0 3px rgba(79,142,247,.15);outline:none;}
 .fr2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .di{display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border-radius:var(--r-sm);border:1px solid var(--border);margin-bottom:6px;background:var(--surface2);transition:border-color var(--t-fast);}
@@ -9108,14 +9113,26 @@ async function loadUsers() {
 function openAddUser() {
   document.getElementById('userModalTitle').textContent = '➕ إضافة مستخدم جديد';
   document.getElementById('editUserId').value = '';
-  document.getElementById('uFullName').value = '';
-  document.getElementById('uUsername').value = '';
-  document.getElementById('uEmail').value = '';
-  document.getElementById('uPassword').value = '';
-  document.getElementById('uRole').value = 'viewer';
-  document.getElementById('uActive').checked = true;
+  const fullNameEl = document.getElementById('uFullName');
+  fullNameEl.value = '';
+  fullNameEl.setAttribute('aria-label', 'الاسم الكامل');
+  const usernameEl = document.getElementById('uUsername');
+  usernameEl.value = '';
+  usernameEl.setAttribute('aria-label', 'اسم المستخدم');
+  const emailEl = document.getElementById('uEmail');
+  emailEl.value = '';
+  emailEl.setAttribute('aria-label', 'البريد الإلكتروني');
+  const passwordEl = document.getElementById('uPassword');
+  passwordEl.value = '';
+  passwordEl.setAttribute('aria-label', 'كلمة المرور');
+  const roleEl = document.getElementById('uRole');
+  roleEl.value = 'viewer';
+  roleEl.setAttribute('aria-label', 'الدور');
+  const activeEl = document.getElementById('uActive');
+  activeEl.checked = true;
+  activeEl.setAttribute('aria-label', 'المستخدم نشط');
   document.getElementById('uPassNote').style.display = 'none';
-  document.getElementById('uUsername').disabled = false;
+  usernameEl.disabled = false;
   document.getElementById('userModalErr').style.display = 'none';
   openModal('userModal');
 }
