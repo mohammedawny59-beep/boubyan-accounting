@@ -127,6 +127,13 @@ function testChartOfAccounts(db) {
     if (a.parent && !codes.has(String(a.parent))) orphan++;
   }
 
+  // Opening balances must net to zero (total opening debits = total opening credits)
+  const od = coa.reduce((s, a) => s + (Number(a.openingDebit) || 0), 0);
+  const oc = coa.reduce((s, a) => s + (Number(a.openingCredit) || 0), 0);
+  if ((od || oc) && Math.abs(od - oc) > 0.5) {
+    flag('high', 'الأرصدة الافتتاحية', `أرصدتك الافتتاحية غير متوازنة: إجمالي المدين ${round3(od)} ≠ إجمالي الدائن ${round3(oc)} (فرق ${round3(Math.abs(od - oc))} د.ك)`, 'راجع الأرصدة الافتتاحية للحسابات حتى يتساوى إجمالي المدين مع الدائن');
+  }
+
   if (dupes)  flag('critical', 'شجرة الحسابات', `${dupes} حساب بكود مكرّر — يسبب أخطاء في الترحيل والتقارير`, 'اجعل كل كود حساب فريداً');
   else say('  ✅ لا أكواد مكررة');
   if (noType) flag('medium', 'شجرة الحسابات', `${noType} حساب بدون نوع صحيح (أصل/التزام/حقوق/إيراد/مصروف)`, 'حدّد نوع كل حساب');
@@ -245,8 +252,11 @@ async function testEndToEnd(db) {
 
   say('🧪 أبدأ تجارب حية — سأعمل قيوداً وأجرّب النظام في بيئة معزولة...');
 
-  // Seed the sandbox with a COPY of the real chart of accounts (read-only copy)
-  const coaCopy = JSON.parse(JSON.stringify(db.chartOfAccounts || []));
+  // Seed the sandbox with a COPY of the real chart of accounts — but STRIP any
+  // opening balances so the sandbox starts from a clean zero slate. Otherwise the
+  // clinic's opening balances leak in and the trial-balance test misfires.
+  const coaCopy = JSON.parse(JSON.stringify(db.chartOfAccounts || []))
+    .map(({ balance, openingBalance, openingDebit, openingCredit, netDebit, netCredit, ...rest }) => rest);
   if (!coaCopy.length) { say('  ↳ لا توجد شجرة حسابات لأجرّب عليها — تخطّيت'); return; }
 
   let sb;

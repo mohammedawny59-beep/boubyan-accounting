@@ -675,7 +675,7 @@ function runAgent(id){
       const ok=data.code===0;
       pushFeed(ok?`✅ ${a.nameAr} أنهى عمله — التقرير جاهز`:`❌ ${a.nameAr} واجه مشكلة`, ok?'done':'error', a);
       setFeedBadge('جاهز',false); _speaker=null;
-      if(report){ savedReports[id]=report; if(id===selectedId){ showReport(`تقرير ${a.nameAr}`,report); } toast(`✅ اكتمل: ${a.nameAr}`,'success'); }
+      if(report){ savedReports[id]=report; if(id===selectedId){ showReport(`تقرير ${a.nameAr}`,report,id); } toast(`✅ اكتمل: ${a.nameAr}`,'success'); }
       src.close(); loadStatus();
     }
   };
@@ -708,15 +708,19 @@ async function runAll(){
 }
 
 // ══════════════ REPORT ══════════════
-function openSelectedReport(){ if(savedReports[selectedId]) showReport(`تقرير ${agentData[selectedId]?.nameAr||''}`, savedReports[selectedId]); else toast('لا يوجد تقرير — شغّل الموظف أولاً',''); }
-function showReport(title,markdown){
+// Only design agents produce HTML-fixable suggestions → only they get "apply" buttons.
+// Other agents (tester, security, IT…) produce diagnostic findings for developer review.
+const DESIGN_AGENTS = new Set(['design-audit','design-studio']);
+function openSelectedReport(){ if(savedReports[selectedId]) showReport(`تقرير ${agentData[selectedId]?.nameAr||''}`, savedReports[selectedId], selectedId); else toast('لا يوجد تقرير — شغّل الموظف أولاً',''); }
+function showReport(title,markdown,agentId){
   document.getElementById('reportTitle').textContent=title;
-  document.getElementById('reportBody').innerHTML=buildCleanReport(markdown);
+  document.getElementById('reportBody').innerHTML=buildCleanReport(markdown, agentId);
   const p=document.getElementById('reportPanel'); p.style.display='block'; p.scrollIntoView({behavior:'smooth'});
 }
 function closeReport(){document.getElementById('reportPanel').style.display='none';}
 
-function buildCleanReport(markdown){
+function buildCleanReport(markdown, agentId){
+  const canApply = DESIGN_AGENTS.has(agentId);
   const scoreMatch=markdown.match(/(\d+)\s*\/\s*100/);
   const score=scoreMatch?parseInt(scoreMatch[1]):null;
   const blocking=[],notify=[],auto=[];
@@ -742,7 +746,10 @@ function buildCleanReport(markdown){
   let html='<div class="report-summary">';
   if(score!==null)html+=`<div class="rs-score"><div><div style="font-size:11px;color:var(--ink2);margin-bottom:4px">نتيجة التقييم</div><div class="v" style="color:${scoreColor(score)}">${score}<span style="font-size:15px;color:var(--ink3)">/100</span></div></div><div style="font-size:32px">${score>=80?'✅':score>=60?'⚠️':'🔴'}</div></div>`;
   if(blocking.length)html+=`<div class="rs-sec"><div class="rs-head red">🔴 يحتاج موافقتك (${blocking.length})</div>${blocking.map(t=>`<div class="rs-item"><div class="t">${escapeHTML(t)}</div><button class="btn-approve-inline" onclick="openApprovals()">موافقة ←</button></div>`).join('')}</div>`;
-  if(notify.length)html+=`<div class="rs-sec"><div class="rs-head yellow">🟡 اقتراحات تحسين (${notify.length}) — اضغط "تطبيق"</div>${notify.map((t,i)=>`<div class="rs-item" id="fix-item-${i}"><div class="t">${escapeHTML(t)}</div><button class="btn-apply" id="fix-btn-${i}" onclick="applyFix(${i})">🔧 تطبيق</button></div>`).join('')}</div>`;
+  if(notify.length){
+    if(canApply) html+=`<div class="rs-sec"><div class="rs-head yellow">🟡 اقتراحات تحسين (${notify.length}) — اضغط "تطبيق"</div>${notify.map((t,i)=>`<div class="rs-item" id="fix-item-${i}"><div class="t">${escapeHTML(t)}</div><button class="btn-apply" id="fix-btn-${i}" onclick="applyFix(${i})">🔧 تطبيق</button></div>`).join('')}</div>`;
+    else html+=`<div class="rs-sec"><div class="rs-head yellow">🟡 ملاحظات تحتاج مراجعة المطوّر (${notify.length})</div>${notify.map(t=>`<div class="rs-item"><span class="rs-badge" style="background:rgba(251,191,36,.12);color:var(--yellow);border-color:rgba(251,191,36,.3)">للمراجعة</span><div class="t">${escapeHTML(t)}</div></div>`).join('')}</div>`;
+  }
   if(auto.length)html+=`<div class="rs-sec"><div class="rs-head green">🟢 تلقائي — اكتملت (${auto.length})</div>${auto.map(t=>`<div class="rs-item"><span class="rs-badge">تلقائي</span><div class="t">${escapeHTML(t)}</div></div>`).join('')}</div>`;
   html+='</div>';
   return html;
