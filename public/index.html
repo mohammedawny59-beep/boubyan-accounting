@@ -3817,6 +3817,15 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <div id="compSaveMsg" style="margin-top:8px;font-size:11px;display:none;"></div>
       </div>
       <div class="sc">
+        <div class="sct">🗄️ النسخ الاحتياطي</div>
+        <div style="font-size:11px;color:var(--text3);line-height:1.9;margin-bottom:10px;">
+          نزّل نسخة كاملة من كل بياناتك (الحسابات، القيود، المصاريف، كل شيء) واحفظها في مكان آمن على جهازك أو Google Drive. يُنصح بعملها أسبوعياً على الأقل.
+        </div>
+        <button class="btn bp" onclick="downloadBackup()" style="width:100%;">⬇️ تنزيل نسخة احتياطية الآن</button>
+        <div id="backupMsg" style="margin-top:8px;font-size:11px;display:none;"></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:8px;">💡 لاستعادة نسخة، تواصل مع الدعم الفني — العملية تتطلب حذراً.</div>
+      </div>
+      <div class="sc">
         <div class="sct">📅 السنة المالية</div>
         <div class="fr">
           <label class="flbl">شهر بداية السنة المالية</label>
@@ -6651,6 +6660,25 @@ async function resetData(scope) {
       location.reload();
     } else alert('❌ ' + (d.error || 'فشل الحذف'));
   } catch(e) { alert('❌ خطأ في الاتصال'); }
+}
+
+async function downloadBackup() {
+  const msg = document.getElementById('backupMsg');
+  const show = (t, ok) => { msg.style.display = 'block'; msg.style.color = ok ? 'var(--accent2)' : 'var(--danger)'; msg.textContent = t; };
+  show('⏳ جارٍ تجهيز النسخة...', true);
+  try {
+    const token = getToken();
+    const r = await fetch(`${API}/admin/backup`, { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); show('❌ ' + (e.error || 'فشل التنزيل'), false); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href = url; a.download = `boubyan-backup-${stamp}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    show('✅ تم التنزيل — احفظه في مكان آمن (Google Drive مثلاً)', true);
+  } catch (e) { show('❌ تعذّر الاتصال بالخادم', false); }
 }
 
 async function saveCompanyInfo() {

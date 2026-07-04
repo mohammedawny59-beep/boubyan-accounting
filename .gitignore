@@ -84,3 +84,6 @@ dumps/
 .cache/
 .agent-memory/auto-fixes.json
 .agent-memory/tester-history.json
+
+# Backups contain financial data — never commit
+backups/

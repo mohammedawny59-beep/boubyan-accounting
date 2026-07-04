@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "test": "jest --forceExit",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js"
   },
   "devDependencies": {
     "jest": "^29.7.0",

@@ -746,6 +746,26 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json(safe);
 });
 
+// ── نسخة احتياطية كاملة للتحميل (المدير فقط) ────────────────────────────────
+// يرجّع كل البيانات كملف JSON قابل للتنزيل — نسخة خارج الخادم يحتفظ بها المالك.
+app.get('/api/admin/backup', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+  const db = loadDB();
+  const config = (typeof loadConfig === 'function') ? loadConfig() : {};
+  const payload = {
+    createdAt: new Date().toISOString(),
+    version:   1,
+    source:    'app-download',
+    createdBy: req.user.username,
+    database:  db,      // يشمل كل شيء (مع hashes كلمات السر — لازمة للاستعادة)
+    config,
+  };
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="boubyan-backup-${stamp}.json"`);
+  res.send(JSON.stringify(payload, null, 2));
+});
+
 // Upload Excel
 app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
   try {
