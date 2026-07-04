@@ -23,9 +23,32 @@ const DATA_FILE = path.join(ROOT, 'data', 'database.json');
 // المُجرِّب يتكلم — كل سطر يظهر فوراً في غرفة العمليات
 const say = (m) => process.stderr.write(m + '\n');
 
-function loadDB() {
+// Mint an admin token for the running server (uses the same JWT_SECRET)
+function selfToken() {
+  try {
+    const jwt = require('jsonwebtoken');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) return null;
+    return jwt.sign({ id: 'system-tester', username: 'system-tester', role: 'admin', fullName: 'المُجرِّب', tenantId: 'default' }, secret, { expiresIn: '10m' });
+  } catch { return null; }
+}
+
+// Load the real data from the RUNNING server (works with MongoDB on Render AND
+// file mode locally). Falls back to the local file only if the API is unreachable.
+async function loadDB() {
+  const port = process.env.PORT || process.env.SELF_PORT || 3000;
+  const token = selfToken();
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/data`, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    });
+    if (r.ok) {
+      const db = await r.json();
+      if (db && typeof db === 'object') { say('  ↳ قرأت البيانات من الخادم مباشرة'); return db; }
+    }
+  } catch { /* server not reachable — try file */ }
   try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
-  catch (e) { return null; }
+  catch { return null; }
 }
 
 const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
@@ -376,7 +399,7 @@ function buildReport() {
 // ══════════════════════════════════════════════════════════════════════
 async function main() {
   say('▶ المُجرِّب بدأ — سأختبر النظام مثل محاسب حقيقي...');
-  const db = loadDB();
+  const db = await loadDB();
   if (!db) {
     say('❌ تعذّر قراءة قاعدة البيانات');
     process.stdout.write('# 🧪 تقرير المُجرِّب\n\n❌ تعذّر قراءة قاعدة البيانات المحلية.\n');
