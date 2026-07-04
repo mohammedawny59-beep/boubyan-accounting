@@ -341,6 +341,10 @@ body::after{
       <button class="chip-select" id="fltSaas" onclick="setFilter('saas')">SaaS</button>
     </div>
     <a class="btn-ghost" href="/">← النظام</a>
+    <button class="btn-runall" id="chiefBtn" onclick="runOrchestrator()" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)" title="يشغّل كل الوكلاء ويجمع نتائجهم في تقرير واحد">
+      <span class="spinner"></span>
+      🧠 المدير الذكي
+    </button>
     <button class="btn-runall" id="runAllBtn" onclick="runAll()">
       <span class="spinner"></span>
       <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
@@ -705,6 +709,34 @@ async function runAll(){
   toast('✅ اكتمل تشغيل الكل','success');
   btn.disabled=false; btn.classList.remove('loading');
   loadStatus();
+}
+
+// ══════════════ CHIEF AI (Orchestrator) ══════════════
+function runOrchestrator(){
+  const btn=document.getElementById('chiefBtn');
+  if(btn.classList.contains('loading'))return;
+  if(DEMO_MODE||!TOKEN){ toast('⚠️ يجب تسجيل الدخول أولاً','error'); return; }
+  btn.classList.add('loading'); btn.disabled=true;
+  clearFeed(); setFeedBadge('المدير الذكي',true);
+  const chief={nameAr:'المدير الذكي',icon:'🧠',color:'#0ea5e9'};
+  pushFeed('▶ المدير الذكي يشغّل الوكلاء ويجمع نتائجهم...','start',chief);
+  const src=new EventSource(`/api/agents/orchestrate?_token=${encodeURIComponent(TOKEN)}`);
+  let report='';
+  src.onmessage=(e)=>{
+    const {type,data}=JSON.parse(e.data);
+    if(type==='log'){ const a=agentData[data.agentId]||chief; pushFeed(data.line,'',a); }
+    else if(type==='agent-done'){ /* KPI per agent — could update cards */ }
+    else if(type==='report'){ report=data; }
+    else if(type==='done'){
+      setFeedBadge('جاهز',false);
+      if(report){ savedReports['__chief__']=report; showReport('🧠 تقرير المدير الذكي', report, '__chief__'); }
+      const h=data.health&&data.health.overall;
+      toast(`✅ المدير الذكي انتهى — صحة النظام ${h??'—'}/100 · ${data.issues??0} مشكلة`,'success');
+      btn.classList.remove('loading'); btn.disabled=false;
+      src.close(); loadStatus();
+    }
+  };
+  src.onerror=()=>{ pushFeed('❌ انقطع الاتصال مع المدير الذكي','error',chief); setFeedBadge('جاهز',false); btn.classList.remove('loading'); btn.disabled=false; src.close(); };
 }
 
 // ══════════════ REPORT ══════════════

@@ -3427,6 +3427,42 @@ if(expData.length && document.getElementById('expChart')){
     req.on('close', () => { try { proc.kill(); } catch {} });
   });
 
+  // ── SSE: المدير الذكي — يشغّل الوكلاء ويجمع نتائجهم في تقرير واحد ──────────────
+  app.get('/api/agents/orchestrate', requireAuth, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    const send = (type, data) => { try { res.write(`data: ${JSON.stringify({ type, data })}\n\n`); } catch {} };
+
+    // اختيار الوكلاء: افتراضياً كل الوكلاء الداخليين (تجنّب أبحاث الويب المكلفة)
+    const { orchestrate } = require('./scripts/departments/_orchestrator');
+    const { AGENTS: REG } = require('./scripts/departments/_registry');
+    let ids = (req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!ids.length) ids = Object.keys(REG).filter(id => REG[id].category === 'internal');
+
+    send('start', { count: ids.length });
+    let aborted = false;
+    req.on('close', () => { aborted = true; });
+
+    orchestrate(
+      ids,
+      (agentId, line) => { if (!aborted) send('log', { agentId, line }); },
+      (agentId, kpi) => { if (!aborted) send('agent-done', { agentId, ...kpi }); },
+    ).then(({ report, health, merged }) => {
+      if (aborted) return;
+      send('report', report);
+      send('done', { health, issues: merged.length, time: new Date().toISOString() });
+      res.end();
+    }).catch(e => {
+      if (aborted) return;
+      send('log', { agentId: 'chief', line: '❌ خطأ: ' + e.message });
+      send('done', { error: e.message });
+      res.end();
+    });
+  });
+
   // ── Telegram Webhook — /approve & /reject commands ──────────────────────────
   // CLAUDE.md §4: BLOCKING findings wait here for user approval
   {
