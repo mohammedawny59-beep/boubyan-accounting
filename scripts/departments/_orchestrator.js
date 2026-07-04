@@ -39,37 +39,79 @@ function runAgentScript(scriptRel, onLog) {
   });
 }
 
-// ── استخراج الدرجة والمشاكل من تقرير Markdown ─────────────────────────────────
+// ── استخراج الدرجة والمشاكل + الأدلّة من تقرير Markdown (#4 Evidence) ──────────
 function parseReport(md, agentId) {
   const scoreMatch = md.match(/(\d+)\s*\/\s*100/);
   const score = scoreMatch ? parseInt(scoreMatch[1]) : null;
 
   const findings = [];
-  for (const raw of md.split('\n')) {
-    const line = raw.trim();
+  const lines = md.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
     if (!(line.startsWith('- ') || line.startsWith('• '))) continue;
     let text = line.replace(/^[-•]\s*/, '').replace(/\*\*/g, '').trim();
     if (!text || text.length < 6) continue;
     if (text.startsWith('💡')) continue; // سطر الحل التابع
 
-    // الخطورة من الرمز أو الوسم
     let sev = null;
     if (/🔴|\[حرجة\]|\bcritical\b/i.test(text)) sev = 'critical';
     else if (/🟠|\[عالية\]|\bhigh\b/i.test(text)) sev = 'high';
     else if (/🟡|\[متوسطة\]|\bmedium\b/i.test(text)) sev = 'medium';
     else if (/🔵|\[بسيطة\]|\blow\b/i.test(text)) sev = 'low';
-    if (!sev) continue; // لا نعتبره مشكلة إلا لو له خطورة صريحة
+    if (!sev) continue;
 
-    // تنظيف النص من الرموز والوسوم
+    // الدليل: المجال بين قوسين (area) + الحل من السطر التالي إن وُجد
+    const areaMatch = text.match(/\(([^)]{2,40})\)/);
+    const area = areaMatch ? areaMatch[1].trim() : null;
+    let fix = null;
+    const next = (lines[i + 1] || '').trim();
+    const fixMatch = next.match(/💡\s*(?:الحل:)?\s*(.+)/);
+    if (fixMatch) fix = fixMatch[1].trim();
+
     const clean = text
       .replace(/[🔴🟠🟡🔵🟢✅⚠️❌]/g, '')
       .replace(/\[(حرجة|عالية|متوسطة|بسيطة|critical|high|medium|low)\]/gi, '')
+      .trim()
       .replace(/^\([^)]*\)\s*/, '')
       .trim();
     if (clean.length < 6) continue;
-    findings.push({ severity: sev, text: clean, agentId });
+    findings.push({ severity: sev, text: clean, agentId, evidence: { area, fix, agent: agentId } });
   }
   return { score, findings };
+}
+
+// ── #3 محرك الثقة (Confidence) ───────────────────────────────────────────────
+// يعتمد على: عدد الوكلاء المكتشفين + تطابق تخصص الوكيل مع نوع المشكلة + وجود دليل
+function computeConfidence(finding) {
+  let c = 55;
+  c += Math.min(30, (finding.detectedBy.length - 1) * 15); // كل مكتشف إضافي +15
+  // تطابق التخصص: أمن يكتشف مشكلة أمنية، محاسبة تكتشف مشكلة محاسبية...
+  const domainMatch = finding.detectedBy.some(id => {
+    const dom = AGENTS[id]?.domain;
+    return (dom === 'security' && /أمن|كلمة سر|ثغرة|اختراق/.test(finding.text))
+        || (dom === 'accounting' && /قيد|حساب|ميزان|مدين|دائن|محاسب/.test(finding.text))
+        || (dom === 'design' && /تصميم|واجهة|label|aria|لون|زر/.test(finding.text));
+  });
+  if (domainMatch) c += 12;
+  if (finding.evidence && (finding.evidence.area || finding.evidence.fix)) c += 8; // وجود دليل
+  return Math.max(40, Math.min(99, c));
+}
+
+// ── #10 محرك القرار (Decision Engine) ────────────────────────────────────────
+// يقرر الإجراء بناءً على: الثقة + الخطورة + نوع المشكلة (تصميم/محاسبة/خلفي)
+function decide(finding) {
+  const isDesign = finding.detectedBy.some(id => AGENTS[id]?.domain === 'design')
+    || /تصميم|واجهة|label|aria|لون|زر|contrast|تباين/i.test(finding.text);
+  const isAccounting = /قيد|حساب|ميزان|مدين|دائن|محاسب|تأمين|عمولة/.test(finding.text);
+
+  // محاسبة أو خطورة حرجة → مراجعة بشرية إلزامية (لا مساس بالمنطق المالي تلقائياً)
+  if (isAccounting || finding.severity === 'critical') return { action: 'human', ar: 'مراجعة بشرية', reason: isAccounting ? 'يمسّ المحاسبة' : 'خطورة حرجة' };
+  // تصميم بثقة عالية → إصلاح تلقائي مسموح
+  if (isDesign && finding.confidence >= 80) return { action: 'auto', ar: 'إصلاح تلقائي', reason: 'تصميم موثوق' };
+  // ثقة منخفضة → مراجعة
+  if (finding.confidence < 65) return { action: 'human', ar: 'مراجعة بشرية', reason: 'ثقة منخفضة' };
+  // الباقي → إشعار المطور
+  return { action: 'notify', ar: 'إشعار المطوّر', reason: 'يحتاج مطوّراً' };
 }
 
 // ── دمج المكرر (#9): توقيع مبسّط للنص ─────────────────────────────────────────
@@ -88,13 +130,23 @@ function mergeFindings(allFindings) {
     if (map.has(sig)) {
       const ex = map.get(sig);
       if (!ex.detectedBy.includes(f.agentId)) ex.detectedBy.push(f.agentId);
-      // ارفع الخطورة للأعلى بين المكتشفين
       if (SEV_ORDER.indexOf(f.severity) < SEV_ORDER.indexOf(ex.severity)) ex.severity = f.severity;
+      // ادمج الأدلّة (خذ أول حل متاح)
+      if (!ex.evidence.fix && f.evidence?.fix) ex.evidence.fix = f.evidence.fix;
+      if (!ex.evidence.area && f.evidence?.area) ex.evidence.area = f.evidence.area;
     } else {
-      map.set(sig, { severity: f.severity, text: f.text, detectedBy: [f.agentId] });
+      map.set(sig, { severity: f.severity, text: f.text, detectedBy: [f.agentId], evidence: { ...(f.evidence || {}) } });
     }
   }
-  return [...map.values()].sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity));
+  const merged = [...map.values()];
+  // #3 الثقة + #10 القرار لكل مشكلة
+  for (const m of merged) {
+    m.confidence = computeConfidence(m);
+    m.decision   = decide(m);
+  }
+  // ترتيب: الخطورة أولاً ثم الثقة الأعلى (#8 Priority)
+  return merged.sort((a, b) =>
+    SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity) || b.confidence - a.confidence);
 }
 
 // ── درجة الصحة (#11) ──────────────────────────────────────────────────────────
@@ -162,10 +214,16 @@ function buildUnifiedReport({ health, merged, perAgent, tr }) {
   if (!merged.length) {
     L.push('✅ لا مشاكل — كل الوكلاء أعطوا نتائج سليمة.');
   } else {
+    const decEmoji = { auto: '🟢', notify: '🟡', human: '🔴' };
     for (const m of merged.slice(0, 40)) {
       const who = m.detectedBy.map(id => AGENTS[id]?.nameAr || id).join('، ');
-      const dup = m.detectedBy.length > 1 ? ` _(اكتشفها ${m.detectedBy.length}: ${who})_` : ` _(${who})_`;
-      L.push(`- ${SEV_EMOJI[m.severity]} **[${SEV_AR[m.severity]}]** ${m.text}${dup}`);
+      L.push(`- ${SEV_EMOJI[m.severity]} **[${SEV_AR[m.severity]}]** ${m.text}`);
+      // سطر الدليل والثقة والقرار (#3 #4 #10)
+      const bits = [`🎯 ثقة ${m.confidence}%`, `${decEmoji[m.decision.action]} ${m.decision.ar}`];
+      if (m.evidence.area) bits.push(`📍 ${m.evidence.area}`);
+      bits.push(m.detectedBy.length > 1 ? `👥 اكتشفها ${m.detectedBy.length} (${who})` : `👤 ${who}`);
+      L.push(`  - ${bits.join(' · ')}`);
+      if (m.evidence.fix) L.push(`  - 💡 الحل: ${m.evidence.fix}`);
     }
     if (merged.length > 40) L.push(`- … و${merged.length - 40} مشكلة أخرى`);
   }
