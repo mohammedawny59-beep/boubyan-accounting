@@ -284,7 +284,7 @@ header{
 }
 /* Touch targets min 44×44px */
 .nav-item, .btn, .bex, .btn-sm {
-  min-height: 36px;
+  min-height: 44px;
 }
 /* Skip to main content link for screen readers */
 .skip-link {
@@ -2332,10 +2332,10 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <option value="month" data-i18n-opt="filter.month">شهر محدد</option>
         <option value="range" data-i18n-opt="filter.range">نطاق تاريخ</option>
       </select>
-      <div id="fMonth" style="display:none"><label for="fMonthVal" class="fl" data-i18n="lbl.month">الشهر</label><input type="month" class="fi" id="fMonthVal" aria-label="تصفية البيانات بشهر محدد" value="2026-05"></div>
+      <div id="fMonth" style="display:none"><input type="month" class="fi" id="fMonthVal" aria-label="تصفية البيانات بشهر محدد" value="2026-05"></div>
       <div id="fRange" style="display:none;gap:6px;align-items:center;">
-        <label for="fFrom" class="fl" data-i18n="lbl.from">من</label><input type="date" class="fi" id="fFrom" aria-label="تاريخ بداية النطاق الزمني">
-        <label for="fTo" class="fl" data-i18n="lbl.to">إلى</label><input type="date" class="fi" id="fTo" aria-label="تاريخ نهاية النطاق الزمني">
+        <span class="fl" data-i18n="lbl.from">من</span><input type="date" class="fi" id="fFrom" aria-label="تاريخ بداية النطاق الزمني">
+        <span class="fl" data-i18n="lbl.to">إلى</span><input type="date" class="fi" id="fTo" aria-label="تاريخ نهاية النطاق الزمني">
       </div>
       <button class="btn bp bsm" onclick="loadDashboard()" data-i18n="btn.apply">تطبيق</button>
       <div class="qd-bar" style="margin-right:6px;">
@@ -9108,14 +9108,26 @@ async function loadUsers() {
 function openAddUser() {
   document.getElementById('userModalTitle').textContent = '➕ إضافة مستخدم جديد';
   document.getElementById('editUserId').value = '';
-  document.getElementById('uFullName').value = '';
-  document.getElementById('uUsername').value = '';
-  document.getElementById('uEmail').value = '';
-  document.getElementById('uPassword').value = '';
-  document.getElementById('uRole').value = 'viewer';
-  document.getElementById('uActive').checked = true;
+  const fullNameEl = document.getElementById('uFullName');
+  fullNameEl.value = '';
+  fullNameEl.setAttribute('aria-label', 'الاسم الكامل');
+  const usernameEl = document.getElementById('uUsername');
+  usernameEl.value = '';
+  usernameEl.setAttribute('aria-label', 'اسم المستخدم');
+  const emailEl = document.getElementById('uEmail');
+  emailEl.value = '';
+  emailEl.setAttribute('aria-label', 'البريد الإلكتروني');
+  const passwordEl = document.getElementById('uPassword');
+  passwordEl.value = '';
+  passwordEl.setAttribute('aria-label', 'كلمة المرور');
+  const roleEl = document.getElementById('uRole');
+  roleEl.value = 'viewer';
+  roleEl.setAttribute('aria-label', 'الدور');
+  const activeEl = document.getElementById('uActive');
+  activeEl.checked = true;
+  activeEl.setAttribute('aria-label', 'المستخدم نشط');
   document.getElementById('uPassNote').style.display = 'none';
-  document.getElementById('uUsername').disabled = false;
+  usernameEl.disabled = false;
   document.getElementById('userModalErr').style.display = 'none';
   openModal('userModal');
 }
