@@ -448,6 +448,11 @@ input[type=file]{display:none;}
 .finp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 12px;color:var(--text);font-family:'IBM Plex Sans Arabic',sans-serif;font-size:12px;outline:none;transition:border-color var(--t-base),box-shadow var(--t-base);direction:rtl;}
 input:not([type="file"]),select,textarea{display:block;}
 label{display:block;}
+input:not([type="file"]):not([aria-label]):not([id]),
+select:not([aria-label]):not([id]),
+textarea:not([aria-label]):not([id]) {
+  /* Inputs should have either id for label[for], aria-label, or aria-labelledby */
+}
 .finp:focus,.finp:focus-visible{border-color:var(--borderFoc);box-shadow:0 0 0 3px rgba(79,142,247,.15);outline:none;}
 .fr2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .di{display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border-radius:var(--r-sm);border:1px solid var(--border);margin-bottom:6px;background:var(--surface2);transition:border-color var(--t-fast);}
@@ -2792,7 +2797,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <span class="fl">من</span><input type="date" class="fi" id="expFFrom" aria-label="تاريخ بداية المصاريف">
         <span class="fl">إلى</span><input type="date" class="fi" id="expFTo" aria-label="تاريخ نهاية المصاريف">
       </div>
-      <select class="fi" id="expFCat" aria-label="تصفية المصاريف حسب التصنيف">
+      <select class="fi" id="expFCat">
         <option value="all">كل التصنيفات</option>
         <option>مواد مختبر</option><option>رواتب</option><option>إيجار</option>
         <option>كهرباء/ماء</option><option>صيانة</option><option>تسويق</option>
