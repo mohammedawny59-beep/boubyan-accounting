@@ -698,14 +698,6 @@ html[lang="en"] .sidebar-header .collapse-btn{margin-right:auto;margin-left:0;}
   flex-shrink:0;
   min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;
 }
-/* Icon buttons must have aria-label */
-.collapse-btn[aria-label],
-.je-action-btn[aria-label],
-.vc-line-del[aria-label],
-.tier-del[aria-label],
-.mcl[aria-label] {
-  position: relative;
-}
 .collapse-btn:hover{color:var(--text);background:var(--surface2);}
 .collapse-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
@@ -2800,7 +2792,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <span class="fl">من</span><input type="date" class="fi" id="expFFrom" aria-label="تاريخ بداية المصاريف">
         <span class="fl">إلى</span><input type="date" class="fi" id="expFTo" aria-label="تاريخ نهاية المصاريف">
       </div>
-      <select class="fi" id="expFCat">
+      <select class="fi" id="expFCat" aria-label="تصفية المصاريف حسب التصنيف">
         <option value="all">كل التصنيفات</option>
         <option>مواد مختبر</option><option>رواتب</option><option>إيجار</option>
         <option>كهرباء/ماء</option><option>صيانة</option><option>تسويق</option>
@@ -5539,7 +5531,8 @@ function loadDoctors() {
     const init = dr.name.replace(/DR\.|Dr\./g,'').trim().substring(0,2) || 'DR';
     return `<div class="dc">
       <div class="dc-hdr"><div class="dc-name">${dr.name}</div><div class="dc-av">${init}</div></div>
-      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${(dr.target||0).toLocaleString()}</span></div> <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
+      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${(dr.target||0).toLocaleString()}</span></div>
+      <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
       <div class="ds">
         <div><div class="dsl">إجمالي العمولات</div><div class="dsv">${totalComm.fmt()}</div></div>
         <div><div class="dsl">مدفوع</div><div class="dsv" style="color:var(--accent2)">${paidComm.fmt()}</div></div>
@@ -9115,14 +9108,26 @@ async function loadUsers() {
 function openAddUser() {
   document.getElementById('userModalTitle').textContent = '➕ إضافة مستخدم جديد';
   document.getElementById('editUserId').value = '';
-  document.getElementById('uFullName').value = '';
-  document.getElementById('uUsername').value = '';
-  document.getElementById('uEmail').value = '';
-  document.getElementById('uPassword').value = '';
-  document.getElementById('uRole').value = 'viewer';
-  document.getElementById('uActive').checked = true;
+  const fullNameEl = document.getElementById('uFullName');
+  fullNameEl.value = '';
+  fullNameEl.setAttribute('aria-label', 'الاسم الكامل');
+  const usernameEl = document.getElementById('uUsername');
+  usernameEl.value = '';
+  usernameEl.setAttribute('aria-label', 'اسم المستخدم');
+  const emailEl = document.getElementById('uEmail');
+  emailEl.value = '';
+  emailEl.setAttribute('aria-label', 'البريد الإلكتروني');
+  const passwordEl = document.getElementById('uPassword');
+  passwordEl.value = '';
+  passwordEl.setAttribute('aria-label', 'كلمة المرور');
+  const roleEl = document.getElementById('uRole');
+  roleEl.value = 'viewer';
+  roleEl.setAttribute('aria-label', 'الدور');
+  const activeEl = document.getElementById('uActive');
+  activeEl.checked = true;
+  activeEl.setAttribute('aria-label', 'المستخدم نشط');
   document.getElementById('uPassNote').style.display = 'none';
-  document.getElementById('uUsername').disabled = false;
+  usernameEl.disabled = false;
   document.getElementById('userModalErr').style.display = 'none';
   openModal('userModal');
 }
