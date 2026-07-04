@@ -2332,10 +2332,10 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <option value="month" data-i18n-opt="filter.month">شهر محدد</option>
         <option value="range" data-i18n-opt="filter.range">نطاق تاريخ</option>
       </select>
-      <div id="fMonth" style="display:none"><input type="month" class="fi" id="fMonthVal" aria-label="تصفية البيانات بشهر محدد" value="2026-05"></div>
+      <div id="fMonth" style="display:none"><label for="fMonthVal" class="fl" data-i18n="lbl.month">الشهر</label><input type="month" class="fi" id="fMonthVal" aria-label="تصفية البيانات بشهر محدد" value="2026-05"></div>
       <div id="fRange" style="display:none;gap:6px;align-items:center;">
-        <span class="fl" data-i18n="lbl.from">من</span><input type="date" class="fi" id="fFrom" aria-label="تاريخ بداية النطاق الزمني">
-        <span class="fl" data-i18n="lbl.to">إلى</span><input type="date" class="fi" id="fTo" aria-label="تاريخ نهاية النطاق الزمني">
+        <label for="fFrom" class="fl" data-i18n="lbl.from">من</label><input type="date" class="fi" id="fFrom" aria-label="تاريخ بداية النطاق الزمني">
+        <label for="fTo" class="fl" data-i18n="lbl.to">إلى</label><input type="date" class="fi" id="fTo" aria-label="تاريخ نهاية النطاق الزمني">
       </div>
       <button class="btn bp bsm" onclick="loadDashboard()" data-i18n="btn.apply">تطبيق</button>
       <div class="qd-bar" style="margin-right:6px;">
@@ -5531,7 +5531,8 @@ function loadDoctors() {
     const init = dr.name.replace(/DR\.|Dr\./g,'').trim().substring(0,2) || 'DR';
     return `<div class="dc">
       <div class="dc-hdr"><div class="dc-name">${dr.name}</div><div class="dc-av">${init}</div></div>
-      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${(dr.target||0).toLocaleString()}</span></div> <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
+      <div style="font-size:9px;color:var(--text2);margin-bottom:3px">${pct}% من الـ Target <span style="float:left;font-family:'IBM Plex Mono',monospace">${totalRev.fmt()} / ${(dr.target||0).toLocaleString()}</span></div>
+      <div class="pb"><div class="pf" style="width:${pct}%"></div></div>
       <div class="ds">
         <div><div class="dsl">إجمالي العمولات</div><div class="dsv">${totalComm.fmt()}</div></div>
         <div><div class="dsl">مدفوع</div><div class="dsv" style="color:var(--accent2)">${paidComm.fmt()}</div></div>
