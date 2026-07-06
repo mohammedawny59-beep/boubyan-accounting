@@ -4649,6 +4649,15 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       </div>
     </div>
     <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">التكرار</label>
+        <select class="finp" id="recurFreq">
+          <option value="monthly">شهري</option>
+          <option value="weekly">أسبوعي</option>
+          <option value="daily">يومي</option>
+          <option value="quarterly">ربع سنوي</option>
+          <option value="yearly">سنوي</option>
+        </select>
+      </div>
       <div class="fr" style="margin:0"><label class="flbl">يوم التطبيق (1-28)</label>
         <input type="number" class="finp" id="recurDay" placeholder="1" min="1" max="28" value="1">
       </div>
@@ -7999,7 +8008,8 @@ async function saveRecur() {
   const cat=document.getElementById('recurCat').value;
   const accountId=document.getElementById('recurAccount').value;
   if(!desc||!amt){alert('أدخل الوصف والمبلغ');return;}
-  const entry={id:'REC-'+Date.now(),desc,cat,amount:amt,day,accountId,active:true,lastApplied:''};
+  const frequency=document.getElementById('recurFreq')?.value||'monthly';
+  const entry={id:'REC-'+Date.now(),desc,cat,amount:amt,day,accountId,frequency,active:true,lastApplied:''};
   try {
     await fetch(`${API}/recurring`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)});
     await loadAll();loadRecurring();closeModal('recurModal');

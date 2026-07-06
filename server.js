@@ -5953,6 +5953,37 @@ app.delete('/api/recurring/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// هل حان موعد تنفيذ المصروف المتكرر؟ (يحترم التكرار: يومي/أسبوعي/شهري/ربعي/سنوي)
+function recurringIsDue(r, today) {
+  if (!r.active) return false;
+  const freq = r.frequency || 'monthly';
+  if (!r.lastApplied) return true; // لم يُطبّق من قبل → مستحق الآن
+  const last = new Date(r.lastApplied + (r.lastApplied.length <= 10 ? 'T00:00:00' : ''));
+  if (isNaN(last)) return true;
+  const days = Math.floor((today - last) / 86400000);
+  switch (freq) {
+    case 'daily':     return days >= 1;
+    case 'weekly':    return days >= 7;
+    case 'quarterly': return days >= 90;
+    case 'yearly':    return days >= 365;
+    case 'monthly':
+    default:          return today.toISOString().slice(0, 7) !== r.lastApplied.slice(0, 7);
+  }
+}
+
+function recurringNextRun(r, fromDate) {
+  const base = r.lastApplied ? new Date(r.lastApplied) : fromDate;
+  const d = new Date(base);
+  switch (r.frequency || 'monthly') {
+    case 'daily':     d.setDate(d.getDate() + 1); break;
+    case 'weekly':    d.setDate(d.getDate() + 7); break;
+    case 'quarterly': d.setMonth(d.getMonth() + 3); break;
+    case 'yearly':    d.setFullYear(d.getFullYear() + 1); break;
+    default:          d.setMonth(d.getMonth() + 1);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
 app.post('/api/recurring/run', (req, res) => {
   const db = loadDB();
   const items = db.recurringExpenses || [];
@@ -5961,39 +5992,37 @@ app.post('/api/recurring/run', (req, res) => {
   let applied = 0;
 
   items.forEach(r => {
-    if (!r.active) return;
-    if (r.lastApplied && r.lastApplied.startsWith(thisMonth)) return; // already applied this month
+    if (!recurringIsDue(r, today)) return; // يحترم التكرار — يمنع التكرار المزدوج
 
-    // Add expense
     if (!db.expenses) db.expenses = [];
-    const date = `${thisMonth}-${String(r.day).padStart(2,'0')}`;
+    if (!db.journalEntries) db.journalEntries = [];
+    const day = Math.min(28, Math.max(1, parseInt(r.day) || 1));
+    const date = `${thisMonth}-${String(day).padStart(2, '0')}`;
+    const jeId = 'JE-REC-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    const expId = genId('exp-');
+
+    // ربط المصروف بقيده حتى يُحذفا معاً
     db.expenses.push({
-      id: Date.now() + Math.random(),
-      desc: r.desc + ' (متكرر)',
-      cat: r.cat,
-      amount: r.amount,
-      date,
-      source: 'recurring'
+      id: expId, desc: r.desc + ' (متكرر)', cat: r.cat, amount: r.amount,
+      date, payMethod: r.payMethod || 'cash', source: 'recurring', journalId: jeId,
     });
 
-    // Add journal entry
-    if (!db.journalEntries) db.journalEntries = [];
     const accounts = db.chartOfAccounts || [];
-    const expAcc = accounts.find(a => a.id === r.accountId) || { id: r.accountId||'5670', code: '5670', name: r.cat };
-    const cashAcc = accounts.find(a => a.code === '1100') || { id: '1100', code: '1100', name: 'الصندوق' };
+    const expAcc  = accounts.find(a => a.id === r.accountId || a.code === r.accountId) || { id: r.accountId || '5699', code: r.accountId || '5699', name: r.cat };
+    const credit  = payMethodToAccount(r.payMethod || 'cash');
+    const cashAcc = accounts.find(a => a.code === credit.code) || { id: credit.code, code: credit.code, name: credit.name };
     db.journalEntries.push({
-      id: 'JE-REC-' + Date.now(),
-      date, desc: r.desc + ' (متكرر)',
-      ref: 'REC', type: 'expense',
-      totalDebit: r.amount, totalCredit: r.amount,
-      createdAt: new Date().toISOString(),
+      id: jeId, date, desc: r.desc + ' (متكرر)', description: r.desc + ' (متكرر)',
+      ref: 'REC', reference: 'REC', type: 'expense', source: 'recurring', expenseId: expId,
+      totalDebit: r.amount, totalCredit: r.amount, createdAt: new Date().toISOString(),
       lines: [
         { accountId: expAcc.id, accountCode: expAcc.code, accountName: expAcc.name, debit: r.amount, credit: 0 },
-        { accountId: cashAcc.id, accountCode: cashAcc.code, accountName: cashAcc.name, debit: 0, credit: r.amount }
-      ]
+        { accountId: cashAcc.id, accountCode: cashAcc.code, accountName: cashAcc.name, debit: 0, credit: r.amount },
+      ],
     });
 
     r.lastApplied = date;
+    r.nextRun = recurringNextRun(r, today);
     applied++;
   });
 
