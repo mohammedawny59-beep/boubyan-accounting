@@ -10242,19 +10242,44 @@ async function openPayrollModal() {
   const rows = emps.map((e,i)=>`
     <tr>
       <td>${e.name}</td><td>${e.role||'—'}</td>
-      <td><input type="number" step="0.001" class="finp" id="prSal${i}" value="${e.basicSalary||0}" style="width:90px"></td>
-      <td><input type="number" step="0.001" class="finp" id="prAll${i}" value="${e.allowances||0}" style="width:80px"></td>
-      <td><input type="number" step="0.001" class="finp" id="prDed${i}" value="0" style="width:80px"></td>
+      <td><input type="number" step="0.001" class="finp" id="prSal${i}" value="${e.basicSalary||0}" style="width:90px" oninput="recalcPayroll()"></td>
+      <td><input type="number" step="0.001" class="finp" id="prAll${i}" value="${e.allowances||0}" style="width:80px" oninput="recalcPayroll()"></td>
+      <td><input type="number" step="0.001" class="finp" id="prDed${i}" value="0" style="width:80px" oninput="recalcPayroll()"></td>
+      <td class="num" id="prNet${i}" style="font-weight:600">0.000</td>
       <input type="hidden" id="prName${i}" value="${e.name}">
       <input type="hidden" id="prRole${i}" value="${e.role||''}">
     </tr>`).join('');
   document.getElementById('prTable').innerHTML = `
     <table style="width:100%;border-collapse:collapse">
-      <thead><tr><th>الموظف</th><th>الوظيفة</th><th>الراتب الأساسي</th><th>البدلات</th><th>الخصومات</th></tr></thead>
+      <thead><tr><th>الموظف</th><th>الوظيفة</th><th>الأساسي</th><th>البدلات</th><th>الخصومات</th><th>الصافي</th></tr></thead>
       <tbody>${rows}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
+        <td colspan="2">الإجمالي</td>
+        <td class="num" id="prTotGross">0.000</td>
+        <td></td>
+        <td class="num" id="prTotDed">0.000</td>
+        <td class="num" id="prTotNet" style="color:var(--accent2)">0.000</td>
+      </tr></tfoot>
     </table>`;
   document.getElementById('prCount').value = emps.length;
   document.getElementById('payrollModal').classList.add('open');
+  recalcPayroll();
+}
+
+// حساب الإجماليات مباشرة أثناء الإدخال (#5 الإجمالي النهائي)
+function recalcPayroll(){
+  const count=parseInt(document.getElementById('prCount').value)||0;
+  let gross=0,ded=0,net=0;
+  for(let i=0;i<count;i++){
+    const s=parseFloat(document.getElementById('prSal'+i)?.value)||0;
+    const a=parseFloat(document.getElementById('prAll'+i)?.value)||0;
+    const d=parseFloat(document.getElementById('prDed'+i)?.value)||0;
+    const n=s+a-d;
+    const nc=document.getElementById('prNet'+i); if(nc)nc.textContent=n.toFixed(3);
+    gross+=s+a; ded+=d; net+=n;
+  }
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v.toFixed(3);};
+  set('prTotGross',gross); set('prTotDed',ded); set('prTotNet',net);
 }
 
 async function savePayroll() {
@@ -10271,15 +10296,48 @@ async function savePayroll() {
       deductions:  parseFloat(document.getElementById(`prDed${i}`)?.value)||0,
     });
   }
-  const r=await fetch('/api/payroll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({month,entries})});
-  const d=await r.json();
-  if(d.success){ document.getElementById('payrollModal').classList.remove('open'); loadPayroll(); }
+  const totalNet = entries.reduce((s,e)=>s+e.basicSalary+e.allowances-e.deductions,0);
+  if(totalNet<=0){ showToast('إجمالي الرواتب صفر — أدخل الرواتب أولاً','error'); return; }
+  const btn=document.getElementById('savePayrollBtn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ جارٍ الحفظ...'; }
+  try{
+    const r=await fetch('/api/payroll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({month,entries})});
+    const d=await r.json();
+    if(d.success){
+      document.getElementById('payrollModal').classList.remove('open');
+      await loadAll(); loadPayroll();
+      showToast(`✅ حُفظ كشف الرواتب — الإجمالي ${totalNet.toFixed(3)} د.ك وأُنشئ القيد`,'success');
+    } else { showToast('❌ '+(d.error||'فشل الحفظ'),'error'); }
+  }catch(e){ showToast('❌ خطأ في الاتصال','error'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='💾 حفظ الكشف وإنشاء قيد'; } }
 }
 
 async function markPayrollPaid(id) {
-  if(!confirm('تأكيد صرف هذا الكشف؟')) return;
-  await fetch(`/api/payroll/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'paid',paidDate:new Date().toISOString().slice(0,10)})});
-  loadPayroll();
+  const method = await pickPayMethod();
+  if(!method) return;
+  await fetch(`/api/payroll/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'paid',payMethod:method,paidDate:new Date().toISOString().slice(0,10)})});
+  await loadAll(); loadPayroll();
+  showToast('✅ تم صرف الرواتب وتسجيل القيد','success');
+}
+
+// منتقي طريقة الصرف (#5) — نقد/بنك/تحويل/شيك
+function pickPayMethod(){
+  return new Promise(resolve=>{
+    const methods=[['cash','💵 نقداً'],['bank','🏦 بنك'],['تحويل','🔄 تحويل'],['شيك','📝 شيك']];
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center';
+    ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;min-width:260px;max-width:340px">
+      <div style="font-weight:700;margin-bottom:14px;font-size:14px">اختر طريقة صرف الرواتب</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${methods.map(([v,l])=>`<button class="btn bs" data-m="${v}" style="width:100%;justify-content:flex-start">${l}</button>`).join('')}
+        <button class="btn" data-m="" style="width:100%;margin-top:6px">إلغاء</button>
+      </div></div>`;
+    ov.addEventListener('click',e=>{
+      const b=e.target.closest('button'); if(!b)return;
+      document.body.removeChild(ov); resolve(b.dataset.m||null);
+    });
+    document.body.appendChild(ov);
+  });
 }
 
 // ═══════════════════════════════════════════════════
@@ -12361,7 +12419,7 @@ showTab = function(id, el) {
     <input type="hidden" id="prCount" value="0">
     <div id="prTable" style="overflow-x:auto;margin:12px 0"></div>
     <div class="mact">
-      <button class="btn bp" onclick="savePayroll()">💾 حفظ الكشف وإنشاء قيد</button>
+      <button class="btn bp" id="savePayrollBtn" onclick="savePayroll()">💾 حفظ الكشف وإنشاء قيد</button>
       <button class="btn bd" onclick="document.getElementById('payrollModal').classList.remove('open')">إلغاء</button>
     </div>
   </div>

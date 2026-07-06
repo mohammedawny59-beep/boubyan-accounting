@@ -6383,22 +6383,25 @@ app.put('/api/payroll/:id/status', (req,res)=>{
   rec.status   = req.body.status   || 'paid';
   rec.paidDate = req.body.paidDate || new Date().toISOString().slice(0,10);
 
-  // When marking as paid: clear Salary Payable → Cash/Bank
+  // When marking as paid: clear Salary Payable → Cash/Bank/… (per chosen method)
   if(rec.status==='paid' && prevStatus!=='paid'){
     const accs = db.chartOfAccounts||[];
     const salaryPayAcc = accs.find(a=>a.code==='2100')||{id:'2100',code:'2100',name:'رواتب مستحقة الدفع'};
-    const cashAcc      = accs.find(a=>a.code==='1100')||{id:'1100',code:'1100',name:'الصندوق'};
+    // طريقة الصرف: نقد/بنك/تحويل/شيك → الحساب الدائن المناسب
+    rec.payMethod = req.body.payMethod || rec.payMethod || 'cash';
+    const credit = payMethodToAccount(rec.payMethod);
+    const payAcc = accs.find(a=>a.code===credit.code)||{id:credit.code,code:credit.code,name:credit.name};
     const net = rec.totalNet || rec.totalGross || 0;
     if(!db.journalEntries) db.journalEntries=[];
     db.journalEntries.push({
       id:'JE-PAY-PMT-'+Date.now(), date:rec.paidDate,
-      desc:`دفع رواتب شهر ${rec.month}`,
-      ref:'PAY-PMT-'+rec.month, type:'payroll_payment',
+      desc:`دفع رواتب شهر ${rec.month} (${rec.payMethod})`, description:`دفع رواتب شهر ${rec.month}`,
+      ref:'PAY-PMT-'+rec.month, reference:'PAY-PMT-'+rec.month, type:'payroll_payment',
       totalDebit:net, totalCredit:net,
       createdAt:new Date().toISOString(),
       lines:[
         {accountId:salaryPayAcc.id,accountCode:'2100',accountName:'رواتب مستحقة الدفع',debit:net,credit:0},
-        {accountId:cashAcc.id,     accountCode:'1100',accountName:'الصندوق',            debit:0,credit:net}
+        {accountId:payAcc.id,      accountCode:payAcc.code,accountName:payAcc.name,     debit:0,credit:net}
       ]
     });
   }
