@@ -7033,7 +7033,19 @@ async function loadJournal() {
   if (fType2 !== 'all') filtered = filtered.filter(e => e.type === fType2);
   
   filtered.sort((a,b) => b.date.localeCompare(a.date));
-  
+
+  // Normalize: some auto-created entries (expenses) store only lines[] without
+  // totalDebit/totalCredit — compute them from the lines so amounts never show 0.
+  filtered.forEach(e => {
+    const lines = e.lines || [];
+    if (e.totalDebit == null || e.totalCredit == null) {
+      e.totalDebit  = lines.reduce((s,l)=>s+(parseFloat(l.debit)||0), 0);
+      e.totalCredit = lines.reduce((s,l)=>s+(parseFloat(l.credit)||0), 0);
+    }
+    if (!e.desc) e.desc = e.description || e.ref || 'قيد';
+    if (!e.ref)  e.ref  = e.reference || e.id;
+  });
+
   const totalDebit  = filtered.reduce((s,e) => s + (e.totalDebit||0), 0);
   const totalCredit = filtered.reduce((s,e) => s + (e.totalCredit||0), 0);
   const diff = Math.abs(totalDebit - totalCredit);
@@ -7422,11 +7434,14 @@ function onCoaParentChange(){
     const isEdit=!!document.getElementById('coaEditId').value;
     if(!isEdit){
       fetch(`${API}/coa/next-code?parent=${encodeURIComponent(pid)}`).then(r=>r.json()).then(d=>{
+        const ht=document.getElementById('coaCodeHint');
         if(d.nextCode){
           document.getElementById('coaCode').value=d.nextCode;
-          const ht=document.getElementById('coaCodeHint');
           if(ht) ht.innerHTML='<span style="color:var(--accent2)">✨ رقم مقترح تلقائياً: '+d.nextCode+'</span>';
           onCoaCodeInput();
+        } else if(ht){
+          // المجموعة ممتلئة (كل الأرقام مستخدمة) — وجّه المستخدم لمجموعة فرعية
+          ht.innerHTML='<span style="color:var(--warn,#d29922)">⚠️ هذه المجموعة ممتلئة — اختر مجموعة فرعية لإضافة الحساب تحتها (مثل «مصاريف عامة»)</span>';
         }
       }).catch(()=>{});
     }

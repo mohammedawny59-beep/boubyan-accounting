@@ -1263,10 +1263,13 @@ app.post('/api/expenses', (req, res) => {
     id: jeId,
     date: sanitize(date, 10),
     description: jeDesc,
+    desc: jeDesc,
+    ref: 'EXP-AUTO',
     reference: 'EXP-AUTO',
     type: 'expense',
     source: 'expenses',
     expenseId: newExpense.id,
+    totalDebit: amt, totalCredit: amt,
     lines: vendorAcc
       ? [
           { accountId: debitAcc.id, accountCode: debitAcc.code, accountName: debitAcc.name, debit: amt, credit: 0 },
@@ -4497,7 +4500,8 @@ app.post('/api/coa/account', (req, res) => {
 app.put('/api/coa/account/:id', (req, res) => {
   const db = loadDB();
   const coa = db.chartOfAccounts || [];
-  const idx = coa.findIndex(a => a.id === req.params.id);
+  // Match by id OR code — resilient to id/code drift after a code edit
+  const idx = coa.findIndex(a => a.id === req.params.id || a.code === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'الحساب غير موجود' });
   const { code, name, type, parent, description, isGroup, normalBalance, status } = req.body;
   // If code changed and new code already exists → reject
@@ -4519,15 +4523,15 @@ app.put('/api/coa/account/:id', (req, res) => {
 app.delete('/api/coa/account/:id', (req, res) => {
   const db = loadDB();
   const coa = db.chartOfAccounts || [];
-  const acc = coa.find(a => a.id === req.params.id);
+  const acc = coa.find(a => a.id === req.params.id || a.code === req.params.id);
   if (!acc) return res.status(404).json({ error: 'الحساب غير موجود' });
-  // Block: has children
-  if (coa.some(a => a.parent === req.params.id))
+  // Block: has children (match parent against both the account's id and its code)
+  if (coa.some(a => a.parent === acc.id || a.parent === acc.code))
     return res.status(409).json({ error: 'لا يمكن حذف الحساب — يحتوي على حسابات فرعية', code:'HAS_CHILDREN' });
-  // Block: has journal entries
-  if (accountHasEntries(db, req.params.id))
+  // Block: has journal entries (check both id and code)
+  if (accountHasEntries(db, acc.id) || accountHasEntries(db, acc.code))
     return res.status(409).json({ error: 'لا يمكن حذف الحساب — مرتبط بقيود محاسبية', code:'HAS_ENTRIES' });
-  db.chartOfAccounts = coa.filter(a => a.id !== req.params.id);
+  db.chartOfAccounts = coa.filter(a => a !== acc);
   saveDB(db);
   res.json({ success: true });
 });
