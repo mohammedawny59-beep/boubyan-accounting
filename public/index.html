@@ -4810,6 +4810,10 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       </div>
       <div class="fr" style="margin:0"><label class="flbl">حد الائتمان (د.ك)</label><input type="number" class="finp" id="vndCredit" placeholder="0" step="0.001"></div>
     </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">الرصيد الافتتاحي (د.ك)</label><input type="number" class="finp" id="vndOpening" placeholder="0.000" step="0.001" title="المبلغ المستحق للمورد عند بدء استخدام النظام"></div>
+      <div class="fr" style="margin:0"><label class="flbl">تاريخ الرصيد الافتتاحي</label><input type="date" class="finp" id="vndOpeningDate"></div>
+    </div>
     <div class="fr"><label class="flbl">ملاحظات</label><input class="finp" id="vndNotes" placeholder="أي معلومات إضافية..."></div>
     <div id="vndAccPreview" style="padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:11px;color:var(--text2);margin-bottom:4px;">
       📒 سيُضاف تلقائياً كحساب في شجرة الحسابات تحت: <strong style="color:var(--accent)">2100 — ذمم دائنة — موردون</strong>
@@ -8151,6 +8155,8 @@ function openVendorModal(vendor = null) {
   document.getElementById('vndAddress').value   = vendor?.address || '';
   document.getElementById('vndTerms').value     = vendor?.terms   || 'نقد';
   document.getElementById('vndCredit').value    = vendor?.creditLimit || '';
+  document.getElementById('vndOpening').value   = vendor?.openingBalance || '';
+  document.getElementById('vndOpeningDate').value = vendor?.openingDate || '';
   document.getElementById('vndNotes').value     = vendor?.notes   || '';
   document.getElementById('vendorModal').classList.add('open');
 }
@@ -8173,12 +8179,17 @@ async function saveVendor() {
     address:     document.getElementById('vndAddress').value.trim(),
     terms:       document.getElementById('vndTerms').value,
     creditLimit: parseFloat(document.getElementById('vndCredit').value)||0,
+    openingBalance: parseFloat(document.getElementById('vndOpening').value)||0,
+    openingDate: document.getElementById('vndOpeningDate').value||'',
     notes:       document.getElementById('vndNotes').value.trim(),
   };
   try {
     const r = await fetch(`${API}/vendors`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(vendor) });
     const d = await r.json();
-    if (d.success) { closeModal('vendorModal'); await loadAll(); renderVendors(); }
+    if (d.success) {
+      closeModal('vendorModal'); await loadAll(); renderVendors();
+      showToast(vendor.openingBalance>0?`✅ حُفظ المورد برصيد افتتاحي ${vendor.openingBalance.toFixed(3)} د.ك`:'✅ حُفظ المورد','success');
+    }
     else alert(d.message||'خطأ');
   } catch(e) { alert('خطأ في الحفظ'); }
 }
