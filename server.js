@@ -1214,8 +1214,11 @@ app.post('/api/expenses', (req, res) => {
   const { date, desc, cat, amount, vendor, payMethod, notes,
           accountCode, accountId, accountName,
           payMethodCode, vendorId, vendorAccountId } = req.body;
-  if (!date || !amount) return res.status(400).json({ error: 'date and amount required' });
-  const amt = Math.max(0, parseFloat(amount) || 0);
+  const amt = parseFloat(amount);
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date)))
+    return res.status(400).json({ error: 'التاريخ مطلوب بصيغة صحيحة (YYYY-MM-DD)' });
+  if (isNaN(amt) || amt <= 0)
+    return res.status(400).json({ error: 'المبلغ مطلوب ويجب أن يكون رقماً موجباً' });
   if (!db.journalEntries) db.journalEntries = [];
   const jeId = nextJeId(db);
   const newExpense = {
@@ -5015,13 +5018,21 @@ app.post('/api/journal', requireAuth, (req, res) => {
   const db = loadDB();
   if (!db.journalEntries) db.journalEntries = [];
   const entry = req.body;
+  // ── تحقّق من صحة المدخلات (validation) ──
+  if (!entry || typeof entry !== 'object') return res.status(400).json({ error: 'بيانات القيد غير صحيحة' });
+  if (!Array.isArray(entry.lines) || entry.lines.length < 1)
+    return res.status(400).json({ error: 'القيد يجب أن يحتوي على بنود (سطرين على الأقل)' });
+  const badLine = entry.lines.some(l => !l || typeof l !== 'object' ||
+    (isNaN(parseFloat(l.debit)) && isNaN(parseFloat(l.credit))));
+  if (badLine) return res.status(400).json({ error: 'بنود القيد غير صحيحة — كل بند يحتاج مبلغ مدين أو دائن' });
+  if (entry.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(entry.date)))
+    return res.status(400).json({ error: 'تاريخ القيد غير صحيح' });
+
   // Validate debit === credit
-  if (Array.isArray(entry.lines) && entry.lines.length) {
-    const totalD = entry.lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
-    const totalC = entry.lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
-    if (Math.abs(totalD - totalC) > 0.005) {
-      return res.status(400).json({ error: `القيد غير متوازن: المدين ${totalD.toFixed(3)} ≠ الدائن ${totalC.toFixed(3)}` });
-    }
+  const totalD = entry.lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
+  const totalC = entry.lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+  if (Math.abs(totalD - totalC) > 0.005) {
+    return res.status(400).json({ error: `القيد غير متوازن: المدين ${totalD.toFixed(3)} ≠ الدائن ${totalC.toFixed(3)}` });
   }
   const existingIdx = db.journalEntries.findIndex(e => e.id === entry.id);
   if (existingIdx >= 0) {
