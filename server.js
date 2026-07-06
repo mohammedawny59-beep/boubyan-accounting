@@ -83,6 +83,14 @@ function genId(prefix = '') {
   return `${prefix}${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
+// آخر يوم صحيح في الشهر (يمنع تواريخ خاطئة مثل 2026-02-30)
+function monthEndDate(month) {
+  const m = /^\d{4}-\d{2}$/.test(String(month)) ? String(month) : new Date().toISOString().slice(0, 7);
+  const [y, mo] = m.split('-').map(Number);
+  const last = new Date(y, mo, 0).getDate(); // اليوم 0 من الشهر التالي = آخر يوم في هذا الشهر
+  return `${m}-${String(last).padStart(2, '0')}`;
+}
+
 // Sequential journal entry ID: JE-YYYY-NNNN
 function nextJeId(db) {
   const year = new Date().getFullYear();
@@ -908,7 +916,7 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
         uploadMonths.push(month);
         db.journalEntries.push({
           id:          `JE-INC-${month}`,
-          date:        month + '-30',
+          date:        monthEndDate(month),
           desc:        `إيرادات شهر ${month}`,
           ref:         `INCOME-${month}`,
           type:        'auto-income',
@@ -1045,7 +1053,7 @@ function updateCommissions(db) {
       const insRecAcc2 = findAcc('1130'); // ذمم مدينة — شركات التأمين
       db.journalEntries.push({
         id: genId('JE-INS-'),
-        date: g.month + '-30',
+        date: monthEndDate(g.month),
         desc: `خصم تأمين طبيب — ${g.doctor} — ${g.month}`,
         ref: jeRef,
         type: 'insurance-expense',
@@ -7050,7 +7058,7 @@ app.post('/api/import/doctor-payments', requireAuth, upload.single('file'), (req
       const id = `DPAY-${Date.now()}-${i}`;
       const commission = parseFloat(row['العمولة المستحقة (د.ك)'] || row['العمولة المستحقة'] || 0);
       const advances   = parseFloat(row['السُّلف المصروفة (د.ك)'] || row['السلف'] || 0);
-      const payDate    = String(row['تاريخ الدفع'] || month + '-30').trim();
+      const payDate    = String(row['تاريخ الدفع'] || monthEndDate(month)).trim();
       const payMethod  = String(row['طريقة الدفع'] || 'تحويل بنكي').trim();
 
       const payment = {
@@ -8269,7 +8277,7 @@ app.post('/api/accrued-expenses', requireAuth, (req, res) => {
   db.journalEntries = db.journalEntries || [];
   const jeId = 'JE-ACR-' + item.id;
   db.journalEntries.push({
-    id: jeId, date: month + '-30',
+    id: jeId, date: monthEndDate(month),
     desc: `مصروف مستحق — ${description} — ${month}`,
     ref: item.id, type: 'accrued-expense',
     totalDebit: amt, totalCredit: amt,
