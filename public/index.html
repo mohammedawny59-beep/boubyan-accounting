@@ -2741,6 +2741,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <div class="th2">
         <div class="tt">👤 الموظفون</div>
         <div style="display:flex;gap:6px">
+          <button class="btn bo bsm" id="empArchiveBtn" onclick="toggleEmpArchive()">🗄️ الأرشيف (السابقون) <span id="empArchiveCount" style="opacity:.7"></span></button>
           <button class="btn bw bsm" onclick="openEmpModal()">+ موظف</button>
         </div>
       </div>
@@ -4690,7 +4691,16 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <div class="fr" style="margin:0"><label class="flbl">المبلغ (د.ك) <span style="color:var(--danger)">*</span></label><input type="number" class="finp" id="acrAmount" placeholder="0.000" step="0.001"></div>
     </div>
     <div class="fr2">
-      <div class="fr" style="margin:0"><label class="flbl">رقم الحساب</label><input class="finp" id="acrCode" placeholder="5100" oninput="onAcrCodeInput()"></div>
+      <div class="fr" style="margin:0"><label class="flbl">الحساب المحاسبي</label>
+        <div style="position:relative;">
+          <input class="finp" id="acrAccTxt" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="width:100%;box-sizing:border-box;"
+            oninput="filterAccPicker('acrAccTxt','acrCode','acrAccDrop','expense')"
+            onfocus="filterAccPicker('acrAccTxt','acrCode','acrAccDrop','expense')"
+            onblur="setTimeout(()=>{let d=document.getElementById('acrAccDrop');if(d)d.style.display='none'},200)">
+          <input type="hidden" id="acrCode" value="">
+          <div id="acrAccDrop" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+        </div>
+      </div>
       <div class="fr" style="margin:0"><label class="flbl">تاريخ الاستحقاق</label><input type="date" class="finp" id="acrDue"></div>
     </div>
     <div class="fr"><label class="flbl">المورد / الجهة</label><input class="finp" id="acrVendor" placeholder="اسم المورد..."></div>
@@ -5431,6 +5441,7 @@ function openAccruedModal() {
   document.getElementById('acrMonth').value = new Date().toISOString().slice(0,7);
   document.getElementById('acrAmount').value = '';
   document.getElementById('acrCode').value = '';
+  const acrTxt = document.getElementById('acrAccTxt'); if(acrTxt) acrTxt.value = '';
   document.getElementById('acrDue').value = '';
   document.getElementById('acrVendor').value = '';
   document.getElementById('acrNotes').value = '';
@@ -7798,14 +7809,21 @@ async function loadLedger() {
   const accountId = document.getElementById('ledgerAccount')?.value;
   if (!accountId) return;
   const acc = accounts.find(a=>a.id===accountId);
+  const accCode = acc?.code;
+  const matchLine = l => l.accountId===accountId || l.accountCode===accountId || (accCode && (l.accountCode===accCode || l.accountId===accCode));
   const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
-  const entries = (DB.journalEntries||[]).filter(e => filterMonth==='all'||e.date?.startsWith(filterMonth));
+  const entries = (DB.journalEntries||[]).filter(e => Array.isArray(e.lines) && (filterMonth==='all'||e.date?.startsWith(filterMonth)));
   let balance = 0;
   const rows = [];
-  entries.sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
-    e.lines.filter(l=>l.accountId===accountId).forEach(l=>{
+  entries.sort((a,b)=>(a.date||'').localeCompare(b.date||'')).forEach(e=>{
+    (e.lines||[]).filter(matchLine).forEach(l=>{
       balance += (l.debit||0) - (l.credit||0);
-      rows.push({entryId:e.id,date:e.date,ref:e.ref||e.id,desc:e.desc,debit:l.debit||0,credit:l.credit||0,balance});
+      // التفاصيل: وصف القيد + الطرف المقابل (لأين ذهب/جاء المبلغ)
+      const base = e.desc || e.description || l.remarks || '';
+      const others = (e.lines||[]).filter(x=>!matchLine(x)).map(x=>x.accountName).filter(Boolean);
+      const counter = others.length ? ('مقابل: '+[...new Set(others)].join('، ')) : '';
+      const desc = base ? (counter ? `${base} — ${counter}` : base) : (counter || e.ref || 'حركة');
+      rows.push({entryId:e.id,date:e.date,ref:e.ref||e.reference||e.id,desc,debit:l.debit||0,credit:l.credit||0,balance});
     });
   });
   const totalDebit=rows.reduce((s,r)=>s+r.debit,0);
@@ -7818,8 +7836,8 @@ async function loadLedger() {
   document.getElementById('ledgerBody').innerHTML = rows.length ?
     rows.map(r=>`<tr style="cursor:pointer;" onclick="showLedgerEntry('${r.entryId}')" title="اضغط لعرض تفاصيل القيد">
       <td>${r.date}</td>
-      <td style="font-family:monospace;font-size:10px;color:var(--accent);">${r.ref}</td>
-      <td>${r.desc}</td>
+      <td style="font-family:monospace;font-size:10px;color:var(--accent);">${escHtml(r.ref)}</td>
+      <td>${escHtml(r.desc)}</td>
       <td class="num pos">${r.debit>0?r.debit.fmt():''}</td>
       <td class="num neg">${r.credit>0?r.credit.fmt():''}</td>
       <td class="num ${r.balance>=0?'pos':'neg'}" style="font-weight:600;">${r.balance.fmt()}</td>
@@ -10124,10 +10142,51 @@ async function deleteClaim(id) {
 // ══════════════════════════════════════════════════════
 // PAYROLL
 // ══════════════════════════════════════════════════════
+async function endEmployee(id, name){
+  const kind = await pickResignType();
+  if(!kind) return;
+  const endDate = new Date().toISOString().slice(0,10);
+  await fetch('/api/employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status:kind,endDate})});
+  await loadAll(); loadEmployees();
+  showToast(`✅ نُقل «${name}» إلى الأرشيف (${kind==='terminated'?'مفصول':'مستقيل'})`,'success');
+}
+function pickResignType(){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center';
+    ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;min-width:260px">
+      <div style="font-weight:700;margin-bottom:14px">إنهاء خدمة الموظف</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn bs" data-k="resigned" style="width:100%">🚪 استقالة</button>
+        <button class="btn bo" data-k="terminated" style="width:100%">⛔ فصل / تفنيش</button>
+        <button class="btn" data-k="" style="width:100%;margin-top:6px">إلغاء</button>
+      </div></div>`;
+    ov.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;document.body.removeChild(ov);resolve(b.dataset.k||null);});
+    document.body.appendChild(ov);
+  });
+}
+async function restoreEmployee(id){
+  await fetch('/api/employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status:'active',endDate:''})});
+  await loadAll(); loadEmployees(); showToast('↩️ أُرجع الموظف للعمل','success');
+}
+async function deleteEmployee(id, name){
+  if(!confirm(`حذف الموظف «${name}» نهائياً؟ (لن تتأثر كشوف الرواتب السابقة)`)) return;
+  const r=await fetch('/api/employees/'+id,{method:'DELETE'});
+  if((await r.json()).success){ await loadAll(); loadEmployees(); showToast('✅ حُذف الموظف','success'); }
+  else showToast('❌ فشل الحذف','error');
+}
+
+let empShowArchive = false;
+function toggleEmpArchive(){ empShowArchive=!empShowArchive; loadEmployees();
+  const b=document.getElementById('empArchiveBtn'); if(b) b.textContent = empShowArchive?'👥 الموظفون النشطون':'🗄️ الأرشيف (السابقون)'; }
+
 async function loadEmployees() {
-  const data = await fetch('/api/employees').then(r=>r.json()).catch(()=>[]);
+  const all = await fetch('/api/employees').then(r=>r.json()).catch(()=>[]);
   const tbody = document.getElementById('empBody');
-  if(!data.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون</td></tr>'; return; }
+  const isArchived = e => ['resigned','terminated','left'].includes(e.status);
+  const data = all.filter(e => empShowArchive ? isArchived(e) : !isArchived(e));
+  const cntEl=document.getElementById('empArchiveCount'); if(cntEl) cntEl.textContent = all.filter(isArchived).length;
+  if(!data.length){ tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:16px">${empShowArchive?'لا يوجد موظفون سابقون':'لا يوجد موظفون نشطون'}</td></tr>`; return; }
   const now = new Date();
   tbody.innerHTML = data.map(e=>{
     const hire   = e.hireDate ? new Date(e.hireDate) : null;
@@ -10147,7 +10206,13 @@ async function loadEmployees() {
       <td class="num" style="font-size:11px">${(e.housing||0).fmt()}<br><span style="color:var(--text3)">+${(e.transport||0).fmt()}</span></td>
       <td class="num" style="font-weight:700">${total.fmt()}</td>
       <td class="num" style="color:var(--accent2);font-size:11px">${eosMonthly.toFixed(3)}<br><span style="color:var(--text3);font-size:10px">إجمالي: ${eos.toFixed(3)}</span></td>
-      <td><button class="btn bw bsm" onclick="openEmpModal(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button></td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        ${isArchived(e)?`<span class="badge br" style="font-size:9px">${e.status==='terminated'?'مفصول':'مستقيل'}${e.endDate?' '+e.endDate:''}</span>
+          <button class="btn bs bsm" onclick="restoreEmployee('${e.id}')" title="إرجاع للعمل">↩️</button>`
+        :`<button class="btn bw bsm" onclick="openEmpModal(${JSON.stringify(e).replace(/"/g,'&quot;')})" title="تعديل">✏️</button>
+          <button class="btn bo bsm" onclick="endEmployee('${e.id}','${(e.name||'').replace(/'/g,'')}')" title="استقالة / فصل">🚪</button>`}
+        <button class="btn bd bsm" onclick="deleteEmployee('${e.id}','${(e.name||'').replace(/'/g,'')}')" title="حذف نهائي">🗑</button>
+      </td>
     </tr>`;
   }).join('');
   return data;
@@ -10162,6 +10227,7 @@ async function loadPayroll() {
     const stCls = p.status==='paid'?'bg':'by';
     const stTxt = p.status==='paid'?'مدفوع':'معلق';
     const payBtn = p.status!=='paid'?`<button class="btn bs bsm" onclick="markPayrollPaid('${p.id}')">تأكيد الدفع</button>`:'';
+    const delBtn = `<button class="btn bd bsm" onclick="deletePayroll('${p.id}','${p.status}')" title="حذف الكشف وقيوده">🗑</button>`;
     return `<tr>
       <td>${p.month}</td>
       <td>${p.entries?.length||0}</td>
@@ -10169,7 +10235,7 @@ async function loadPayroll() {
       <td class="num neg">${(p.totalDeductions||0).fmt()}</td>
       <td class="num pos" style="font-weight:700">${(p.totalNet||0).fmt()}</td>
       <td><span class="badge ${stCls}">${stTxt}</span></td>
-      <td>${payBtn}</td>
+      <td style="display:flex;gap:6px;align-items:center">${payBtn}${delBtn}</td>
     </tr>`;
   }).join('');
 }
@@ -10321,6 +10387,19 @@ async function savePayroll() {
     } else { showToast('❌ '+(d.error||'فشل الحفظ'),'error'); }
   }catch(e){ showToast('❌ خطأ في الاتصال','error'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent='💾 حفظ الكشف وإنشاء قيد'; } }
+}
+
+async function deletePayroll(id, status) {
+  const msg = status==='paid'
+    ? 'هذا الكشف مدفوع. حذفه سيحذف قيدَي الاستحقاق والدفع معاً. متأكد؟'
+    : 'حذف كشف الرواتب وقيده المحاسبي؟';
+  if(!confirm(msg)) return;
+  try{
+    const r=await fetch(`/api/payroll/${id}`,{method:'DELETE',headers:{'Content-Type':'application/json'}});
+    const d=await r.json();
+    if(d.success){ await loadAll(); loadPayroll(); showToast('✅ حُذف الكشف وقيوده','success'); }
+    else showToast('❌ '+(d.error||'فشل الحذف'),'error');
+  }catch(e){ showToast('❌ خطأ في الاتصال','error'); }
 }
 
 async function markPayrollPaid(id) {
