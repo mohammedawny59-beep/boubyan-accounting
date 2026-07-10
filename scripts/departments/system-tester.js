@@ -82,8 +82,10 @@ function testJournalBalance(db) {
   say(`🧪 أجرّب القيود المحاسبية — ${entries.length} قيد...`);
   if (!entries.length) { say('  ↳ لا توجد قيود بعد — تخطّيت هذا الاختبار'); return; }
 
-  let unbalanced = 0, noLines = 0, badAccount = 0;
+  let unbalanced = 0, noLines = 0, badTotals = 0;
   const coaCodes = new Set((db.chartOfAccounts || []).map(a => String(a.code)));
+  const orphan = {};        // code → net (لحسابات القيود غير الموجودة بالشجرة)
+  const codeNet = {};       // كل الأكواد → صافي (مدين موجب)
 
   for (const e of entries) {
     const lines = e.lines || [];
@@ -94,16 +96,44 @@ function testJournalBalance(db) {
       unbalanced++;
       if (unbalanced <= 3) say(`  ⚠️ قيد ${e.ref || e.id} (${e.date}) غير متوازن: مدين ${round3(d)} ≠ دائن ${round3(c)}`);
     }
+    // اتساق الإجماليات المخزّنة مع البنود (يكشف قيوداً تظهر بصفر في الشاشة)
+    if (e.totalDebit != null && Math.abs((parseFloat(e.totalDebit) || 0) - d) > 0.005) badTotals++;
     for (const l of lines) {
       const code = String(l.accountCode || l.accountId || '');
-      if (code && coaCodes.size && !coaCodes.has(code)) badAccount++;
+      if (!code) continue;
+      const net = (parseFloat(l.debit) || 0) - (parseFloat(l.credit) || 0);
+      codeNet[code] = (codeNet[code] || 0) + net;
+      if (coaCodes.size && !coaCodes.has(code)) orphan[code] = (orphan[code] || 0) + net;
     }
   }
 
   if (unbalanced) flag('critical', 'القيود', `${unbalanced} قيد غير متوازن (المدين لا يساوي الدائن) — يخالف مبدأ القيد المزدوج`, 'راجع هذه القيود وصحّح الأطراف حتى يتساوى المدين مع الدائن');
-  else say('  ✅ كل القيود متوازنة');
+  else say('  ✅ كل القيود متوازنة (كل قيد على حدة)');
   if (noLines)   flag('high', 'القيود', `${noLines} قيد بدون أي بنود (فارغ)`, 'احذف القيود الفارغة أو أكمل بنودها');
-  if (badAccount) flag('high', 'القيود', `${badAccount} بند يشير لحساب غير موجود في شجرة الحسابات`, 'صحّح كود الحساب في هذه البنود أو أضف الحساب الناقص');
+  if (badTotals) flag('high', 'القيود', `${badTotals} قيد إجماليّه المخزّن لا يطابق بنوده — قد يظهر بمبلغ صفر في شاشة اليومية`, 'أعد حفظ القيد أو صحّح totalDebit/totalCredit');
+
+  // ── ميزان المراجعة الحقيقي على بياناتك (يكشف اختلال الميزان مثل فرق 4000) ──
+  const openDr = (db.chartOfAccounts || []).reduce((s, a) => s + (parseFloat(a.openingDebit)  || 0), 0);
+  const openCr = (db.chartOfAccounts || []).reduce((s, a) => s + (parseFloat(a.openingCredit) || 0), 0);
+  // الميزان كما يظهر في التقرير: حسابات الشجرة فقط (البنود اليتيمة تُسقَط فيختل)
+  let coaDr = openDr, coaCr = openCr;
+  for (const [code, net] of Object.entries(codeNet)) {
+    if (!coaCodes.has(code)) continue;
+    if (net > 0) coaDr += net; else coaCr += -net;
+  }
+  const diff = round3(Math.abs(coaDr - coaCr));
+  const orphanList = Object.entries(orphan).filter(([, v]) => Math.abs(v) > 0.005);
+  if (diff > 0.01) {
+    const cause = orphanList.length
+      ? ` — السبب: قيود على حسابات غير موجودة بالشجرة (${orphanList.map(([c]) => c).join('، ')})`
+      : '';
+    flag('critical', 'ميزان المراجعة', `ميزانك الحقيقي غير متوازن بفرق ${diff} د.ك${cause}`, 'أنشئ الحسابات الناقصة أو صحّح القيود حتى يتوازن الميزان');
+  } else {
+    say('  ✅ ميزان المراجعة الحقيقي متوازن');
+  }
+  if (orphanList.length) {
+    flag('high', 'شجرة الحسابات', `${orphanList.length} حساب مستخدَم في القيود لكنه غير موجود بالشجرة: ${orphanList.map(([c, v]) => c + ' (' + round3(v) + ')').join('، ')}`, 'أضف هذه الحسابات لشجرة الحسابات');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════
