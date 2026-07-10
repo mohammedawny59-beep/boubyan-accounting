@@ -83,6 +83,21 @@ function genId(prefix = '') {
   return `${prefix}${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
+// أوجِد حساباً أو أنشئه في شجرة الحسابات (يمنع القيود على حسابات غير موجودة
+// التي تُخلّ بميزان المراجعة)
+function ensureAccount(db, code, name, type, parent) {
+  const coa = db.chartOfAccounts || (db.chartOfAccounts = []);
+  let acc = coa.find(a => String(a.code) === String(code));
+  if (!acc) {
+    acc = { id: String(code), code: String(code), name, type,
+      parent: parent || null, parentId: parent || null,
+      normalBalance: ['asset', 'expense'].includes(type) ? 'debit' : 'credit',
+      isGroup: false, status: 'active', balance: 0, createdAt: new Date().toISOString() };
+    coa.push(acc);
+  }
+  return acc;
+}
+
 // آخر يوم صحيح في الشهر (يمنع تواريخ خاطئة مثل 2026-02-30)
 function monthEndDate(month) {
   const m = /^\d{4}-\d{2}$/.test(String(month)) ? String(month) : new Date().toISOString().slice(0, 7);
@@ -4803,15 +4818,28 @@ app.get('/api/trial-balance', (req, res) => {
       const netDebit  = Math.max(0, t.debit - t.credit);
       const netCredit = Math.max(0, t.credit - t.debit);
       return { code: acc.code, name: acc.name, type: acc.type, totalDebit: t.debit, totalCredit: t.credit, netDebit, netCredit };
-    })
-    .filter(r => r.totalDebit !== 0 || r.totalCredit !== 0)
-    .sort((a, b) => a.code.localeCompare(b.code));
+    });
 
-  const grandDebit  = rows.reduce((s, r) => s + r.netDebit,  0);
-  const grandCredit = rows.reduce((s, r) => s + r.netCredit, 0);
+  // أضف أي كود ظهر في القيود لكنه غير موجود في شجرة الحسابات (كي لا يُسقَط طرف
+  // ويختلّ الميزان — مثل 2900 مصاريف مستحقة سابقاً)
+  const coaCodes = new Set(accounts.map(a => String(a.code)));
+  for (const [code, t] of Object.entries(totals)) {
+    if (coaCodes.has(String(code))) continue;
+    const line = filteredEntries.flatMap(e => e.lines || []).find(l => String(l.accountCode || l.accountId) === String(code));
+    rows.push({ code, name: (line && line.accountName) || ('حساب ' + code) + ' (غير مُعرّف)', type: 'unknown',
+      totalDebit: t.debit, totalCredit: t.credit,
+      netDebit: Math.max(0, t.debit - t.credit), netCredit: Math.max(0, t.credit - t.debit) });
+  }
+
+  const finalRows = rows
+    .filter(r => r.totalDebit !== 0 || r.totalCredit !== 0)
+    .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+
+  const grandDebit  = finalRows.reduce((s, r) => s + r.netDebit,  0);
+  const grandCredit = finalRows.reduce((s, r) => s + r.netCredit, 0);
   const isBalanced  = Math.abs(grandDebit - grandCredit) < 0.001;
 
-  res.json({ rows, grandDebit, grandCredit, isBalanced, period: period || 'all', monthStr });
+  res.json({ rows: finalRows, grandDebit, grandCredit, isBalanced, period: period || 'all', monthStr });
 });
 
 // ═══════════════════════════════════════════════════
@@ -8348,8 +8376,9 @@ app.post('/api/accrued-expenses', requireAuth, (req, res) => {
   // Create journal entry: Dr Expense / Cr Accrued Liability
   const db2  = db;
   const coa  = db2.chartOfAccounts || [];
-  const expAcc  = coa.find(a=>a.code===accountCode) || { id: accountCode||'5800', code: accountCode||'5800', name: accountName||'مصاريف متنوعة' };
-  const acrAcc  = coa.find(a=>a.code==='2900') || { id:'2900', code:'2900', name:'مصاريف مستحقة' };
+  const expAcc  = coa.find(a=>a.code===accountCode) || ensureAccount(db, accountCode||'5800', accountName||'مصاريف متنوعة', 'expense', '5000');
+  // «مصاريف مستحقة» (2900) — أنشئه إن لم يوجد حتى يظهر في ميزان المراجعة ويتوازن
+  const acrAcc  = ensureAccount(db, '2900', 'مصاريف مستحقة', 'liability', '2000');
   const amt     = parseFloat(amount);
   db.journalEntries = db.journalEntries || [];
   const jeId = 'JE-ACR-' + item.id;
