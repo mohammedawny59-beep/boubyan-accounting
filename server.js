@@ -4545,9 +4545,27 @@ app.post('/api/coa/account', (req, res) => {
   const coa = db.chartOfAccounts || [];
   const { code, name, type, parent, description, isGroup, normalBalance } = req.body;
   if (!code || !name) return res.status(400).json({ error: 'رقم الحساب والاسم مطلوبان' });
-  if (coa.find(a => a.code === code)) return res.status(400).json({ error: 'رقم الحساب موجود مسبقاً' });
+
+  // ── تطبيع/تصحيح كود الحساب — يمنع الأكواد الخاطئة (مثل 59010 من الذكاء الاصطناعي) ──
+  const { nextChildCode } = require('./lib/coaCodes');
+  let finalCode = String(code).trim();
+  let corrected = false;
+  // العرض القياسي لأكواد الحسابات (الأكثر شيوعاً) — عادة 4 خانات
+  const leafCodes = coa.filter(a => !a.isGroup && /^\d+$/.test(String(a.code))).map(a => String(a.code).length);
+  const freq = {}; leafCodes.forEach(w => freq[w] = (freq[w] || 0) + 1);
+  const stdWidth = Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
+  const p = parent ? coa.find(a => a.id === parent || a.code === parent) : null;
+  const wrongWidth = stdWidth && /^\d+$/.test(finalCode) && finalCode.length !== Number(stdWidth);
+  const taken = coa.some(a => String(a.code) === finalCode);
+  if (p && (wrongWidth || taken)) {
+    const suggested = nextChildCode(String(p.code), coa.map(a => String(a.code)));
+    if (suggested) { finalCode = suggested; corrected = true; }
+  }
+  if (coa.some(a => String(a.code) === finalCode))
+    return res.status(400).json({ error: 'رقم الحساب موجود مسبقاً' });
+
   const acc = {
-    id: code, code, name, type: type||'expense',
+    id: finalCode, code: finalCode, name, type: type||'expense',
     parent: parent||null, description: description||'', isGroup: !!isGroup,
     normalBalance: normalBalance || (['asset','expense'].includes(type) ? 'debit' : 'credit'),
     status: 'active', balance: 0, createdAt: new Date().toISOString()
@@ -4556,7 +4574,38 @@ app.post('/api/coa/account', (req, res) => {
   coa.sort((a,b) => a.code.localeCompare(b.code));
   db.chartOfAccounts = coa;
   saveDB(db);
-  res.json({ success: true, account: acc });
+  res.json({ success: true, account: acc, corrected, requestedCode: corrected ? String(code).trim() : undefined });
+});
+
+// إصلاح الأكواد الخاطئة الموجودة (خانات غير قياسية مثل 59010) + تحديث القيود المرتبطة
+app.post('/api/coa/fix-codes', requireAuth, (req, res) => {
+  const db  = loadDB();
+  const coa = db.chartOfAccounts || [];
+  const { nextChildCode } = require('./lib/coaCodes');
+  const leaf = coa.filter(a => !a.isGroup && /^\d+$/.test(String(a.code)));
+  const freq = {}; leaf.forEach(a => { const w = String(a.code).length; freq[w] = (freq[w] || 0) + 1; });
+  const stdWidth = Number(Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0] || 0);
+  if (!stdWidth) return res.json({ success: true, fixed: 0, changes: [] });
+
+  const changes = [];
+  for (const a of coa) {
+    if (a.isGroup || !/^\d+$/.test(String(a.code)) || String(a.code).length === stdWidth) continue;
+    const parent = coa.find(p => p.id === a.parent || p.code === a.parent);
+    const newCode = parent ? nextChildCode(String(parent.code), coa.map(x => String(x.code))) : null;
+    if (!newCode || coa.some(x => String(x.code) === newCode)) continue;
+    const oldCode = String(a.code);
+    // حدّث القيود التي تشير للكود القديم
+    (db.journalEntries || []).forEach(e => (e.lines || []).forEach(l => {
+      if (String(l.accountCode) === oldCode) l.accountCode = newCode;
+      if (String(l.accountId)   === oldCode) l.accountId   = newCode;
+    }));
+    if (a.id === oldCode) a.id = newCode;
+    a.code = newCode;
+    changes.push({ from: oldCode, to: newCode, name: a.name });
+  }
+  db.chartOfAccounts = coa;
+  saveDB(db);
+  res.json({ success: true, fixed: changes.length, changes });
 });
 
 // PUT — edit single account

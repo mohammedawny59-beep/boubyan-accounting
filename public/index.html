@@ -165,12 +165,17 @@ header{
 /* ── SIDEBAR ── */
 .sidebar{
   width:var(--sidebar-w);flex-shrink:0;
-  position:sticky;top:58px;height:calc(100vh - 58px);overflow-y:auto;
-  background:rgba(8,17,43,0.97);
-  border-left:1px solid var(--border);
-  padding:12px 10px 24px;
+  position:sticky;top:70px;height:calc(100vh - 94px);overflow-y:auto;
+  margin:12px 12px 12px 0;
+  background:rgba(10,19,46,0.72);
+  backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+  border:1px solid var(--border);
+  border-radius:18px;
+  box-shadow:0 18px 50px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04);
+  padding:12px 10px;
   display:flex;flex-direction:column;gap:2px;
 }
+html[lang="en"] .sidebar{margin:12px 0 12px 12px;}
 .sidebar::-webkit-scrollbar{width:2px;}
 .sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
 .nav-group{
@@ -603,9 +608,9 @@ html.light header {
   backdrop-filter: blur(16px);
 }
 html.light .sidebar {
-  background: rgba(255,255,255,.98);
+  background: rgba(255,255,255,.85);
   border-color: var(--border);
-  box-shadow: 2px 0 16px rgba(10,20,50,.06);
+  box-shadow: 0 18px 50px rgba(10,20,50,.12);
 }
 html.light tbody tr:nth-child(even) { background: rgba(238,242,248,.55); }
 html.light tbody tr:nth-child(even):hover { background: rgba(59,130,246,.05); }
@@ -656,7 +661,7 @@ html.light .notif-overlay { background: rgba(10,20,50,.25); }
 ══════════════════════════════════════════════ */
 html[lang="en"]{direction:ltr;}
 html[lang="en"] body{font-family:'Inter','IBM Plex Sans Arabic',sans-serif;}
-html[lang="en"] .sidebar{border-left:none;border-right:1px solid var(--border);}
+html[lang="en"] .sidebar{border:1px solid var(--border);}
 html[lang="en"] .nav-item{text-align:left;}
 html[lang="en"] .nav-item.active::before{right:auto;left:0;}
 html[lang="en"] .content-wrap{direction:ltr;}
@@ -3081,6 +3086,9 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         </button>
         <button class="btn bsm" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);color:#fbbf24;" onclick="openTransferModal()">
           ⇄ تحويل بين حسابات
+        </button>
+        <button class="btn bsm" style="background:rgba(79,230,175,.1);border:1px solid rgba(79,230,175,.25);color:var(--accent2);" onclick="fixCoaCodes()" title="إصلاح الأكواد الخاطئة مثل 59010">
+          🔧 إصلاح الأكواد
         </button>
       </div>
     </div>
@@ -7512,6 +7520,17 @@ function editCoa(id){
   const nb=document.getElementById('coaNormalBalance');if(nb)nb.value=acc.normalBalance||(['asset','expense'].includes(acc.type)?'debit':'credit');
   document.getElementById('coaParent').value=acc.parent||'';
   const lb=document.getElementById('coaLevelBadge');if(lb)lb.textContent='مستوى '+(dm[id]||1);
+}
+
+async function fixCoaCodes(){
+  if(!confirm('سيتم إصلاح أي أكواد حسابات خاطئة (خانات غير قياسية مثل 59010) وتحديث القيود المرتبطة. متابعة؟')) return;
+  try{
+    const r=await apiFetch('/coa/fix-codes',{method:'POST'});
+    if(r.fixed>0){
+      await loadAll(); coaBalances={}; renderCoa();
+      showToast(`✅ أُصلح ${r.fixed} حساب: ${r.changes.map(c=>c.from+'→'+c.to).join('، ')}`,'success');
+    } else showToast('✅ لا توجد أكواد خاطئة — كل الحسابات سليمة','success');
+  }catch(e){ showToast('❌ خطأ: '+(e.message||''),'error'); }
 }
 
 async function saveCoa(){
