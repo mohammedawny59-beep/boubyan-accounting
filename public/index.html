@@ -7358,8 +7358,10 @@ function renderCoa() {
   const fmt = n=>isNaN(n)?'—':Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3});
 
   function node(acc,depth) {
-    const kids = vis.filter(a=>a.parent===acc.id);
-    const exp  = coaExpanded[acc.id]!==false;
+    // مفتاح آمن: بعض الحسابات القديمة بلا id — نستخدم الكود بديلاً كي تعمل أزرار التعديل/الحذف دائماً
+    const key  = (acc.id!=null&&acc.id!=='')?acc.id:acc.code;
+    const kids = vis.filter(a=>a.parent===acc.id||(acc.code&&a.parent===acc.code));
+    const exp  = coaExpanded[key]!==false;
     const ind  = (depth-1)*20;
     const clr  = COA_TYPE_COLORS[acc.type]||'#888';
     const bal  = coaBalances[acc.id]||{};
@@ -7370,11 +7372,11 @@ function renderCoa() {
     const bg0  = COA_TYPE_BG[acc.type]||'transparent';
     const bg   = depth===1?bg0:'transparent';
     const bdr  = depth===1?clr+'33':'var(--border)';
-    return `<div class="coa-row" data-id="${acc.id}"
+    return `<div class="coa-row" data-id="${key}"
       style="display:flex;align-items:center;gap:6px;padding:7px 10px 7px ${10+ind}px;border-radius:7px;margin-bottom:2px;cursor:pointer;background:${bg};border:1px solid ${bdr};opacity:${off?.6:1}"
       onmouseover="this.style.background='var(--surfaceHov)'"
       onmouseout="this.style.background='${bg}'"
-      onclick="toggleCoa('${acc.id}')">
+      onclick="toggleCoa('${key}')">
       <span style="width:16px;font-size:10px;color:var(--text3);flex-shrink:0">${kids.length?(exp?'▼':'▶'):'　'}</span>
       <span style="font-size:${depth===1?14:12}px;flex-shrink:0">${icon}</span>
       <span style="font-family:monospace;font-size:11px;color:${clr};min-width:${depth===1?52:44}px;font-weight:${depth<=2?600:400}">${acc.code}</span>
@@ -7384,9 +7386,9 @@ function renderCoa() {
       ${kids.length?'<span style="font-size:10px;color:var(--text3)">'+kids.length+' فرعي</span>':''}
       ${off?'<span class="badge br" style="font-size:9px">موقوف</span>':''}
       <span style="display:flex;gap:4px" onclick="event.stopPropagation()">
-        <button class="btn bsm" style="padding:3px 7px;font-size:10px;background:rgba(59,130,246,.1);color:var(--accent);border:1px solid rgba(59,130,246,.25)" onclick="openCoaModal('${acc.id}',true)" title="إضافة فرعي">+</button>
-        <button class="btn bsm" style="padding:3px 7px;font-size:10px;background:rgba(59,130,246,.08);color:var(--accent);border:1px solid rgba(59,130,246,.2)" onclick="editCoa('${acc.id}')">✏</button>
-        <button class="btn bsm bd" style="padding:3px 7px;font-size:10px" onclick="deleteCoa('${acc.id}')">🗑</button>
+        <button class="btn bsm" style="padding:3px 7px;font-size:10px;background:rgba(59,130,246,.1);color:var(--accent);border:1px solid rgba(59,130,246,.25)" onclick="openCoaModal('${key}',true)" title="إضافة فرعي">+</button>
+        <button class="btn bsm" style="padding:3px 7px;font-size:10px;background:rgba(59,130,246,.08);color:var(--accent);border:1px solid rgba(59,130,246,.2)" onclick="editCoa('${key}')">✏</button>
+        <button class="btn bsm bd" style="padding:3px 7px;font-size:10px" onclick="deleteCoa('${key}')">🗑</button>
       </span></div>
     ${(exp||search)?kids.map(c=>node(c,depth+1)).join(''):''}
     `;
@@ -7404,7 +7406,7 @@ function renderCoa() {
 }
 
 function toggleCoa(id){ coaExpanded[id]=coaExpanded[id]===false?true:false; renderCoa(); }
-function toggleAll(expand){ getCoaAccounts().forEach(a=>{coaExpanded[a.id]=expand;}); renderCoa(); }
+function toggleAll(expand){ getCoaAccounts().forEach(a=>{coaExpanded[a.id!=null?a.id:a.code]=expand;}); renderCoa(); }
 
 async function loadCoaBalances() {
   try { const r=await apiFetch('/coa/balances'); coaBalances={}; r.forEach(a=>{coaBalances[a.id]={debit:a.debit||0,credit:a.credit||0,balance:a.balance||0};}); renderCoa(); } catch(e){}
@@ -7423,16 +7425,15 @@ function openCoaModal(parentId, addChild) {
   const lb=document.getElementById('coaLevelBadge'); if(lb)lb.textContent='مستوى 1';
   const sorted=[...accounts].sort((a,b)=>a.code.localeCompare(b.code));
   document.getElementById('coaParent').innerHTML='<option value="">— مستوى أول (رئيسي) —</option>'+
-    sorted.map(a=>`<option value="${a.id}">${'　'.repeat((dm[a.id]-1)||0)}${a.code} — ${a.name}</option>`).join('');
+    sorted.map(a=>`<option value="${a.id||a.code}">${'　'.repeat((dm[a.id]-1)||0)}${a.code} — ${a.name}</option>`).join('');
   if (addChild&&parentId) {
-    const par=accounts.find(a=>a.id===parentId);
+    const par=accounts.find(a=>a.id===parentId||a.code===parentId);
     if(par){
-      document.getElementById('coaParent').value=parentId;
+      document.getElementById('coaParent').value=par.id||par.code;
       document.getElementById('coaType').value=par.type;
-      if(lb)lb.textContent='مستوى '+((dm[parentId]||1)+1);
-      const kids=accounts.filter(a=>a.parent===parentId);
-      const mx=kids.length?Math.max(...kids.map(a=>parseInt(a.code)||0)):parseInt(par.code)*10||0;
-      document.getElementById('coaCode').value=String(mx+10);
+      if(lb)lb.textContent='مستوى '+((dm[par.id]||1)+1);
+      // الرقم المقترح يأتي من السيرفر (منطق موحّد يمنع أرقاماً خاطئة مثل 50 أو 59010)
+      onCoaParentChange();
     }
   }
   document.getElementById('coaModal').classList.add('open');
@@ -7469,8 +7470,15 @@ function onCoaParentChange(){
         const ht=document.getElementById('coaCodeHint');
         if(d.nextCode){
           document.getElementById('coaCode').value=d.nextCode;
-          if(ht) ht.innerHTML='<span style="color:var(--accent2)">✨ رقم مقترح تلقائياً: '+d.nextCode+'</span>';
           onCoaCodeInput();
+          if(d.cascaded&&d.underId){
+            // المجموعة الأصلية ممتلئة — السيرفر اقترح رقماً تحت مجموعة فرعية، فنحدّث الأب تلقائياً
+            const sel=document.getElementById('coaParent');
+            if(sel&&[...sel.options].some(o=>o.value===d.underId)) sel.value=d.underId;
+            const dm2=buildCoaDepthMap(getCoaAccounts()),lb2=document.getElementById('coaLevelBadge');
+            if(lb2)lb2.textContent='مستوى '+((dm2[d.underId]||1)+1);
+            if(ht) ht.innerHTML='<span style="color:var(--warn,#d29922)">⚠️ المجموعة ممتلئة — الرقم المقترح '+d.nextCode+' تحت «'+(d.underName||d.under)+'»</span>';
+          } else if(ht) ht.innerHTML='<span style="color:var(--accent2)">✨ رقم مقترح تلقائياً: '+d.nextCode+'</span>';
         } else if(ht){
           // المجموعة ممتلئة (كل الأرقام مستخدمة) — وجّه المستخدم لمجموعة فرعية
           ht.innerHTML='<span style="color:var(--warn,#d29922)">⚠️ هذه المجموعة ممتلئة — اختر مجموعة فرعية لإضافة الحساب تحتها (مثل «مصاريف عامة»)</span>';
@@ -7506,11 +7514,12 @@ function checkCoaPlacement(){
 }
 
 function editCoa(id){
-  const accounts=getCoaAccounts(),acc=accounts.find(a=>a.id===id); if(!acc)return;
+  const accounts=getCoaAccounts(),acc=accounts.find(a=>a.id===id||a.code===id);
+  if(!acc){showToast('الحساب غير موجود — حدّث الصفحة وحاول مجدداً','error');return;}
   const dm=buildCoaDepthMap(accounts);
   openCoaModal();
   document.getElementById('coaModalTitle').textContent='تعديل حساب';
-  document.getElementById('coaEditId').value=id;
+  document.getElementById('coaEditId').value=acc.id||acc.code;
   document.getElementById('coaCode').value=acc.code;
   document.getElementById('coaName').value=acc.name;
   document.getElementById('coaNotes').value=acc.description||acc.notes||'';
@@ -7518,8 +7527,9 @@ function editCoa(id){
   document.getElementById('coaType').value=acc.type||'expense';
   const ig=document.getElementById('coaIsGroup');if(ig)ig.value=acc.isGroup?'1':'0';
   const nb=document.getElementById('coaNormalBalance');if(nb)nb.value=acc.normalBalance||(['asset','expense'].includes(acc.type)?'debit':'credit');
-  document.getElementById('coaParent').value=acc.parent||'';
-  const lb=document.getElementById('coaLevelBadge');if(lb)lb.textContent='مستوى '+(dm[id]||1);
+  const parAcc=acc.parent?accounts.find(a=>a.id===acc.parent||a.code===acc.parent):null;
+  document.getElementById('coaParent').value=parAcc?(parAcc.id||parAcc.code):'';
+  const lb=document.getElementById('coaLevelBadge');if(lb)lb.textContent='مستوى '+(dm[acc.id]||dm[id]||1);
 }
 
 async function fixCoaCodes(){
@@ -7528,7 +7538,8 @@ async function fixCoaCodes(){
     const r=await apiFetch('/coa/fix-codes',{method:'POST'});
     if(r.fixed>0){
       await loadAll(); coaBalances={}; renderCoa();
-      showToast(`✅ أُصلح ${r.fixed} حساب: ${r.changes.map(c=>c.from+'→'+c.to).join('، ')}`,'success');
+      const lbl={'code-fixed':'رقم','id-repaired':'معرّف','reparented':'أب'};
+      showToast(`✅ أُصلح ${r.fixed}: ${r.changes.map(c=>(lbl[c.action]||'')+' '+(c.name||'')+(c.from?' '+c.from+'→'+c.to:'')).join('، ')}`,'success');
     } else showToast('✅ لا توجد أكواد خاطئة — كل الحسابات سليمة','success');
   }catch(e){ showToast('❌ خطأ: '+(e.message||''),'error'); }
 }
@@ -7546,16 +7557,18 @@ async function saveCoa(){
     const r=editId?await apiFetch('/coa/account/'+editId,{method:'PUT',body:JSON.stringify(body)}):await apiFetch('/coa/account',{method:'POST',body:JSON.stringify(body)});
     if(r.error){showToast(r.error,'error');return;}
     await loadAll();coaBalances={};closeModal('coaModal');renderCoa();
-    showToast(editId?'تم التعديل ✅':'تمت الإضافة ✅','success');
+    if(r.corrected&&r.account)showToast('⚠️ الرقم "'+ (r.requestedCode||code) +'" غير صالح — أُنشئ الحساب بالرقم الصحيح '+r.account.code,'info');
+    else showToast(editId?'تم التعديل ✅':'تمت الإضافة ✅','success');
     setTimeout(()=>runCoaAnalysisQuick(),600);
   }catch(e){showToast('خطأ: '+e.message,'error');}
 }
 
 async function deleteCoa(id){
-  const acc=getCoaAccounts().find(a=>a.id===id);if(!acc)return;
+  const acc=getCoaAccounts().find(a=>a.id===id||a.code===id);
+  if(!acc){showToast('الحساب غير موجود — حدّث الصفحة وحاول مجدداً','error');return;}
   if(!confirm('حذف الحساب "'+acc.name+'" ('+acc.code+')؟'))return;
   try{
-    const r=await apiFetch('/coa/account/'+id,{method:'DELETE'});
+    const r=await apiFetch('/coa/account/'+encodeURIComponent(acc.id||acc.code),{method:'DELETE'});
     if(r.error){showToast(r.error,'error');return;}
     await loadAll();coaBalances={};renderCoa();showToast('تم الحذف','success');
   }catch(e){

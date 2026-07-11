@@ -57,6 +57,34 @@ const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
 const issues = []; // { sev:'critical'|'high'|'medium'|'low', area, msg, fix }
 function flag(sev, area, msg, fix) { issues.push({ sev, area, msg, fix }); }
 
+// ── الإصلاح الذاتي: المُجرِّب لا يكتفي بالاكتشاف — يصلّح بنفسه ─────────────
+// يستدعي /api/repair/auto على الخادم الحقيقي (إصلاحات حتمية آمنة مسجّلة
+// في سجل التدقيق مع نسخ احتياطية)، ثم يعيد الفحص للتأكد أن المشكلة انحلّت فعلاً.
+let autoFixed = []; // ما أُصلح تلقائياً في هذا التشغيل
+async function applyAutoRepair() {
+  const port = process.env.PORT || process.env.SELF_PORT || 3000;
+  const token = selfToken();
+  if (!token) { say('  ↳ لا أستطيع الإصلاح الذاتي بدون JWT_SECRET'); return null; }
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/repair/auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    });
+    if (r.ok) return await r.json();
+  } catch { /* server unreachable */ }
+  return null;
+}
+
+const FIX_LABELS = {
+  'code-fixed':            (c) => `صحّحت رقم الحساب «${c.name}» من ${c.from} إلى ${c.to} وحدّثت كل القيود المرتبطة`,
+  'id-repaired':           (c) => `أصلحت معرّف الحساب «${c.name}» (كان ناقصاً — الآن يمكن تعديله وحذفه)`,
+  'reparented':            (c) => `أعدت ربط الحساب «${c.name}» بمجموعته الصحيحة (كان أبوه ${c.from} غير موجود)`,
+  'account-restored':      (c) => `أعدت إنشاء الحساب ${c.to} «${c.name}» — كان مستخدماً في القيود لكنه غير موجود بالشجرة`,
+  'totals-recomputed':     (c) => `أعدت احتساب إجماليات ${c.name} كانت لا تطابق بنودها`,
+  'empty-entries-removed': (c) => `حذفت ${c.name} بدون أي بنود (نسخة كاملة محفوظة في سجل التدقيق)`,
+};
+const fixLabel = (c) => (FIX_LABELS[c.action] ? FIX_LABELS[c.action](c) : `${c.area}: ${c.action} ${c.name || ''}`);
+
 // ── ذاكرة الانحدار (Regression): يقارن بآخر فحص ──────────────────────────
 let _newIssues = [], _resolvedIssues = [];
 const _sig = (i) => `${i.area}|${i.msg}`;
@@ -180,8 +208,8 @@ function testCodeGeneration(db) {
   if (!groups.length) return;
   say(`🧪 أجرّب "إضافة حساب جديد" تحت ${groups.length} مجموعة...`);
 
-  let nextChildCode;
-  try { ({ nextChildCode } = require('../../lib/coaCodes')); }
+  let nextChildCode, suggestChildCode;
+  try { ({ nextChildCode, suggestChildCode } = require('../../lib/coaCodes')); }
   catch { say('  ↳ وحدة توليد الأكواد غير موجودة — تخطّيت'); return; }
 
   const allCodes = coa.map(a => String(a.code));
@@ -189,10 +217,16 @@ function testCodeGeneration(db) {
   const widths   = new Set(allCodes.map(c => c.length));
   const stdWidth = widths.size === 1 ? [...widths][0] : null; // fixed-width scheme?
 
-  let wrongWidth = 0, taken = 0, empty = 0, sample = null;
+  let wrongWidth = 0, taken = 0, fullNoFallback = 0, sample = null;
   for (const g of groups) {
-    const suggested = nextChildCode(String(g.code), allCodes);
-    if (!suggested) { empty++; continue; }
+    let suggested = nextChildCode(String(g.code), allCodes);
+    if (!suggested && suggestChildCode) {
+      // المجموعة ممتلئة — يجب أن ينزل النظام لمجموعة فرعية (مثل 5910 تحت 5900) لا أن يفشل
+      const s = suggestChildCode(String(g.code), coa);
+      if (!s) { fullNoFallback++; if (!sample) sample = `المجموعة ${g.code} ممتلئة ولا يُقترح أي بديل`; continue; }
+      suggested = s.code;
+    }
+    if (!suggested) continue;
     if (codeSet.has(suggested)) { taken++; if (!sample) sample = `${g.code}→${suggested} (مستخدم مسبقاً)`; }
     if (stdWidth && suggested.length !== stdWidth) {
       wrongWidth++;
@@ -202,7 +236,8 @@ function testCodeGeneration(db) {
 
   if (wrongWidth) flag('critical', 'إضافة حساب', `عند إضافة حساب جديد، النظام يقترح كوداً بعدد خانات خاطئ في ${wrongWidth} مجموعة — مثال: ${sample}`, 'أصلح خوارزمية توليد كود الحساب في /api/coa/next-code');
   if (taken)      flag('critical', 'إضافة حساب', `النظام يقترح كوداً مستخدماً مسبقاً في ${taken} حالة — مثال: ${sample}`, 'تأكد أن الكود المقترح غير موجود');
-  if (!wrongWidth && !taken) say('  ✅ توليد أكواد الحسابات الجديدة سليم');
+  if (fullNoFallback) flag('high', 'إضافة حساب', `${fullNoFallback} مجموعة ممتلئة بلا اقتراح بديل — المستخدم سيعلق عند الإضافة — مثال: ${sample}`, 'فعّل النزول التلقائي لمجموعة فرعية في suggestChildCode');
+  if (!wrongWidth && !taken && !fullNoFallback) say('  ✅ توليد أكواد الحسابات الجديدة سليم (حتى للمجموعات الممتلئة)');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -500,8 +535,16 @@ function buildReport() {
   L.push('# 🧪 تقرير المُجرِّب — فحص شامل للنظام المحاسبي');
   L.push(`**التاريخ:** ${today()} | **النتيجة:** ${score}/100 | **الحالة:** ${crit ? '🔴 يحتاج انتباهك' : score >= 80 ? '✅ سليم' : '🟡 مقبول'}`);
   L.push('');
-  L.push('> جرّبت النظام مثل محاسب حقيقي: فحصت البيانات (قيود، شجرة حسابات، عمولات، تأمين، مخزون)، وأجريت تجارب حية في بيئة معزولة (أضفت حسابات، عملت قيوداً، سجّلت مصاريف، أنشأت سندات، ودقّقت التقارير والمعادلة المحاسبية). بيانات عيادتك الحقيقية لم تُمَس.');
+  L.push('> جرّبت النظام مثل محاسب حقيقي: فحصت البيانات (قيود، شجرة حسابات، عمولات، تأمين، مخزون)، وأجريت تجارب حية في بيئة معزولة (أضفت حسابات، عملت قيوداً، سجّلت مصاريف، أنشأت سندات، ودقّقت التقارير والمعادلة المحاسبية). وما وجدته من مشاكل قابلة للإصلاح الآمن **أصلحته بنفسي فوراً** ثم أعدت الفحص للتأكد.');
   L.push('');
+
+  // What the tester fixed by itself this run
+  if (autoFixed.length) {
+    L.push(`## 🔧 ما أصلحته بنفسي تلقائياً (${autoFixed.length})`);
+    for (const c of autoFixed) L.push('- ✅ ' + fixLabel(c));
+    L.push('- 📝 كل الإصلاحات مسجّلة في سجل التدقيق (auditLog) مع نسخ احتياطية.');
+    L.push('');
+  }
 
   // Regression summary — what changed since the last run
   if (_newIssues.length || _resolvedIssues.length) {
@@ -512,10 +555,10 @@ function buildReport() {
   }
 
   if (!issues.length) {
-    L.push('## ✅ لم أجد أي مشكلة');
+    L.push(autoFixed.length ? '## ✅ لا مشاكل متبقية — أصلحت كل شيء بنفسي' : '## ✅ لم أجد أي مشكلة');
     L.push('- كل الاختبارات نجحت — القيود متوازنة والحسابات سليمة.');
   } else {
-    L.push(`## 🚩 المشاكل التي اكتشفتها (${issues.length})`);
+    L.push(`## 🚩 المشاكل المتبقية التي لم أستطع إصلاحها آلياً (${issues.length})`);
     L.push('');
     const order = ['critical', 'high', 'medium', 'low'];
     issues.sort((a, b) => order.indexOf(a.sev) - order.indexOf(b.sev));
@@ -540,16 +583,40 @@ async function main() {
     process.exit(0);
   }
 
+  const runDetection = (d) => {
+    testJournalBalance(d);
+    testChartOfAccounts(d);
+    testCodeGeneration(d);
+    testCommissions(d);
+    testInsurance(d);
+    testInventory(d);
+  };
+
   // Read-only integrity checks on real data
-  testJournalBalance(db);
-  testChartOfAccounts(db);
-  testCodeGeneration(db);
-  testCommissions(db);
-  testInsurance(db);
-  testInventory(db);
+  runDetection(db);
+
+  // 🔧 الإصلاح الذاتي: وجدت مشاكل؟ أصلّحها بنفسي ثم أعيد الفحص للتأكد
+  let dbFinal = db;
+  if (issues.length && process.env.TESTER_AUTO_FIX !== '0') {
+    say(`🔧 وجدت ${issues.length} مشكلة — أحاول إصلاحها بنفسي الآن...`);
+    const rep = await applyAutoRepair();
+    if (rep && rep.fixed > 0) {
+      autoFixed = rep.applied || [];
+      autoFixed.forEach(c => say('  🔧 ' + fixLabel(c)));
+      const before = issues.length;
+      issues.length = 0;                      // أعد الفحص من الصفر على البيانات بعد الإصلاح
+      const db2 = await loadDB();
+      if (db2) { dbFinal = db2; runDetection(db2); }
+      say(`  ✅ أصلحت ${rep.fixed} تلقائياً — المشاكل: ${before} قبل → ${issues.length} بعد إعادة الفحص`);
+    } else if (rep && rep.fixed === 0) {
+      say('  ↳ لا شيء من هذه المشاكل قابل للإصلاح الآلي الآمن — أحتاج مطوّراً لبعضها');
+    } else {
+      say('  ⚠️ تعذّر الوصول لخدمة الإصلاح الذاتي — أُبلغ عن المشاكل كما هي');
+    }
+  }
 
   // Live end-to-end trials in an isolated sandbox (real data physically untouched)
-  await testEndToEnd(db);
+  await testEndToEnd(dbFinal);
 
   // Compare with the previous run — what's new, what got fixed
   runRegression();

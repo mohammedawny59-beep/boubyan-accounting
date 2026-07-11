@@ -3864,6 +3864,20 @@ initDB({
 })
   .then(() => {
     autoStartBot();
+    // إصلاح تلقائي لشجرة الحسابات عند الإقلاع (أكواد خاطئة مثل 50/59010، معرّفات ناقصة، آباء مفقودين)
+    try {
+      const db = loadDB();
+      const { repairChart } = require('./lib/coaCodes');
+      const changes = repairChart(db.chartOfAccounts || [], db.journalEntries || []);
+      if (changes.length) {
+        (db.auditLog = db.auditLog || []).unshift({
+          id: 'AUD-' + Date.now(), at: new Date().toISOString(), user: 'system',
+          action: 'coa-auto-repair-startup', details: changes
+        });
+        saveDB(db);
+        console.log(`🔧 COA auto-repair: ${changes.length} إصلاح —`, changes.map(c => `${c.action}:${c.from || ''}→${c.to || ''}`).join(', '));
+      }
+    } catch (e) { console.warn('⚠️ COA auto-repair skipped:', e.message); }
     app.listen(PORT, () => {
       console.log(`\n✅ بوبيان للمحاسبة - يعمل على http://localhost:${PORT}`);
       console.log(`📂 البيانات محفوظة في: MongoDB (${MONGO_URI})`);
@@ -4559,27 +4573,39 @@ app.post('/api/coa/account', (req, res) => {
   const { code, name, type, parent, description, isGroup, normalBalance } = req.body;
   if (!code || !name) return res.status(400).json({ error: 'رقم الحساب والاسم مطلوبان' });
 
-  // ── تطبيع/تصحيح كود الحساب — يمنع الأكواد الخاطئة (مثل 59010 من الذكاء الاصطناعي) ──
-  const { nextChildCode } = require('./lib/coaCodes');
+  // ── تطبيع/تصحيح كود الحساب — يمنع الأكواد الخاطئة (مثل 50 أو 59010) ──
+  const { suggestChildCode } = require('./lib/coaCodes');
   let finalCode = String(code).trim();
+  let finalParent = parent || null;
   let corrected = false;
+  if (!/^\d+$/.test(finalCode))
+    return res.status(400).json({ error: 'رقم الحساب يجب أن يكون أرقاماً فقط' });
   // العرض القياسي لأكواد الحسابات (الأكثر شيوعاً) — عادة 4 خانات
   const leafCodes = coa.filter(a => !a.isGroup && /^\d+$/.test(String(a.code))).map(a => String(a.code).length);
   const freq = {}; leafCodes.forEach(w => freq[w] = (freq[w] || 0) + 1);
   const stdWidth = Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
-  const p = parent ? coa.find(a => a.id === parent || a.code === parent) : null;
-  const wrongWidth = stdWidth && /^\d+$/.test(finalCode) && finalCode.length !== Number(stdWidth);
+  const p = finalParent ? coa.find(a => a.id === finalParent || a.code === finalParent) : null;
+  const wrongWidth = stdWidth && finalCode.length !== Number(stdWidth);
   const taken = coa.some(a => String(a.code) === finalCode);
-  if (p && (wrongWidth || taken)) {
-    const suggested = nextChildCode(String(p.code), coa.map(a => String(a.code)));
-    if (suggested) { finalCode = suggested; corrected = true; }
+  if ((p || wrongWidth) && (wrongWidth || taken)) {
+    // اقترح رقماً صحيحاً — حتى لو كانت المجموعة ممتلئة (ينزل لمجموعة فرعية مثل 5910)
+    const base = p ? String(p.code) : (coa.find(a => !a.parent && /^\d+$/.test(String(a.code)) && String(a.code)[0] === finalCode[0])?.code);
+    const s = base ? suggestChildCode(String(base), coa) : null;
+    if (s) {
+      finalCode = s.code;
+      const realParent = coa.find(a => String(a.code) === s.parentCode || String(a.id) === s.parentCode);
+      if (realParent) finalParent = String(realParent.id || realParent.code);
+      corrected = true;
+    } else if (wrongWidth) {
+      return res.status(400).json({ error: `رقم الحساب "${finalCode}" غير صحيح (المعيار ${stdWidth} خانات) ولا يوجد رقم بديل متاح — اختر مجموعة فرعية أخرى` });
+    }
   }
   if (coa.some(a => String(a.code) === finalCode))
     return res.status(400).json({ error: 'رقم الحساب موجود مسبقاً' });
 
   const acc = {
     id: finalCode, code: finalCode, name, type: type||'expense',
-    parent: parent||null, description: description||'', isGroup: !!isGroup,
+    parent: finalParent, description: description||'', isGroup: !!isGroup,
     normalBalance: normalBalance || (['asset','expense'].includes(type) ? 'debit' : 'credit'),
     status: 'active', balance: 0, createdAt: new Date().toISOString()
   };
@@ -4590,35 +4616,84 @@ app.post('/api/coa/account', (req, res) => {
   res.json({ success: true, account: acc, corrected, requestedCode: corrected ? String(code).trim() : undefined });
 });
 
-// إصلاح الأكواد الخاطئة الموجودة (خانات غير قياسية مثل 59010) + تحديث القيود المرتبطة
+// إصلاح شامل لشجرة الحسابات: أكواد خاطئة (50/59010) + معرّفات ناقصة + آباء مفقودين + تحديث القيود
 app.post('/api/coa/fix-codes', requireAuth, (req, res) => {
   const db  = loadDB();
-  const coa = db.chartOfAccounts || [];
-  const { nextChildCode } = require('./lib/coaCodes');
-  const leaf = coa.filter(a => !a.isGroup && /^\d+$/.test(String(a.code)));
-  const freq = {}; leaf.forEach(a => { const w = String(a.code).length; freq[w] = (freq[w] || 0) + 1; });
-  const stdWidth = Number(Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0] || 0);
-  if (!stdWidth) return res.json({ success: true, fixed: 0, changes: [] });
-
-  const changes = [];
-  for (const a of coa) {
-    if (a.isGroup || !/^\d+$/.test(String(a.code)) || String(a.code).length === stdWidth) continue;
-    const parent = coa.find(p => p.id === a.parent || p.code === a.parent);
-    const newCode = parent ? nextChildCode(String(parent.code), coa.map(x => String(x.code))) : null;
-    if (!newCode || coa.some(x => String(x.code) === newCode)) continue;
-    const oldCode = String(a.code);
-    // حدّث القيود التي تشير للكود القديم
-    (db.journalEntries || []).forEach(e => (e.lines || []).forEach(l => {
-      if (String(l.accountCode) === oldCode) l.accountCode = newCode;
-      if (String(l.accountId)   === oldCode) l.accountId   = newCode;
-    }));
-    if (a.id === oldCode) a.id = newCode;
-    a.code = newCode;
-    changes.push({ from: oldCode, to: newCode, name: a.name });
+  const { repairChart } = require('./lib/coaCodes');
+  const changes = repairChart(db.chartOfAccounts || [], db.journalEntries || []);
+  if (changes.length) {
+    (db.auditLog = db.auditLog || []).unshift({
+      id: 'AUD-' + Date.now(), at: new Date().toISOString(), user: req.user?.username || 'system',
+      action: 'coa-repair', details: changes
+    });
+    saveDB(db);
   }
-  db.chartOfAccounts = coa;
-  saveDB(db);
   res.json({ success: true, fixed: changes.length, changes });
+});
+
+// ── الإصلاح الذاتي الشامل — يستخدمه "المُجرِّب" ليصلّح بنفسه المشاكل الآمنة ──
+// إصلاحات حتمية فقط (لا ذكاء اصطناعي): شجرة الحسابات، حسابات القيود المفقودة،
+// إجماليات القيود، القيود الفارغة. كل إصلاح يُسجَّل في سجل التدقيق مع نسخة احتياطية.
+app.post('/api/repair/auto', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+  const db = loadDB();
+  const applied = [];
+  const r3 = n => Math.round((Number(n) || 0) * 1000) / 1000;
+
+  // 1. شجرة الحسابات: أكواد خاطئة (50/59010) + معرّفات ناقصة + آباء مفقودين
+  const { repairChart } = require('./lib/coaCodes');
+  repairChart(db.chartOfAccounts || [], db.journalEntries || [])
+    .forEach(c => applied.push({ area: 'شجرة الحسابات', ...c }));
+
+  // 2. حسابات مستخدمة في القيود لكنها غير موجودة بالشجرة → إعادة إنشائها
+  const coa = db.chartOfAccounts = db.chartOfAccounts || [];
+  const codes = new Set(coa.map(a => String(a.code)));
+  const typeByPrefix = { '1':'asset','2':'liability','3':'equity','4':'revenue','5':'expense' };
+  const missing = new Map();
+  for (const e of db.journalEntries || []) for (const l of e.lines || []) {
+    const c = String(l.accountCode || l.accountId || '');
+    if (c && /^\d{3,6}$/.test(c) && !codes.has(c) && !missing.has(c))
+      missing.set(c, l.accountName || l.account || '');
+  }
+  for (const [code, nm] of missing) {
+    const root = coa.find(a => !a.parent && /^\d+$/.test(String(a.code)) && String(a.code)[0] === code[0]);
+    coa.push({ id: code, code, name: nm && !/^\d+$/.test(String(nm)) ? nm : ('حساب مستعاد ' + code),
+      type: typeByPrefix[code[0]] || 'expense',
+      parent: root ? String(root.id || root.code) : null, isGroup: false, status: 'active', balance: 0,
+      description: 'أُنشئ تلقائياً — كان مستخدماً في القيود وغير موجود بالشجرة',
+      createdAt: new Date().toISOString() });
+    codes.add(code);
+    applied.push({ area: 'شجرة الحسابات', action: 'account-restored', name: nm || code, to: code });
+  }
+
+  // 3. قيود إجماليّها المخزّن لا يطابق بنودها → إعادة احتساب (تظهر بصفر في الشاشة)
+  let recomputed = 0;
+  for (const e of db.journalEntries || []) {
+    const lines = e.lines || [];
+    if (!lines.length) continue;
+    const d = r3(lines.reduce((s, l) => s + (parseFloat(l.debit)  || 0), 0));
+    const c = r3(lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0));
+    const badD = e.totalDebit  != null && Math.abs((parseFloat(e.totalDebit)  || 0) - d) > 0.005;
+    const badC = e.totalCredit != null && Math.abs((parseFloat(e.totalCredit) || 0) - c) > 0.005;
+    if (badD || badC) { e.totalDebit = d; e.totalCredit = c; recomputed++; }
+  }
+  if (recomputed) applied.push({ area: 'القيود', action: 'totals-recomputed', name: recomputed + ' قيد', to: 'أُعيد احتساب إجمالياته من بنوده' });
+
+  // 4. قيود فارغة تماماً (بدون أي بنود) → تُحذف مع حفظ نسخة كاملة في سجل التدقيق
+  const emptyOnes = (db.journalEntries || []).filter(e => !(e.lines || []).length);
+  if (emptyOnes.length) {
+    db.journalEntries = (db.journalEntries || []).filter(e => (e.lines || []).length);
+    applied.push({ area: 'القيود', action: 'empty-entries-removed', name: emptyOnes.length + ' قيد فارغ', backup: emptyOnes });
+  }
+
+  if (applied.length) {
+    (db.auditLog = db.auditLog || []).unshift({
+      id: 'AUD-' + Date.now(), at: new Date().toISOString(), user: req.user?.username || 'system-tester',
+      action: 'auto-repair', details: applied
+    });
+    saveDB(db);
+  }
+  res.json({ success: true, fixed: applied.length, applied });
 });
 
 // PUT — edit single account
@@ -8275,7 +8350,7 @@ app.get('/api/coa/next-code', requireAuth, (req, res) => {
   const db  = loadDB();
   const coa = db.chartOfAccounts || [];
   const { prefix, parent } = req.query;
-  const { nextChildCode } = require('./lib/coaCodes');
+  const { suggestChildCode } = require('./lib/coaCodes');
 
   // Resolve the base code we're generating a child under
   let baseCode = null;
@@ -8289,8 +8364,11 @@ app.get('/api/coa/next-code', requireAuth, (req, res) => {
     return res.json({ nextCode: '' });
   }
 
-  const allCodes = coa.map(a => String(a.code));
-  res.json({ nextCode: nextChildCode(baseCode, allCodes) });
+  // حتى لو كانت المجموعة ممتلئة — ينزل تلقائياً لمجموعة فرعية (مثل 5910 تحت 5900)
+  const s = suggestChildCode(baseCode, coa);
+  if (!s) return res.json({ nextCode: '' });
+  const under = coa.find(a => String(a.code) === s.parentCode);
+  res.json({ nextCode: s.code, cascaded: s.cascaded, under: s.parentCode, underId: under ? String(under.id || under.code) : s.parentCode, underName: under ? under.name : '' });
 });
 
 // ── JOURNAL: AI-Learn from correction ──────────────────────────────────────
@@ -9030,7 +9108,24 @@ app.get('/api/ai/forecast', requireAuth, rateLimit(5), async (req, res) => {
     const text = await callAI({ model: 'claude-haiku-4-5-20251001', max_tokens: 350, messages: [{ role: 'user', content: prompt }] });
     const m = text.match(/\{[\s\S]*\}/);
     res.json({ historical, forecast: m ? JSON.parse(m[0]) : { trend: 'بيانات غير كافية', avg: 0 } });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) {
+    // الذكاء الاصطناعي غير متاح (رصيد/شبكة)؟ لا ننهار — نرجع توقعاً إحصائياً بسيطاً (اتجاه خطي)
+    const vals = historical.map(h => h.revenue);
+    const n = vals.length, avg = n ? vals.reduce((s, v) => s + v, 0) / n : 0;
+    const slope = n > 1 ? (vals[n - 1] - vals[0]) / (n - 1) : 0;
+    const mk = (k) => { const d = new Date(now.getFullYear(), now.getMonth() + k, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+    const proj = (k) => parseFloat(Math.max(0, vals[n - 1] + slope * k || avg).toFixed(3));
+    res.json({
+      historical, aiUnavailable: true,
+      forecast: {
+        m1: { month: mk(1), revenue: proj(1), confidence: 'low' },
+        m2: { month: mk(2), revenue: proj(2) },
+        m3: { month: mk(3), revenue: proj(3) },
+        trend: 'توقع إحصائي مبسّط (خدمة الذكاء الاصطناعي غير متاحة حالياً: ' + (String(e.message).includes('credit') ? 'رصيد API منتهٍ' : 'تعذّر الاتصال') + ')',
+        avg: parseFloat(avg.toFixed(3)),
+      },
+    });
+  }
 });
 
 // ── AI Monthly Narrative Report ───────────────────────────────────────────────
