@@ -199,7 +199,17 @@ app.use(require('compression')());  // HTTP Gzip compression — IAS 8 audit: pe
 
 // Body size limit + depth limit (prevent deeply nested JSON DoS)
 app.use(express.json({ limit: '5mb', strict: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+// لا تُخزِّن صفحات HTML في المتصفح — حتى يصل أي تحديث للمستخدم فوراً بعد النشر
+// (بدون هذا، المتصفح يبقى يعرض نسخة index.html القديمة رغم نشر الإصلاحات).
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  },
+}));
 
 // File upload — restrict to Excel only, max 10MB
 const upload = multer({
@@ -4610,7 +4620,7 @@ app.post('/api/coa/account', (req, res) => {
     status: 'active', balance: 0, createdAt: new Date().toISOString()
   };
   coa.push(acc);
-  coa.sort((a,b) => a.code.localeCompare(b.code));
+  coa.sort((a,b) => String(a.code||"").localeCompare(String(b.code||"")));
   db.chartOfAccounts = coa;
   saveDB(db);
   res.json({ success: true, account: acc, corrected, requestedCode: corrected ? String(code).trim() : undefined });
@@ -4700,12 +4710,14 @@ app.post('/api/repair/auto', requireAuth, (req, res) => {
 app.put('/api/coa/account/:id', (req, res) => {
   const db = loadDB();
   const coa = db.chartOfAccounts || [];
-  // Match by id OR code — resilient to id/code drift after a code edit
-  const idx = coa.findIndex(a => a.id === req.params.id || a.code === req.params.id);
+  // Match by id OR code as STRINGS — resilient to numeric codes/ids from old/AI data
+  const pid = String(req.params.id);
+  const idx = coa.findIndex(a => String(a.id) === pid || String(a.code) === pid);
   if (idx === -1) return res.status(404).json({ error: 'الحساب غير موجود' });
-  const { code, name, type, parent, description, isGroup, normalBalance, status } = req.body;
+  const { name, type, parent, description, isGroup, normalBalance, status } = req.body;
+  const code = req.body.code != null ? String(req.body.code) : null;
   // If code changed and new code already exists → reject
-  if (code && code !== coa[idx].code && coa.find(a => a.code === code))
+  if (code && code !== String(coa[idx].code) && coa.find(a => String(a.code) === code))
     return res.status(400).json({ error: 'رقم الحساب موجود مسبقاً' });
   coa[idx] = { ...coa[idx], ...{ code: code||coa[idx].code, name: name||coa[idx].name, type: type||coa[idx].type,
     parent: parent !== undefined ? parent : coa[idx].parent,
@@ -4713,7 +4725,7 @@ app.put('/api/coa/account/:id', (req, res) => {
     isGroup: isGroup !== undefined ? !!isGroup : coa[idx].isGroup,
     normalBalance: normalBalance||coa[idx].normalBalance, status: status||coa[idx].status,
     updatedAt: new Date().toISOString() }};
-  coa.sort((a,b) => a.code.localeCompare(b.code));
+  coa.sort((a,b) => String(a.code||"").localeCompare(String(b.code||"")));
   db.chartOfAccounts = coa;
   saveDB(db);
   res.json({ success: true, account: coa[idx] });
@@ -4723,10 +4735,11 @@ app.put('/api/coa/account/:id', (req, res) => {
 app.delete('/api/coa/account/:id', (req, res) => {
   const db = loadDB();
   const coa = db.chartOfAccounts || [];
-  const acc = coa.find(a => a.id === req.params.id || a.code === req.params.id);
+  const pid = String(req.params.id);
+  const acc = coa.find(a => String(a.id) === pid || String(a.code) === pid);
   if (!acc) return res.status(404).json({ error: 'الحساب غير موجود' });
-  // Block: has children (match parent against both the account's id and its code)
-  if (coa.some(a => a.parent === acc.id || a.parent === acc.code))
+  // Block: has children (match parent against both the account's id and its code, as strings)
+  if (coa.some(a => a.parent != null && (String(a.parent) === String(acc.id) || String(a.parent) === String(acc.code))))
     return res.status(409).json({ error: 'لا يمكن حذف الحساب — يحتوي على حسابات فرعية', code:'HAS_CHILDREN' });
   // Block: has journal entries (check both id and code)
   if (accountHasEntries(db, acc.id) || accountHasEntries(db, acc.code))
