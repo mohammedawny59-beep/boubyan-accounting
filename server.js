@@ -141,18 +141,24 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS — restrict to same origin in production
-const allowedOrigins = process.env.ALLOWED_ORIGINS
+// CORS — نفس الموقع مسموح دائماً (المتصفح يرسل Origin مع كل POST/PUT/DELETE حتى
+// لنفس الموقع — القائمة القديمة كانت ترفضها فتتعطل كل أزرار الحفظ/التعديل/الحذف
+// بخطأ 500 بينما قراءة الصفحات تعمل). القائمة البيضاء تبقى للأصول الخارجية فقط.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  : ['http://localhost:3000', 'http://127.0.0.1:3000']).map(s => s.trim().replace(/\/+$/, ''));
 
-app.use(cors({
+app.use((req, res, next) => cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    if (!origin) return cb(null, true);
+    const o = String(origin).replace(/\/+$/, '');
+    if (allowedOrigins.includes(o)) return cb(null, true);
+    try { if (new URL(o).host === req.headers.host) return cb(null, true); } catch {}       // same-origin
+    try { if (process.env.RENDER_EXTERNAL_URL && new URL(o).host === new URL(process.env.RENDER_EXTERNAL_URL).host) return cb(null, true); } catch {}
     cb(new Error('Not allowed by CORS'));
   },
   credentials: true
-}));
+})(req, res, next));
 
 // Optional machine-to-machine API key — browser SPA uses JWT instead.
 const API_SECRET = process.env.API_SECRET;
@@ -1187,51 +1193,51 @@ app.post('/api/commission/pay', (req, res) => {
 // Map expense category → debit account code
 function expCatToAccount(cat, coa) {
   const catNorm = (cat||'').trim();
-  // Fallback keyword map (checked first — fast and reliable)
+  coa = coa || [];
+  const byCode = code => coa.find(a => String(a.code) === code && a.status !== 'inactive');
+  // خريطة الفئات → أكواد الشجرة الفعلية (DEFAULT_COA). الخريطة القديمة كانت
+  // ترجع أكواداً غير موجودة (5510/5560/5699...) فيختفي المصروف من قائمة الدخل
+  // ويختل ميزان المعادلة المحاسبية — لذلك نضمن دائماً حساباً موجوداً فعلاً.
   const MAP = [
-    ['إيجار',    '5510','مصاريف إيجار'],
-    ['راتب',     '5200','مصاريف رواتب'],
-    ['رواتب',    '5200','مصاريف رواتب'],
-    ['كهرباء',   '5560','مصاريف كهرباء'],
-    ['ماء',      '5570','مصاريف ماء'],
-    ['اتصال',    '5580','مصاريف اتصالات'],
-    ['هاتف',     '5580','مصاريف اتصالات'],
-    ['زين',      '5580','مصاريف اتصالات'],
-    ['STC',      '5580','مصاريف اتصالات'],
-    ['ooredoo',  '5580','مصاريف اتصالات'],
-    ['مواد',     '5210','مواد طب أسنان'],
-    ['دواء',     '5220','أدوية ومستلزمات'],
-    ['مختبر',   '5230','مصاريف مختبر'],
-    ['صيانة',    '5540','مصاريف صيانة'],
-    ['تأمين',    '5550','مصاريف تأمين'],
-    ['تسويق',    '5610','مصاريف تسويق'],
-    ['إعلان',    '5610','مصاريف تسويق'],
-    ['ضيافة',    '5620','مصاريف ضيافة'],
-    ['سفر',      '5630','مصاريف سفر'],
-    ['عمولة',    '5650','عمولات'],
-    ['اهتلاك',   '5680','مصاريف اهتلاك'],
-    ['استهلاك',  '5680','مصاريف اهتلاك'],
-    ['متفرق',    '5690','مصاريف متفرقة'],
-    ['عامة',     '5699','مصاريف عامة'],
+    ['إيجار',    '5300'], ['راتب', '5120'], ['رواتب', '5120'],
+    ['كهرباء',   '5400'], ['ماء', '5400'], ['مرافق', '5400'],
+    ['اتصال',    '5710'], ['هاتف', '5710'], ['إنترنت', '5710'],
+    ['زين',      '5710'], ['STC', '5710'], ['ooredoo', '5710'],
+    ['مختبر',    '5210'], ['مواد', '5220'], ['دواء', '5220'], ['مستلزم', '5220'],
+    ['صيانة',    '5500'], ['إصلاح', '5500'],
+    ['تأمين',    '5730'],
+    ['تسويق',    '5600'], ['إعلان', '5600'],
+    ['قرطاسية',  '5740'], ['مطبوعات', '5740'],
+    ['إقامة',    '5720'], ['تأشيرة', '5720'],
+    ['عمولة',    '5750'], ['بنكية', '5750'],
+    ['اهتلاك',   '5800'], ['استهلاك', '5800'], ['إهلاك', '5800'],
   ];
-  for (const [key, code, name] of MAP) {
-    if (catNorm.includes(key)) return { code, name };
+  for (const [key, code] of MAP) {
+    if (catNorm.includes(key)) {
+      const acc = byCode(code);
+      if (acc) return { code: String(acc.code), name: acc.name };
+    }
   }
-  // Then try COA — find expense account whose name contains the category
-  if (coa && coa.length) {
-    const match = coa.find(a => a.type==='expense' && a.status!=='inactive'
+  // ثم الشجرة — حساب مصروف اسمه يحتوي الفئة
+  if (coa.length) {
+    const match = coa.find(a => a.type==='expense' && a.status!=='inactive' && !a.isGroup
       && catNorm.length >= 3 && (a.name||'').includes(catNorm.substring(0,4)));
-    if (match) return { code: match.code, name: match.name };
+    if (match) return { code: String(match.code), name: match.name };
   }
-  return { code: '5699', name: 'مصاريف عامة' };
+  // احتياط مضمون: «مصاريف أخرى متنوعة» ثم أي ورقة مصاريف موجودة
+  const misc = byCode('5900')
+    || coa.find(a => a.type==='expense' && !a.isGroup && a.status!=='inactive' && /أخرى|متنوع|عام/.test(a.name||''))
+    || coa.find(a => a.type==='expense' && !a.isGroup && a.status!=='inactive');
+  if (misc) return { code: String(misc.code), name: misc.name };
+  return { code: '5900', name: 'مصاريف أخرى متنوعة' };
 }
 
-// Map payment method → credit account
+// Map payment method → credit account (أكواد موجودة فعلاً في الشجرة)
 function payMethodToAccount(method) {
   const m = (method||'').toLowerCase();
-  if (m.includes('بنك') || m.includes('bank') || m.includes('تحويل')) return { code:'1110', name:'البنك' };
-  if (m.includes('knet') || m.includes('كي') || m.includes('visa') || m.includes('master')) return { code:'1115', name:'بطاقة ائتمانية' };
-  return { code:'1100', name:'الصندوق' }; // default: cash
+  if (m.includes('بنك') || m.includes('bank') || m.includes('تحويل') || m.includes('شيك')) return { code:'1110', name:'البنك — الحساب الجاري' };
+  if (m.includes('knet') || m.includes('كي') || m.includes('visa') || m.includes('master') || m.includes('فيزا') || m.includes('ماستر')) return { code:'1120', name:'K-Net / Visa / Master — مستحقات' };
+  return { code:'1100', name:'الصندوق — نقدي' }; // default: cash
 }
 
 app.post('/api/expenses', (req, res) => {
@@ -3874,20 +3880,20 @@ initDB({
 })
   .then(() => {
     autoStartBot();
-    // إصلاح تلقائي لشجرة الحسابات عند الإقلاع (أكواد خاطئة مثل 50/59010، معرّفات ناقصة، آباء مفقودين)
+    // إصلاح ذاتي شامل عند الإقلاع: شجرة الحسابات + قيود الرواتب الخاطئة + أرصدة
+    // الموردين الممسوحة + إجماليات القيود — حتمي وآمن ومسجَّل في سجل التدقيق.
     try {
       const db = loadDB();
-      const { repairChart } = require('./lib/coaCodes');
-      const changes = repairChart(db.chartOfAccounts || [], db.journalEntries || []);
+      const changes = runAutoRepairSuite(db);
       if (changes.length) {
         (db.auditLog = db.auditLog || []).unshift({
           id: 'AUD-' + Date.now(), at: new Date().toISOString(), user: 'system',
-          action: 'coa-auto-repair-startup', details: changes
+          action: 'auto-repair-startup', details: changes
         });
         saveDB(db);
-        console.log(`🔧 COA auto-repair: ${changes.length} إصلاح —`, changes.map(c => `${c.action}:${c.from || ''}→${c.to || ''}`).join(', '));
+        console.log(`🔧 Auto-repair (startup): ${changes.length} إصلاح —`, changes.map(c => `${c.action}:${c.from || ''}→${c.to || ''}`).join(', '));
       }
-    } catch (e) { console.warn('⚠️ COA auto-repair skipped:', e.message); }
+    } catch (e) { console.warn('⚠️ Auto-repair skipped:', e.message); }
     app.listen(PORT, () => {
       console.log(`\n✅ بوبيان للمحاسبة - يعمل على http://localhost:${PORT}`);
       console.log(`📂 البيانات محفوظة في: MongoDB (${MONGO_URI})`);
@@ -4264,8 +4270,9 @@ app.get('/api/vendors', (req, res) => {
 function setVendorOpening(db, vendor, amount, date) {
   db.journalEntries = db.journalEntries || [];
   const jeId = 'JE-VND-OPEN-' + vendor.id;
-  // احذف القيد الافتتاحي السابق إن وُجد (عند التعديل)
-  db.journalEntries = db.journalEntries.filter(e => e.id !== jeId);
+  // احذف القيد الافتتاحي السابق إن وُجد (عند التعديل) — بالمعرّف أو بالمرجع للقيود القديمة
+  db.journalEntries = db.journalEntries.filter(e =>
+    e.id !== jeId && e.ref !== 'OPEN-' + vendor.id && e.reference !== 'OPEN-' + vendor.id);
   const amt = parseFloat(amount) || 0;
   vendor.openingBalance = amt;
   if (amt <= 0) return;
@@ -4641,12 +4648,11 @@ app.post('/api/coa/fix-codes', requireAuth, (req, res) => {
   res.json({ success: true, fixed: changes.length, changes });
 });
 
-// ── الإصلاح الذاتي الشامل — يستخدمه "المُجرِّب" ليصلّح بنفسه المشاكل الآمنة ──
+// ── الإصلاح الذاتي الشامل — يستخدمه "المُجرِّب" وعند إقلاع الخادم ──
 // إصلاحات حتمية فقط (لا ذكاء اصطناعي): شجرة الحسابات، حسابات القيود المفقودة،
-// إجماليات القيود، القيود الفارغة. كل إصلاح يُسجَّل في سجل التدقيق مع نسخة احتياطية.
-app.post('/api/repair/auto', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
-  const db = loadDB();
+// إجماليات القيود، القيود الفارغة، قيود رواتب على حسابات خاطئة، أرصدة موردين
+// ممسوحة. كل إصلاح يُسجَّل في سجل التدقيق مع نسخة احتياطية.
+function runAutoRepairSuite(db) {
   const applied = [];
   const r3 = n => Math.round((Number(n) || 0) * 1000) / 1000;
 
@@ -4696,6 +4702,45 @@ app.post('/api/repair/auto', requireAuth, (req, res) => {
     applied.push({ area: 'القيود', action: 'empty-entries-removed', name: emptyOnes.length + ' قيد فارغ', backup: emptyOnes });
   }
 
+  // 5. قيود الرواتب القديمة على حسابات خاطئة (2100 ذمم الموردين / 5200 تكلفة المواد)
+  //    → تُنقل للحسابات الصحيحة (2200 رواتب مستحقة / 5120 راتب إداري) — IAS 19.
+  //    هذا يصحّح الميزانية (الرصيد السالب في الرواتب المستحقة) وقائمة الدخل معاً.
+  {
+    const { payrollAccounts } = require('./lib/coaCodes');
+    const pa = payrollAccounts(coa);
+    let remapped = 0;
+    for (const e of db.journalEntries || []) {
+      if (!['payroll', 'payroll_payment'].includes(e.type)) continue;
+      for (const l of e.lines || []) {
+        if (String(l.accountCode) === '2100') {
+          l.accountCode = pa.payable.code; l.accountId = pa.payable.id; l.accountName = pa.payable.name; remapped++;
+        } else if (String(l.accountCode) === '5200' && e.type === 'payroll') {
+          l.accountCode = pa.expAdmin.code; l.accountId = pa.expAdmin.id; l.accountName = pa.expAdmin.name; remapped++;
+        }
+      }
+    }
+    if (remapped) applied.push({ area: 'الرواتب', action: 'payroll-accounts-remapped', name: remapped + ' بند', to: 'نُقلت قيود الرواتب من حسابات الموردين/المواد إلى 2200/5120' });
+  }
+
+  // 6. موردون رصيدهم الافتتاحي مخزّن لكن قيده مفقود (مُسح سابقاً بخطأ قديم) → إعادة إنشائه
+  {
+    let restored = 0;
+    (db.vendors || []).forEach(v => {
+      const amt = parseFloat(v.openingBalance) || 0;
+      if (amt <= 0) return;
+      const jeId = 'JE-VND-OPEN-' + v.id;
+      const exists = (db.journalEntries || []).some(e => e.id === jeId || e.ref === 'OPEN-' + v.id || e.reference === 'OPEN-' + v.id);
+      if (!exists) { setVendorOpening(db, v, amt, v.openingDate); restored++; applied.push({ area: 'الموردون', action: 'vendor-opening-restored', name: v.name, to: amt + ' د.ك' }); }
+    });
+  }
+
+  return applied;
+}
+
+app.post('/api/repair/auto', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+  const db = loadDB();
+  const applied = runAutoRepairSuite(db);
   if (applied.length) {
     (db.auditLog = db.auditLog || []).unshift({
       id: 'AUD-' + Date.now(), at: new Date().toISOString(), user: req.user?.username || 'system-tester',
@@ -6259,7 +6304,11 @@ app.post('/api/recurring/run', (req, res) => {
     });
 
     const accounts = db.chartOfAccounts || [];
-    const expAcc  = accounts.find(a => a.id === r.accountId || a.code === r.accountId) || { id: r.accountId || '5699', code: r.accountId || '5699', name: r.cat };
+    // حساب المصروف: المحدد يدوياً → وإلا حسب الفئة → دائماً حساب موجود فعلاً بالشجرة
+    // (القديم كان يخترع 5699 غير الموجود فيختفي المصروف من قائمة الدخل ويختل الميزان)
+    const found   = accounts.find(a => a.id === r.accountId || a.code === r.accountId);
+    const resolved = found ? { code: String(found.code), name: found.name } : expCatToAccount(r.cat, accounts);
+    const expAcc  = { id: resolved.code, code: resolved.code, name: resolved.name };
     const credit  = payMethodToAccount(r.payMethod || 'cash');
     const cashAcc = accounts.find(a => a.code === credit.code) || { id: credit.code, code: credit.code, name: credit.name };
     db.journalEntries.push({
@@ -6602,26 +6651,34 @@ app.post('/api/payroll', (req,res)=>{
   if(!db.payroll) db.payroll=[];
   db.payroll.push(record);
 
-  // Auto journal entry for payroll — records gross salary and accrues liability
-  // Step 1: Accrue (Dr Salary Expense / Cr Salary Payable)
-  // Step 2: When status is updated to 'paid' a separate entry clears the payable
+  // Auto journal entry for payroll — IFRS (IAS 19 التزامات الموظفين):
+  // الاستحقاق: مدين مصروف رواتب (إجمالي) / دائن رواتب مستحقة 2200 (صافي)
+  //            / دائن استقطاعات رواتب 2210 (إن وُجدت خصومات)
+  // ملاحظة: 2100 = ذمم الموردين و5200 = تكلفة المواد — كانا مستخدمَين خطأً هنا
+  // وكانا يخربان الميزانية العمومية وقائمة الدخل معاً.
   const payDate=`${month}-01`;
   const accounts=db.chartOfAccounts||[];
-  const salaryExp  =accounts.find(a=>a.code==='5200')||{id:'5200',code:'5200',name:'مصاريف الرواتب'};
-  const salaryPayAcc=accounts.find(a=>a.code==='2100')||{id:'2100',code:'2100',name:'رواتب مستحقة الدفع'};
+  const { payrollAccounts } = require('./lib/coaCodes');
+  const pa = payrollAccounts(accounts); // يضيف 2200/2210/5120 تلقائياً إن كانت ناقصة
+  db.chartOfAccounts = accounts;
+  // مصروف طبي/إداري حسب دور الموظف الغالب في الكشف
+  const medical = entries.filter(e=>/طبيب|دكتور|طبي/.test(String(e.role||''))).reduce((s,e)=>s+(parseFloat(e.basicSalary)||0)+(parseFloat(e.allowances)||0),0);
+  const admin   = totalGross - medical;
   if(!db.journalEntries) db.journalEntries=[];
   const accrualJeId='JE-PAY-'+Date.now();
   record.accrualJeId=accrualJeId; // ربط القيد بالكشف ليُحذفا معاً
+  const lines=[];
+  if(medical>0) lines.push({accountId:pa.expMedical.id,accountCode:pa.expMedical.code,accountName:pa.expMedical.name,debit:medical,credit:0});
+  if(admin>0)   lines.push({accountId:pa.expAdmin.id,  accountCode:pa.expAdmin.code,  accountName:pa.expAdmin.name,  debit:admin,  credit:0});
+  lines.push({accountId:pa.payable.id,accountCode:pa.payable.code,accountName:pa.payable.name,debit:0,credit:totalNet});
+  if(totalDeductions>0) lines.push({accountId:pa.deductions.id,accountCode:pa.deductions.code,accountName:pa.deductions.name,debit:0,credit:totalDeductions});
   db.journalEntries.push({
     id:accrualJeId, date:payDate,
     desc:`استحقاق رواتب شهر ${month}`,
     ref:'PAY-ACC-'+month, type:'payroll',
     totalDebit:totalGross, totalCredit:totalGross,
     createdAt:new Date().toISOString(),
-    lines:[
-      {accountId:salaryExp.id,  accountCode:'5200',accountName:'مصاريف الرواتب',      debit:totalGross,credit:0},
-      {accountId:salaryPayAcc.id,accountCode:'2100',accountName:'رواتب مستحقة الدفع',debit:0,credit:totalGross}
-    ]
+    lines
   });
 
   saveDB(db);
@@ -6636,10 +6693,12 @@ app.put('/api/payroll/:id/status', (req,res)=>{
   rec.status   = req.body.status   || 'paid';
   rec.paidDate = req.body.paidDate || new Date().toISOString().slice(0,10);
 
-  // When marking as paid: clear Salary Payable → Cash/Bank/… (per chosen method)
+  // When marking as paid: clear Salary Payable 2200 → Cash/Bank/… (per chosen method)
   if(rec.status==='paid' && prevStatus!=='paid'){
     const accs = db.chartOfAccounts||[];
-    const salaryPayAcc = accs.find(a=>a.code==='2100')||{id:'2100',code:'2100',name:'رواتب مستحقة الدفع'};
+    const { payrollAccounts } = require('./lib/coaCodes');
+    const salaryPayAcc = payrollAccounts(accs).payable;
+    db.chartOfAccounts = accs;
     // طريقة الصرف: نقد/بنك/تحويل/شيك → الحساب الدائن المناسب
     rec.payMethod = req.body.payMethod || rec.payMethod || 'cash';
     const credit = payMethodToAccount(rec.payMethod);
@@ -6655,7 +6714,7 @@ app.put('/api/payroll/:id/status', (req,res)=>{
       totalDebit:net, totalCredit:net,
       createdAt:new Date().toISOString(),
       lines:[
-        {accountId:salaryPayAcc.id,accountCode:'2100',accountName:'رواتب مستحقة الدفع',debit:net,credit:0},
+        {accountId:salaryPayAcc.id,accountCode:salaryPayAcc.code,accountName:salaryPayAcc.name,debit:net,credit:0},
         {accountId:payAcc.id,      accountCode:payAcc.code,accountName:payAcc.name,     debit:0,credit:net}
       ]
     });
@@ -9470,6 +9529,8 @@ app.use((req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error('❌ Unhandled error:', err.message);
+  if (/Not allowed by CORS/.test(err.message || ''))
+    return res.status(403).json({ error: 'الطلب مرفوض (CORS) — أضف نطاق موقعك إلى ALLOWED_ORIGINS' });
   res.status(500).json({ error: 'خطأ داخلي في الخادم' });
 });
 

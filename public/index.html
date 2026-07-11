@@ -1002,6 +1002,11 @@ html.light .toast.info    { background: rgba(59,130,246,.07); border-color: rgba
   transition: opacity 420ms cubic-bezier(.4,0,.2,1), transform 420ms cubic-bezier(.4,0,.2,1);
 }
 .reveal-on-scroll.revealed { opacity: 1; transform: translateY(0); }
+/* المستخدم يفضّل تقليل الحركة؟ عطّل كل الأنيميشن فوراً (وصولية) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .reveal-on-scroll, .kpi-grid .kc { opacity: 1 !important; transform: none !important; }
+}
 
 /* ── 11. PAGE ENTRY ANIMATION ── */
 @keyframes slideUpFade {
@@ -5024,6 +5029,22 @@ window.fetch = function(url, opts = {}) {
   return _origFetch(url, opts);
 };
 
+// أي خطأ JavaScript غير معالج → إشعار واضح للمستخدم بدل "زر لا يستجيب" بصمت،
+// وتُسجَّل التفاصيل في الكونسول ليلتقطها المُجرِّب/الدعم.
+window.addEventListener('error', (ev) => {
+  try {
+    console.error('💥 JS Error:', ev.message, ev.filename + ':' + ev.lineno);
+    if (typeof toast === 'function') toast('⚠️ حدث خطأ تقني: ' + String(ev.message).slice(0, 120), 'error', 6000);
+  } catch {}
+});
+window.addEventListener('unhandledrejection', (ev) => {
+  try {
+    const m = ev.reason && (ev.reason.message || String(ev.reason));
+    console.error('💥 Unhandled rejection:', m);
+    if (typeof toast === 'function' && m && !/انتهت جلسة/.test(m)) toast('⚠️ خطأ: ' + String(m).slice(0, 120), 'error', 6000);
+  } catch {}
+});
+
 // ── Login / Logout ──────────────────────────────
 async function doLogin(e) {
   e.preventDefault();
@@ -8112,18 +8133,20 @@ let currentVendorId = null;
 
 function calcVendorBalance(accountId) {
   const entries = DB.journalEntries || [];
+  const aid = String(accountId ?? '');
   let balance = 0;
-  entries.forEach(e => e.lines.forEach(l => {
-    if (l.accountId === accountId || l.accountCode === accountId) balance += (l.credit||0) - (l.debit||0);
+  entries.forEach(e => (e.lines || []).forEach(l => {
+    if (String(l.accountId) === aid || String(l.accountCode) === aid) balance += (parseFloat(l.credit)||0) - (parseFloat(l.debit)||0);
   }));
   return balance;
 }
 
 function getVendorLastTxn(accountId) {
   const entries = DB.journalEntries || [];
-  const hits = entries.filter(e => e.lines.some(l => l.accountId === accountId || l.accountCode === accountId));
+  const aid = String(accountId ?? '');
+  const hits = entries.filter(e => (e.lines || []).some(l => String(l.accountId) === aid || String(l.accountCode) === aid));
   if (!hits.length) return null;
-  return hits.sort((a,b) => b.date.localeCompare(a.date))[0];
+  return hits.sort((a,b) => String(b.date||'').localeCompare(String(a.date||'')))[0];
 }
 
 async function loadVendors() {
@@ -11970,6 +11993,8 @@ function initReveal(container) {
       _revealObserver.observe(el);
     }
   });
+  // صمام أمان: لا يجوز أن يبقى أي عنصر مخفياً — أظهر كل ما لم يُكشف خلال 900ms
+  setTimeout(() => targets.forEach(el => el.classList.add('revealed')), 900);
 }
 
 // ══════════════════════════════════════════════════════

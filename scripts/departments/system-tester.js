@@ -75,6 +75,28 @@ async function applyAutoRepair() {
   return null;
 }
 
+// ── فحص مسار الكتابة على الخادم الحقيقي: تعديل بلا تغيير (no-op) على حساب واحد ──
+// يكشف أعطال "زر التعديل لا يعمل" (مثل 500 بسبب كود رقمي) على بيانات الإنتاج نفسها،
+// دون تغيير أي قيمة فعلية.
+async function testRealWritePath(db) {
+  const port = process.env.PORT || process.env.SELF_PORT || 3000;
+  const token = selfToken();
+  if (!token) return;
+  const leaf = (db.chartOfAccounts || []).find(a => !a.isGroup && a.name);
+  if (!leaf) return;
+  say('🧪 أجرّب زر التعديل على بياناتك الحقيقية (تعديل بلا تغيير)...');
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/coa/account/${encodeURIComponent(leaf.id || leaf.code)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ name: leaf.name }),
+    });
+    if (r.status >= 500) flag('critical', 'شجرة الحسابات', `زر تعديل الحساب معطّل على بياناتك الحقيقية (خطأ ${r.status} من الخادم)`, 'شغّل الإصلاح الذاتي — غالباً حساب بكود غير نصي');
+    else if (!r.ok) flag('high', 'شجرة الحسابات', `تعديل الحساب يرفض بخطأ ${r.status}`, 'راجع PUT /api/coa/account');
+    else say('  ✅ تعديل الحسابات يعمل على بياناتك الحقيقية');
+  } catch (e) { say('  ⚠️ تعذّر فحص مسار الكتابة: ' + e.message); }
+}
+
 const FIX_LABELS = {
   'code-fixed':            (c) => `صحّحت رقم الحساب «${c.name}» من ${c.from} إلى ${c.to} وحدّثت كل القيود المرتبطة`,
   'id-repaired':           (c) => `أصلحت معرّف الحساب «${c.name}» (كان ناقصاً — الآن يمكن تعديله وحذفه)`,
@@ -82,6 +104,9 @@ const FIX_LABELS = {
   'account-restored':      (c) => `أعدت إنشاء الحساب ${c.to} «${c.name}» — كان مستخدماً في القيود لكنه غير موجود بالشجرة`,
   'totals-recomputed':     (c) => `أعدت احتساب إجماليات ${c.name} كانت لا تطابق بنودها`,
   'empty-entries-removed': (c) => `حذفت ${c.name} بدون أي بنود (نسخة كاملة محفوظة في سجل التدقيق)`,
+  'code-normalized':       (c) => `طبّعت رقم الحساب «${c.name}» إلى نص (كان رقماً يعطّل شاشة التعديل بالكامل)`,
+  'payroll-accounts-remapped': (c) => `نقلت ${c.name} من قيود الرواتب إلى الحسابات الصحيحة (2200 رواتب مستحقة / 51xx مصروف رواتب) بدل ذمم الموردين وتكلفة المواد`,
+  'vendor-opening-restored':   (c) => `أعدت إنشاء الرصيد الافتتاحي للمورد «${c.name}» (${c.to}) — كان قيده ممسوحاً`,
 };
 const fixLabel = (c) => (FIX_LABELS[c.action] ? FIX_LABELS[c.action](c) : `${c.area}: ${c.action} ${c.name || ''}`);
 
@@ -238,6 +263,41 @@ function testCodeGeneration(db) {
   if (taken)      flag('critical', 'إضافة حساب', `النظام يقترح كوداً مستخدماً مسبقاً في ${taken} حالة — مثال: ${sample}`, 'تأكد أن الكود المقترح غير موجود');
   if (fullNoFallback) flag('high', 'إضافة حساب', `${fullNoFallback} مجموعة ممتلئة بلا اقتراح بديل — المستخدم سيعلق عند الإضافة — مثال: ${sample}`, 'فعّل النزول التلقائي لمجموعة فرعية في suggestChildCode');
   if (!wrongWidth && !taken && !fullNoFallback) say('  ✅ توليد أكواد الحسابات الجديدة سليم (حتى للمجموعات الممتلئة)');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// اختبار 2ج — قيود الرواتب على الحسابات الصحيحة (IAS 19)
+// 2100 = ذمم موردين و5200 = تكلفة مواد — أي قيد رواتب عليها خطأ محاسبي
+// ══════════════════════════════════════════════════════════════════════
+function testPayrollPostings(db) {
+  const jes = (db.journalEntries || []).filter(e => ['payroll', 'payroll_payment'].includes(e.type));
+  if (!jes.length) return;
+  say(`🧪 أدقّق قيود الرواتب — ${jes.length} قيد...`);
+  let wrong = 0;
+  for (const e of jes) for (const l of e.lines || []) {
+    if (String(l.accountCode) === '2100' || (e.type === 'payroll' && String(l.accountCode) === '5200')) wrong++;
+  }
+  if (wrong) flag('critical', 'الرواتب', `${wrong} بند رواتب مسجَّل على حسابات خاطئة (2100 ذمم الموردين / 5200 تكلفة المواد) — يشوّه الميزانية وقائمة الدخل`, 'انقل القيود إلى 2200 الرواتب المستحقة و51xx مصروف الرواتب');
+  else say('  ✅ قيود الرواتب على الحسابات الصحيحة (2200 / 51xx)');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// اختبار 2د — أرصدة الموردين الافتتاحية موجودة فعلاً في القيود
+// ══════════════════════════════════════════════════════════════════════
+function testVendorOpenings(db) {
+  const vendors = db.vendors || [];
+  if (!vendors.length) return;
+  say(`🧪 أتحقق من أرصدة الموردين الافتتاحية — ${vendors.length} مورد...`);
+  let missing = 0; const names = [];
+  for (const v of vendors) {
+    const amt = parseFloat(v.openingBalance) || 0;
+    if (amt <= 0) continue;
+    const found = (db.journalEntries || []).some(e =>
+      e.id === 'JE-VND-OPEN-' + v.id || e.ref === 'OPEN-' + v.id || e.reference === 'OPEN-' + v.id);
+    if (!found) { missing++; names.push(v.name); }
+  }
+  if (missing) flag('high', 'الموردون', `${missing} مورد رصيده الافتتاحي مخزّن لكن قيده مفقود (يظهر صفراً في الشاشة والميزانية): ${names.slice(0,4).join('، ')}`, 'أعد إنشاء القيود الافتتاحية للموردين');
+  else say('  ✅ كل الأرصدة الافتتاحية للموردين لها قيود');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -429,7 +489,12 @@ async function testEndToEnd(db) {
         const before = vendorBal(await api('GET', '/api/data'));
         if (Math.abs(before - 300) > 0.01) flag('high', 'تجربة: مورد', `الرصيد الافتتاحي للمورد لا يظهر (${before} بدل 300)`, 'راجع setVendorOpening');
         else {
-          await api('POST', '/api/opening-balance', { balances: [{ code: assetLeaf.code, debit: 100, credit: 0 }], date: '2026-01-01' });
+          // رصيد افتتاحي متوازن (مدين أصل / دائن حقوق ملكية) حتى لا يختل ميزان بقية التجارب
+          const eqLeaf = leaves.find(a => String(a.code).startsWith('3')) || revLeaf;
+          await api('POST', '/api/opening-balance', { balances: [
+            { code: assetLeaf.code, debit: 100, credit: 0 },
+            ...(eqLeaf ? [{ code: eqLeaf.code, debit: 0, credit: 100 }] : []),
+          ], date: '2026-01-01' });
           const after = vendorBal(await api('GET', '/api/data'));
           if (Math.abs(after - 300) > 0.01) flag('critical', 'تجربة: تعارض الأرصدة الافتتاحية', `شاشة الأرصدة الافتتاحية للحسابات مسحت رصيد المورد الافتتاحي (${after} بدل 300)`, 'استخدم نوعاً مختلفاً لقيود الموردين الافتتاحية');
           else say('  ✅ رصيد المورد الافتتاحي يظهر ويصمد أمام شاشة الأرصدة الافتتاحية');
@@ -446,14 +511,46 @@ async function testEndToEnd(db) {
       else flag('high', 'تجربة: متكرر', `المصروف المتكرر لا يمنع التكرار (تشغيل1=${run1.data?.applied} تشغيل2=${run2.data?.applied})`, 'راجع recurringIsDue');
     } catch (e) { say('  ⚠️ تجربة المتكرر تعذّرت: ' + e.message); }
 
-    // حذف كشف الرواتب يحذف قيده
+    // دورة رواتب كاملة: إنشاء → حسابات صحيحة → تنعكس في قائمة الدخل → دفع → تصفية
+    // الالتزام → حذف → القيود تُحذف — مثل محاسب يقفل شهر رواتب كاملاً
     try {
-      const pay = await api('POST', '/api/payroll', { month: '2026-06', entries: [{ name: 'ع', basicSalary: 200, allowances: 0, deductions: 0 }] });
+      const plBefore = (await api('GET', '/api/reports/pnl')).data?.totalExpenses || 0;
+      const pay = await api('POST', '/api/payroll', { month: '2026-06', entries: [
+        { name: 'د. اختبار', role: 'طبيب', basicSalary: 300, allowances: 0, deductions: 0 },
+        { name: 'إداري اختبار', role: 'إداري', basicSalary: 200, allowances: 20, deductions: 20 },
+      ]});
       if (pay.data?.record) {
-        await api('DELETE', '/api/payroll/' + pay.data.record.id);
-        const leftover = ((await api('GET', '/api/data')).data?.journalEntries || []).filter(j => j.type === 'payroll').length;
-        if (leftover > 0) flag('high', 'تجربة: رواتب', 'حذف كشف الرواتب لا يحذف قيده المحاسبي', 'اربط القيد بالكشف واحذفهما معاً');
-        else say('  ✅ حذف كشف الرواتب يحذف قيده');
+        const rec = pay.data.record;
+        const data1 = (await api('GET', '/api/data')).data || {};
+        const acc = (data1.journalEntries || []).find(j => j.id === rec.accrualJeId);
+        // 1) الحسابات الصحيحة: لا 2100 (موردين) ولا 5200 (مواد)
+        const badLines = (acc?.lines || []).filter(l => ['2100', '5200'].includes(String(l.accountCode)));
+        if (!acc) flag('critical', 'تجربة: رواتب', 'كشف الرواتب لم يولّد قيد استحقاق', 'راجع POST /api/payroll');
+        else if (badLines.length) flag('critical', 'تجربة: رواتب', `قيد الرواتب يسجَّل على حسابات خاطئة (${badLines.map(l=>l.accountCode).join('،')}) — ذمم الموردين/تكلفة المواد بدل 2200/51xx`, 'صحّح حسابات قيد الرواتب');
+        else say('  ✅ قيد استحقاق الرواتب على الحسابات الصحيحة (2200 / 51xx)');
+        // 2) ينعكس في قائمة الدخل (520 إجمالي)
+        const plAfter = (await api('GET', '/api/reports/pnl')).data?.totalExpenses || 0;
+        if (plAfter < plBefore + 519) flag('critical', 'تجربة: رواتب', `مصروف الرواتب لا ينعكس في قائمة الدخل (${plBefore}→${plAfter})`, 'راجع ربط 51xx بقائمة الدخل');
+        else say('  ✅ مصروف الرواتب انعكس في قائمة الدخل');
+        // 3) الدفع يصفّي 2200 (الصافي 500 = 520 إجمالي − 20 استقطاعات)
+        await api('PUT', '/api/payroll/' + rec.id + '/status', { status: 'paid', payMethod: 'cash' });
+        const data2 = (await api('GET', '/api/data')).data || {};
+        const bal2200 = (data2.journalEntries || []).flatMap(e => e.lines || [])
+          .filter(l => String(l.accountCode) === '2200')
+          .reduce((s, l) => s + (parseFloat(l.credit) || 0) - (parseFloat(l.debit) || 0), 0);
+        if (Math.abs(bal2200) > 0.01) flag('critical', 'تجربة: رواتب', `بعد دفع الرواتب بقي رصيد ${bal2200.toFixed(3)} في الرواتب المستحقة 2200 — يجب أن يصفّر`, 'راجع قيد دفع الرواتب');
+        else say('  ✅ دفع الرواتب صفّى الرواتب المستحقة (2200)');
+        // 4) الميزانية ما زالت متوازنة بعد الدورة كاملة
+        const bs2 = (await api('GET', '/api/reports/balance-sheet')).data;
+        const pl2 = (await api('GET', '/api/reports/pnl')).data;
+        if (bs2 && pl2 && Math.abs((bs2.totalAssets||0) - ((bs2.totalLiabilities||0)+(bs2.totalEquity||0)+(pl2.netIncome||0))) > 0.5)
+          flag('critical', 'تجربة: رواتب', 'المعادلة المحاسبية اختلّت بعد دورة الرواتب', 'راجع قيود الرواتب');
+        else say('  ✅ المعادلة المحاسبية متوازنة بعد دورة الرواتب كاملة');
+        // 5) الحذف يحذف قيدي الاستحقاق والدفع معاً
+        await api('DELETE', '/api/payroll/' + rec.id);
+        const leftover = ((await api('GET', '/api/data')).data?.journalEntries || []).filter(j => ['payroll','payroll_payment'].includes(j.type)).length;
+        if (leftover > 0) flag('high', 'تجربة: رواتب', 'حذف كشف الرواتب لا يحذف قيوده المحاسبية', 'اربط القيود بالكشف واحذفها معاً');
+        else say('  ✅ حذف كشف الرواتب يحذف قيدي الاستحقاق والدفع');
       }
     } catch (e) { say('  ⚠️ تجربة الرواتب تعذّرت: ' + e.message); }
 
@@ -587,6 +684,8 @@ async function main() {
     testJournalBalance(d);
     testChartOfAccounts(d);
     testCodeGeneration(d);
+    testPayrollPostings(d);
+    testVendorOpenings(d);
     testCommissions(d);
     testInsurance(d);
     testInventory(d);
@@ -614,6 +713,9 @@ async function main() {
       say('  ⚠️ تعذّر الوصول لخدمة الإصلاح الذاتي — أُبلغ عن المشاكل كما هي');
     }
   }
+
+  // Real write-path smoke test on the RUNNING server (no-op edit — nothing changes)
+  await testRealWritePath(dbFinal);
 
   // Live end-to-end trials in an isolated sandbox (real data physically untouched)
   await testEndToEnd(dbFinal);
