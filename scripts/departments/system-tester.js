@@ -382,6 +382,46 @@ async function testEndToEnd(db) {
       }
     }
 
+    // ── تجارب تفاعل الميزات (قبل الفحص الثقيل حتى تعمل على بيئة منتعشة) ──
+    // رصيد المورد الافتتاحي يظهر ويصمد أمام شاشة الأرصدة الافتتاحية للحسابات
+    try {
+      const vend = await api('POST', '/api/vendors', { name: 'مورد اختبار', openingBalance: 300, openingDate: '2026-01-01' });
+      if (vend.ok && vend.data?.vendor) {
+        const vAcc = vend.data.vendor.accountId;
+        const vendorBal = (j) => (j.data?.journalEntries || []).flatMap(e => e.lines || [])
+          .filter(l => String(l.accountCode) === String(vAcc) || String(l.accountId) === String(vAcc))
+          .reduce((s, l) => s + (l.credit || 0) - (l.debit || 0), 0);
+        const before = vendorBal(await api('GET', '/api/data'));
+        if (Math.abs(before - 300) > 0.01) flag('high', 'تجربة: مورد', `الرصيد الافتتاحي للمورد لا يظهر (${before} بدل 300)`, 'راجع setVendorOpening');
+        else {
+          await api('POST', '/api/opening-balance', { balances: [{ code: assetLeaf.code, debit: 100, credit: 0 }], date: '2026-01-01' });
+          const after = vendorBal(await api('GET', '/api/data'));
+          if (Math.abs(after - 300) > 0.01) flag('critical', 'تجربة: تعارض الأرصدة الافتتاحية', `شاشة الأرصدة الافتتاحية للحسابات مسحت رصيد المورد الافتتاحي (${after} بدل 300)`, 'استخدم نوعاً مختلفاً لقيود الموردين الافتتاحية');
+          else say('  ✅ رصيد المورد الافتتاحي يظهر ويصمد أمام شاشة الأرصدة الافتتاحية');
+        }
+      }
+    } catch (e) { say('  ⚠️ تجربة المورد تعذّرت: ' + e.message); }
+
+    // المصروف المتكرر يحترم التكرار (لا يتكرر مرتين)
+    try {
+      await api('POST', '/api/recurring', { id: 'RTEST', desc: 'إيجار', cat: 'إيجار', amount: 100, day: 1, frequency: 'monthly', active: true, lastApplied: '' });
+      const run1 = await api('POST', '/api/recurring/run');
+      const run2 = await api('POST', '/api/recurring/run');
+      if (run1.data?.applied === 1 && run2.data?.applied === 0) say('  ✅ المصروف المتكرر يُطبَّق مرة واحدة (منع التكرار)');
+      else flag('high', 'تجربة: متكرر', `المصروف المتكرر لا يمنع التكرار (تشغيل1=${run1.data?.applied} تشغيل2=${run2.data?.applied})`, 'راجع recurringIsDue');
+    } catch (e) { say('  ⚠️ تجربة المتكرر تعذّرت: ' + e.message); }
+
+    // حذف كشف الرواتب يحذف قيده
+    try {
+      const pay = await api('POST', '/api/payroll', { month: '2026-06', entries: [{ name: 'ع', basicSalary: 200, allowances: 0, deductions: 0 }] });
+      if (pay.data?.record) {
+        await api('DELETE', '/api/payroll/' + pay.data.record.id);
+        const leftover = ((await api('GET', '/api/data')).data?.journalEntries || []).filter(j => j.type === 'payroll').length;
+        if (leftover > 0) flag('high', 'تجربة: رواتب', 'حذف كشف الرواتب لا يحذف قيده المحاسبي', 'اربط القيد بالكشف واحذفهما معاً');
+        else say('  ✅ حذف كشف الرواتب يحذف قيده');
+      }
+    } catch (e) { say('  ⚠️ تجربة الرواتب تعذّرت: ' + e.message); }
+
     // ── تجربة 6: مسح استقرار شامل — يكتشف كل الشاشات تلقائياً ──
     // يجلب قائمة كل الـ GET endpoints من الخادم نفسه، فيغطّي أي ميزة جديدة تلقائياً
     let reportEps = ['/api/reports/pnl', '/api/reports/balance-sheet', '/api/reports/cashflow', '/api/trial-balance', '/api/financial-statements', '/api/stats'];
@@ -391,8 +431,9 @@ async function testEndToEnd(db) {
       reportEps = disc.data.routes.filter(p => !skip.some(s => p.startsWith(s)));
       say(`  ↳ اكتشفت ${reportEps.length} شاشة/endpoint تلقائياً`);
     }
-    const crashed = [];
-    for (const p of reportEps) { try { const r = await api('GET', p); if (r.status >= 500) crashed.push(p); } catch {} }
+    // بالتوازي (أسرع بكثير من التسلسل)
+    const sweep = await Promise.all(reportEps.map(p => api('GET', p).then(r => ({ p, s: r.status })).catch(() => ({ p, s: 0 }))));
+    const crashed = sweep.filter(x => x.s >= 500).map(x => x.p);
     if (crashed.length) flag('critical', 'تجربة: استقرار', `${crashed.length} شاشة تنهار (خطأ 500): ${crashed.slice(0, 8).join('، ')}`, 'راجع معالجة الأخطاء في هذه الـ endpoints');
     else say(`  ✅ فحصت ${reportEps.length} شاشة — كلها تعمل بدون انهيار`);
 
