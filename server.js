@@ -4768,6 +4768,19 @@ function runAutoRepairSuite(db) {
     if (normalized) applied.push({ area: 'القيود', action: 'opening-refs-normalized', name: normalized + ' قيد افتتاحي', to: 'مراجع قصيرة مقروءة (OB-...)' });
   }
 
+  // 8. مزامنة أسماء الحسابات في بنود القيود مع الأسماء الحالية في الشجرة
+  //    (يصلح الحسابات التي غُيّر اسمها سابقاً ولم ينعكس على القيود القديمة)
+  {
+    const byId   = new Map(coa.map(a => [String(a.id), a]));
+    const byCode = new Map(coa.map(a => [String(a.code), a]));
+    let synced = 0;
+    for (const e of db.journalEntries || []) for (const l of e.lines || []) {
+      const acc = byId.get(String(l.accountId)) || byCode.get(String(l.accountCode)) || byCode.get(String(l.accountId));
+      if (acc && acc.name && l.accountName !== acc.name) { l.accountName = acc.name; synced++; }
+    }
+    if (synced) applied.push({ area: 'القيود', action: 'account-names-synced', name: synced + ' بند', to: 'حُدّثت أسماء الحسابات لتطابق الشجرة' });
+  }
+
   return applied;
 }
 
