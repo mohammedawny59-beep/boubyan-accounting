@@ -3162,14 +3162,9 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
     <div class="sh"><div><div class="st">كشف الحساب</div><div class="ss">Account Statement</div></div></div>
     <div class="filter-bar">
       <span class="fl">الحساب:</span>
-      <div style="position:relative;display:inline-block;width:280px;">
-        <input class="fi" id="ledgerAccTxt" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="width:100%;box-sizing:border-box;"
-          oninput="filterAccPicker('ledgerAccTxt','ledgerAccount','ledgerAccDrop','all','loadLedger')"
-          onfocus="filterAccPicker('ledgerAccTxt','ledgerAccount','ledgerAccDrop','all','loadLedger')"
-          onblur="setTimeout(()=>{let d=document.getElementById('ledgerAccDrop');if(d)d.style.display='none'},200)">
-        <input type="hidden" id="ledgerAccount" value="">
-        <div id="ledgerAccDrop" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
-      </div>
+      <select class="fi" id="ledgerAccount" onchange="loadLedger()" style="width:280px;">
+        <option value="">— اختر الحساب —</option>
+      </select>
       <select class="fi" id="ledgerMonth">
         <option value="all">كل الفترات</option>
       </select>
@@ -5849,6 +5844,22 @@ function selectAccPicker(txtId, hiddenId, dropId, accId, code, name, onSelectFn)
   if (onSelectFn && typeof window[onSelectFn] === 'function') window[onSelectFn]();
 }
 
+// خيارات <select> أصلية للحسابات — تُظهر القائمة كاملة دائماً وبأرقامها،
+// ولا تُقصّ داخل النوافذ (تحل مشكلة عدم ظهور كل الحسابات في القوائم المنسدلة)
+function coaOptionsHTML(filter, selectedVal, placeholder) {
+  let coa = getCoaAccounts().filter(a => a.status !== 'inactive' && !a.isGroup && a.code);
+  if (filter === 'asset')   coa = coa.filter(a => String(a.code).startsWith('1'));
+  if (filter === 'cash')    coa = coa.filter(a => String(a.code).startsWith('11'));
+  if (filter === 'expense') coa = coa.filter(a => a.type === 'expense');
+  coa.sort((a,b) => String(a.code).localeCompare(String(b.code)));
+  const opts = coa.map(a => {
+    const val = a.id || a.code;
+    const sel = String(val) === String(selectedVal) ? ' selected' : '';
+    return `<option value="${val}"${sel}>${a.code} — ${escHtml(a.name)}</option>`;
+  }).join('');
+  return (placeholder ? `<option value="">${escHtml(placeholder)}</option>` : '') + opts;
+}
+
 const _accDropStyle = 'display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);';
 
 function accPickerHTML(txtId, hiddenId, dropId, filterType, placeholder, onSelectFn) {
@@ -7890,7 +7901,10 @@ async function loadLedger() {
     mSel.innerHTML = '<option value="all">كل الفترات</option>' +
       months.map(m=>`<option value="${m}">${monthLbl(m)}</option>`).join('');
   }
-  const accountId = document.getElementById('ledgerAccount')?.value;
+  // عبّئ قائمة الحسابات (كاملة، بأرقامها) مع الحفاظ على الاختيار الحالي
+  const accSel = document.getElementById('ledgerAccount');
+  if (accSel) { const cur = accSel.value; accSel.innerHTML = coaOptionsHTML('all', cur, '— اختر الحساب —'); }
+  const accountId = accSel?.value;
   if (!accountId) return;
   const acc = accounts.find(a=>a.id===accountId);
   const accCode = acc?.code;
@@ -10022,7 +10036,7 @@ function openVcModal(type) {
     assetBadge.textContent = 'مدين'; assetBadge.className = 'vc-flow-badge vc-debit-badge';
     distBadge.textContent  = 'دائن'; distBadge.style.cssText = 'background:rgba(16,185,129,.12);color:#6ee7b7';
     document.getElementById('vcAssetLblTxt').textContent = 'الحساب النقدي (وصل إلى)';
-    document.getElementById('vcDistTitle').textContent   = 'توزيع الإيرادات والمطالبات';
+    document.getElementById('vcDistTitle').textContent   = 'الحساب المقابل (إيراد / ذمم / أي حساب آخر)';
   } else {
     assetBadge.textContent = 'دائن'; assetBadge.className = 'vc-flow-badge vc-credit-badge';
     distBadge.textContent  = 'مدين'; distBadge.style.cssText = 'background:rgba(59,130,246,.12);color:#93c5fd';
@@ -10048,13 +10062,10 @@ function addVcLine() {
   row.className = 'vc-line';
   row.id = `vcLine${id}`;
   row.innerHTML = `
-    <div style="position:relative;">
-      <input class="finp" id="vcLineAccTxt${id}" placeholder="ابحث عن الحساب..." autocomplete="off" style="width:100%;box-sizing:border-box;"
-        oninput="filterAccPicker('vcLineAccTxt${id}','vcLineAcc${id}','vcLineAccDrop${id}','all')"
-        onfocus="filterAccPicker('vcLineAccTxt${id}','vcLineAcc${id}','vcLineAccDrop${id}','all')"
-        onblur="setTimeout(()=>{let d=document.getElementById('vcLineAccDrop${id}');if(d)d.style.display='none'},200)">
-      <input type="hidden" id="vcLineAcc${id}" value="">
-      <div id="vcLineAccDrop${id}" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+    <div>
+      <select class="finp" id="vcLineAcc${id}" style="width:100%;box-sizing:border-box;">
+        ${coaOptionsHTML('all', '', '— اختر الحساب —')}
+      </select>
     </div>
     <input type="number" step="0.001" min="0" class="finp" id="vcLineAmt${id}"
            placeholder="0.000" oninput="calcVcTotal()" style="direction:ltr;text-align:left">
@@ -10460,6 +10471,7 @@ async function openPayrollModal() {
 
   const rows = emps.map((e,i)=>`
     <tr>
+      <td style="text-align:center"><input type="checkbox" id="prInc${i}" checked onchange="recalcPayroll()" title="صرف راتب هذا الموظف هذا الشهر" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer"></td>
       <td>${e.name}</td><td>${e.role||'—'}</td>
       <td><input type="number" step="0.001" class="finp" id="prSal${i}" value="${e.basicSalary||0}" style="width:90px" oninput="recalcPayroll()"></td>
       <td><input type="number" step="0.001" class="finp" id="prAll${i}" value="${e.allowances||0}" style="width:80px" oninput="recalcPayroll()"></td>
@@ -10469,17 +10481,20 @@ async function openPayrollModal() {
       <input type="hidden" id="prRole${i}" value="${e.role||''}">
     </tr>`).join('');
   document.getElementById('prTable').innerHTML = `
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">✔ أزل علامة الصح عن أي موظف لا تريد صرف راتبه هذا الشهر.</div>
+    <div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:8px;">
     <table style="width:100%;border-collapse:collapse">
-      <thead><tr><th>الموظف</th><th>الوظيفة</th><th>الأساسي</th><th>البدلات</th><th>الخصومات</th><th>الصافي</th></tr></thead>
+      <thead><tr><th style="width:44px">صرف؟</th><th>الموظف</th><th>الوظيفة</th><th>الأساسي</th><th>البدلات</th><th>الخصومات</th><th>الصافي</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
-        <td colspan="2">الإجمالي</td>
+        <td colspan="3">الإجمالي</td>
         <td class="num" id="prTotGross">0.000</td>
         <td></td>
         <td class="num" id="prTotDed">0.000</td>
         <td class="num" id="prTotNet" style="color:var(--accent2)">0.000</td>
       </tr></tfoot>
-    </table>`;
+    </table>
+    </div>`;
   document.getElementById('prCount').value = emps.length;
   document.getElementById('payrollModal').classList.add('open');
   recalcPayroll();
@@ -10490,12 +10505,15 @@ function recalcPayroll(){
   const count=parseInt(document.getElementById('prCount').value)||0;
   let gross=0,ded=0,net=0;
   for(let i=0;i<count;i++){
+    const inc=document.getElementById('prInc'+i);
+    const included = !inc || inc.checked;
     const s=parseFloat(document.getElementById('prSal'+i)?.value)||0;
     const a=parseFloat(document.getElementById('prAll'+i)?.value)||0;
     const d=parseFloat(document.getElementById('prDed'+i)?.value)||0;
     const n=s+a-d;
-    const nc=document.getElementById('prNet'+i); if(nc)nc.textContent=n.toFixed(3);
-    gross+=s+a; ded+=d; net+=n;
+    const nc=document.getElementById('prNet'+i);
+    if(nc){ nc.textContent = included ? n.toFixed(3) : '—'; const row=nc.closest('tr'); if(row) row.style.opacity = included ? '1' : '.4'; }
+    if(included){ gross+=s+a; ded+=d; net+=n; }
   }
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v.toFixed(3);};
   set('prTotGross',gross); set('prTotDed',ded); set('prTotNet',net);
@@ -10507,6 +10525,8 @@ async function savePayroll() {
   if(!month) return alert('يرجى تحديد الشهر');
   const entries = [];
   for(let i=0;i<count;i++){
+    const inc=document.getElementById(`prInc${i}`);
+    if(inc && !inc.checked) continue; // موظف غير مشمول بالصرف هذا الشهر
     entries.push({
       name:        document.getElementById(`prName${i}`)?.value||'',
       role:        document.getElementById(`prRole${i}`)?.value||'',
@@ -10515,6 +10535,7 @@ async function savePayroll() {
       deductions:  parseFloat(document.getElementById(`prDed${i}`)?.value)||0,
     });
   }
+  if(!entries.length){ showToast('لم تختر أي موظف للصرف','error'); return; }
   const totalNet = entries.reduce((s,e)=>s+e.basicSalary+e.allowances-e.deductions,0);
   if(totalNet<=0){ showToast('إجمالي الرواتب صفر — أدخل الرواتب أولاً','error'); return; }
   const btn=document.getElementById('savePayrollBtn');
@@ -10544,12 +10565,33 @@ async function deletePayroll(id, status) {
   }catch(e){ showToast('❌ خطأ في الاتصال','error'); }
 }
 
-async function markPayrollPaid(id) {
-  const method = await pickPayMethod();
-  if(!method) return;
-  await fetch(`/api/payroll/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'paid',payMethod:method,paidDate:new Date().toISOString().slice(0,10)})});
-  await loadAll(); loadPayroll();
-  showToast('✅ تم صرف الرواتب وتسجيل القيد','success');
+let _payrollPayId = null;
+function markPayrollPaid(id) {
+  _payrollPayId = id;
+  document.getElementById('prPayDate').value = new Date().toISOString().slice(0,10);
+  const sel = document.getElementById('prPayAccount');
+  if (sel) {
+    const cash = coaOptionsHTML('cash', '');
+    sel.innerHTML = '<option value="">— اختر حساب الصرف —</option>' + (cash || coaOptionsHTML('asset', ''));
+  }
+  document.getElementById('payrollPayModal').classList.add('open');
+}
+
+async function savePayrollPayment() {
+  const id = _payrollPayId; if(!id) return;
+  const paidDate   = document.getElementById('prPayDate').value;
+  const payAccount = document.getElementById('prPayAccount').value;
+  if(!paidDate){ showToast('أدخل تاريخ الصرف','warning'); return; }
+  if(!payAccount){ showToast('اختر حساب الصرف','warning'); return; }
+  try {
+    const r = await fetch(`/api/payroll/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'paid',payAccount,paidDate})});
+    const d = await r.json();
+    if(d.success!==false){
+      document.getElementById('payrollPayModal').classList.remove('open');
+      await loadAll(); loadPayroll();
+      showToast('✅ تم صرف الرواتب وتسجيل القيد','success');
+    } else showToast('❌ '+(d.error||'فشل الصرف'),'error');
+  } catch(e) { showToast('❌ خطأ في الاتصال','error'); }
 }
 
 // منتقي طريقة الصرف (#5) — نقد/بنك/تحويل/شيك
@@ -12657,6 +12699,24 @@ showTab = function(id, el) {
     <div class="mact">
       <button class="btn bp" id="savePayrollBtn" onclick="savePayroll()">💾 حفظ الكشف وإنشاء قيد</button>
       <button class="btn bd" onclick="document.getElementById('payrollModal').classList.remove('open')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Payroll Payment Modal -->
+<div id="payrollPayModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mbox" style="width:420px;max-width:95vw">
+    <div class="mtit">💸 صرف الرواتب</div>
+    <div class="fr"><label class="flbl">تاريخ الصرف *</label><input type="date" class="finp" id="prPayDate"></div>
+    <div class="fr"><label class="flbl">حساب الصرف (نقد / بنك) *</label>
+      <select class="finp" id="prPayAccount"><option value="">— اختر حساب الصرف —</option></select>
+    </div>
+    <div style="padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:11px;color:var(--text2);margin-bottom:4px;">
+      📒 القيد: <strong style="color:var(--accent)">من ح/ الرواتب المستحقة (مدين)</strong> إلى <strong style="color:var(--accent)">ح/ حساب الصرف المختار (دائن)</strong>
+    </div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="savePayrollPayment()">✅ تأكيد الصرف</button>
+      <button class="btn bd" onclick="document.getElementById('payrollPayModal').classList.remove('open')">إلغاء</button>
     </div>
   </div>
 </div>

@@ -4798,12 +4798,30 @@ app.put('/api/coa/account/:id', (req, res) => {
   // If code changed and new code already exists → reject
   if (code && code !== String(coa[idx].code) && coa.find(a => String(a.code) === code))
     return res.status(400).json({ error: 'رقم الحساب موجود مسبقاً' });
-  coa[idx] = { ...coa[idx], ...{ code: code||coa[idx].code, name: name||coa[idx].name, type: type||coa[idx].type,
-    parent: parent !== undefined ? parent : coa[idx].parent,
-    description: description !== undefined ? description : coa[idx].description,
-    isGroup: isGroup !== undefined ? !!isGroup : coa[idx].isGroup,
-    normalBalance: normalBalance||coa[idx].normalBalance, status: status||coa[idx].status,
+  const prev = coa[idx];
+  const oldCode = String(prev.code);
+  const accId   = prev.id;
+  coa[idx] = { ...prev, ...{ code: code||prev.code, name: name||prev.name, type: type||prev.type,
+    parent: parent !== undefined ? parent : prev.parent,
+    description: description !== undefined ? description : prev.description,
+    isGroup: isGroup !== undefined ? !!isGroup : prev.isGroup,
+    normalBalance: normalBalance||prev.normalBalance, status: status||prev.status,
     updatedAt: new Date().toISOString() }};
+  const newCode = String(coa[idx].code);
+  const newName = coa[idx].name;
+  // انشر تغيير الاسم/الرقم على كل بنود القيود المرتبطة بهذا الحساب (مصدر واحد للحقيقة)
+  if (newName !== prev.name || newCode !== oldCode) {
+    (db.journalEntries || []).forEach(e => (e.lines || []).forEach(l => {
+      const match = (l.accountId != null && String(l.accountId) === String(accId)) ||
+                    (l.accountCode != null && String(l.accountCode) === oldCode) ||
+                    (l.accountId != null && String(l.accountId) === oldCode);
+      if (match) {
+        l.accountName = newName;
+        if (l.accountCode != null && String(l.accountCode) === oldCode) l.accountCode = newCode;
+        if (l.accountId   != null && String(l.accountId)   === oldCode) l.accountId   = newCode;
+      }
+    }));
+  }
   coa.sort((a,b) => String(a.code||"").localeCompare(String(b.code||"")));
   db.chartOfAccounts = coa;
   saveDB(db);
@@ -6727,16 +6745,25 @@ app.put('/api/payroll/:id/status', (req,res)=>{
   rec.status   = req.body.status   || 'paid';
   rec.paidDate = req.body.paidDate || new Date().toISOString().slice(0,10);
 
-  // When marking as paid: clear Salary Payable 2200 → Cash/Bank/… (per chosen method)
+  // When marking as paid: clear Salary Payable 2200 → chosen cash/bank account
   if(rec.status==='paid' && prevStatus!=='paid'){
     const accs = db.chartOfAccounts||[];
     const { payrollAccounts } = require('./lib/coaCodes');
     const salaryPayAcc = payrollAccounts(accs).payable;
     db.chartOfAccounts = accs;
-    // طريقة الصرف: نقد/بنك/تحويل/شيك → الحساب الدائن المناسب
-    rec.payMethod = req.body.payMethod || rec.payMethod || 'cash';
-    const credit = payMethodToAccount(rec.payMethod);
-    const payAcc = accs.find(a=>a.code===credit.code)||{id:credit.code,code:credit.code,name:credit.name};
+    // الحساب الدائن: إما حساب محدد من الشجرة (payAccount) أو طريقة صرف قديمة (payMethod)
+    let payAcc;
+    if (req.body.payAccount) {
+      const key = String(req.body.payAccount);
+      payAcc = accs.find(a => String(a.id) === key || String(a.code) === key);
+      rec.payAccount = key;
+      rec.payMethod  = payAcc ? payAcc.name : (rec.payMethod || '');
+    }
+    if (!payAcc) {
+      rec.payMethod = req.body.payMethod || rec.payMethod || 'cash';
+      const credit = payMethodToAccount(rec.payMethod);
+      payAcc = accs.find(a=>a.code===credit.code)||{id:credit.code,code:credit.code,name:credit.name};
+    }
     const net = rec.totalNet || rec.totalGross || 0;
     if(!db.journalEntries) db.journalEntries=[];
     const paymentJeId='JE-PAY-PMT-'+Date.now();
