@@ -5271,6 +5271,7 @@ async function checkSession() {
 // (1234.567).fmt(0) →  "1,235"       rounded integer
 // fmt(n)            →  same as (n).fmt()  — standalone helper
 Number.prototype.fmt = function(decimals = 3) {
+  decimals = Math.min(100, Math.max(0, parseInt(decimals) || 0));
   return this.valueOf().toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
 function fmt(n, decimals = 3) {
@@ -12108,6 +12109,7 @@ if (_sidebarCollapsed) {
 //  NUMBER FORMATTER — Intl.NumberFormat with thousands separator
 // ══════════════════════════════════════════════════════════════
 function fmt(n, decimals = 3) {
+  decimals = Math.min(100, Math.max(0, parseInt(decimals) || 0));
   try {
     return new Intl.NumberFormat('en-KW', {
       minimumFractionDigits: decimals,
@@ -13835,7 +13837,7 @@ setTimeout(() => { restoreDashFilter(); restoreJournalFilter(); }, 800);
       section.querySelectorAll('.kv').forEach(el => {
         const raw = el.textContent.replace(/[^\d.]/g, '');
         const n   = parseFloat(raw);
-        if (!isNaN(n) && n > 0) animateCount?.(el, n, 900);
+        if (!isNaN(n) && n > 0) animateCount?.(el, n, raw.includes('.') ? 3 : 0, 900);
       });
     }, 150);
 
