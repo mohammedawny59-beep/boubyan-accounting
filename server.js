@@ -4743,6 +4743,31 @@ function runAutoRepairSuite(db) {
     });
   }
 
+  // 7. توحيد مراجع قيود الأرصدة الافتتاحية القديمة (كانت أرقاماً طويلة مبهمة مثل OPEN-VND-1783...)
+  //    → مراجع قصيرة مقروءة: مورد OB-<كود الحساب> / مخزون OB-INV / مرضى OB-PAT / عام OPENING
+  {
+    let normalized = 0;
+    for (const e of db.journalEntries || []) {
+      const id = String(e.id || '');
+      let ref = null;
+      if (id.startsWith('JE-VND-OPEN-') || e.type === 'vendor-opening' || e.source === 'vendor-opening') {
+        const vLine = (e.lines || []).find(l => String(l.accountCode) !== '3900');
+        const code = vLine ? (vLine.accountCode || vLine.accountId) : '';
+        ref = code ? 'OB-' + code : 'OB';
+      } else if (id.startsWith('JE-INV-OPEN-') || e.source === 'import-inventory-opening') {
+        ref = 'OB-INV';
+      } else if (id.startsWith('JE-PAT-OPEN-') || e.source === 'import-patient-opening') {
+        ref = 'OB-PAT';
+      } else if (id.startsWith('JE-OPEN-') || e.type === 'opening') {
+        ref = 'OPENING';
+      }
+      if (ref && (e.ref !== ref || e.reference !== ref)) {
+        e.ref = ref; e.reference = ref; normalized++;
+      }
+    }
+    if (normalized) applied.push({ area: 'القيود', action: 'opening-refs-normalized', name: normalized + ' قيد افتتاحي', to: 'مراجع قصيرة مقروءة (OB-...)' });
+  }
+
   return applied;
 }
 
