@@ -12002,6 +12002,7 @@ function initReveal(container) {
 // BUTTON RIPPLE EFFECT
 // ══════════════════════════════════════════════════════
 document.addEventListener('click', (e) => {
+  if (!(e.target instanceof Element)) return;
   const btn = e.target.closest('.btn, .bex, .btn-sm, .nav-item');
   if (!btn) return;
   const rect = btn.getBoundingClientRect();
@@ -12819,7 +12820,8 @@ function openAnomalyPanel() {
 
 async function dismissAnomaly(jeId, code, btn) {
   await apiFetch('anomalies/dismiss', { method:'POST', body: JSON.stringify({ jeId, code }) });
-  btn.closest('div[style*="border-radius:6px"]').style.opacity = '0.35';
+  const card = btn?.closest?.('div[style*="border-radius:6px"]');
+  if (card) card.style.opacity = '0.35';
   toast('تم تجاهل التنبيه', 'info');
 }
 
@@ -14044,6 +14046,7 @@ setTimeout(() => {
 const BTN_SEL = '.btn,.bp,.bex,.nav-item,.cat-btn,.bw,.bd,.bsm';
 
 document.addEventListener('pointerdown', (e) => {
+  if (!(e.target instanceof Element)) return;
   const btn = e.target.closest(BTN_SEL);
   if (!btn || btn.disabled) return;
   animate(btn, { scale: 0.94 },
@@ -14051,6 +14054,7 @@ document.addEventListener('pointerdown', (e) => {
 }, { passive: true });
 
 const _popBtn = (e) => {
+  if (!(e.target instanceof Element)) return;
   const btn = e.target.closest(BTN_SEL);
   if (!btn) return;
   animate(btn, { scale: 1 },
