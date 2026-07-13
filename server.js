@@ -164,8 +164,8 @@ app.use((req, res, next) => cors({
 const API_SECRET = process.env.API_SECRET;
 app.use('/api', (req, res, next) => {
   if (!API_SECRET) return next();
-  // Public login + JWT-authenticated SPA requests must not require x-api-secret.
-  if (req.path.startsWith('/auth/')) return next();
+  // Public login/branding + JWT-authenticated SPA requests must not require x-api-secret.
+  if (req.path.startsWith('/auth/') || req.path.startsWith('/public/')) return next();
   const authHeader = req.headers['authorization'] || '';
   if (authHeader.startsWith('Bearer ')) return next();
   // Also allow direct-download links that carry a valid JWT via _token query param
@@ -646,16 +646,41 @@ function getMonth(dateStr) {
 
 // ===== AUTH ROUTES (public — no token needed) =====
 
+// ── حماية من التخمين (brute-force): قفل تصاعدي لكل (مستخدم + IP) ──
+// 5 محاولات فاشلة → قفل 5 دقائق، يتضاعف مع كل قفل لاحق حتى 60 دقيقة.
+const _loginFails = new Map(); // key → { count, lockedUntil, locks }
+setInterval(() => { const now = Date.now();
+  for (const [k, v] of _loginFails) if (now - (v.last || 0) > 3600000) _loginFails.delete(k);
+}, 10 * 60 * 1000);
+
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'يرجى إدخال اسم المستخدم وكلمة المرور' });
 
+  const fkey = String(username).toLowerCase() + '|' + req.ip;
+  const rec = _loginFails.get(fkey) || { count: 0, locks: 0, lockedUntil: 0, last: 0 };
+  if (rec.lockedUntil > Date.now()) {
+    const mins = Math.ceil((rec.lockedUntil - Date.now()) / 60000);
+    return res.status(429).json({ error: `تم قفل تسجيل الدخول مؤقتاً بعد محاولات فاشلة متكررة — حاول بعد ${mins} دقيقة` });
+  }
+
+  const registerFail = () => {
+    rec.count++; rec.last = Date.now();
+    if (rec.count >= 5) {
+      rec.locks++; rec.count = 0;
+      rec.lockedUntil = Date.now() + Math.min(60, 5 * Math.pow(2, rec.locks - 1)) * 60000;
+    }
+    _loginFails.set(fkey, rec);
+  };
+
   const db = loadDB();
   const user = (db.users || []).find(u => u.username === username || u.email === username);
-  if (!user || !user.active) return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+  if (!user || !user.active) { registerFail(); return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' }); }
 
   const valid = bcrypt.compareSync(password, user.passwordHash);
-  if (!valid) return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+  if (!valid) { registerFail(); return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' }); }
+
+  _loginFails.delete(fkey); // نجاح → صفّر العداد
 
   // Update lastLogin
   user.lastLogin = new Date().toISOString();
@@ -674,6 +699,15 @@ app.post('/api/auth/login', (req, res) => {
     user: { id: user.id, username: user.username, email: user.email, fullName: user.fullName, role: user.role },
     permissions: { tabs: roleObj.tabs || [], actions: roleObj.actions || {} }
   });
+});
+
+// هوية الشركة لشاشة الدخول (عام — لا يكشف أي بيانات حساسة، فقط الاسم والشعار)
+app.get('/api/public/branding', (req, res) => {
+  try {
+    const db = loadDB();
+    const c = db.companyInfo || {};
+    res.json({ name: c.name || 'نظام المحاسبة الذكي', logo: c.logo || '' });
+  } catch { res.json({ name: 'نظام المحاسبة الذكي', logo: '' }); }
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
