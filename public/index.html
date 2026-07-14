@@ -2102,9 +2102,38 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
             <button type="button" onclick="togglePass()" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;" aria-label="إظهار/إخفاء كلمة المرور">👁</button>
           </div>
         </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:-8px 0 18px;">
+          <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text2);cursor:pointer;">
+            <input type="checkbox" id="loginRemember" checked style="accent-color:var(--accent);width:14px;height:14px;"> تذكرني
+          </label>
+          <button type="button" onclick="showForgot()" style="background:none;border:none;color:var(--accent);font-size:11.5px;cursor:pointer;font-family:inherit;">نسيت كلمة المرور؟</button>
+        </div>
         <button type="submit" id="loginBtn" style="width:100%;background:linear-gradient(135deg,var(--accent),var(--accentDark));color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;box-shadow:0 4px 20px rgba(79,142,247,.35);">
           تسجيل الدخول
         </button>
+      </form>
+
+      <!-- نسيت كلمة المرور -->
+      <form id="forgotForm" onsubmit="doForgot(event)" style="display:none;" novalidate>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.8;">أدخل بريدك الإلكتروني وسنرسل لك رابط إعادة تعيين كلمة المرور (صالح 30 دقيقة).</p>
+        <div style="margin-bottom:16px;">
+          <label for="forgotEmail" style="display:block;font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:600;">البريد الإلكتروني</label>
+          <input id="forgotEmail" type="email" autocomplete="email" placeholder="you@example.com" required
+            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--text);font-family:inherit;font-size:13px;outline:none;">
+        </div>
+        <button type="submit" id="forgotBtn" style="width:100%;background:linear-gradient(135deg,var(--accent),var(--accentDark));color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">إرسال رابط الاسترجاع</button>
+        <button type="button" onclick="showForgot(false)" style="width:100%;background:none;border:none;color:var(--text3);font-size:11.5px;cursor:pointer;font-family:inherit;margin-top:12px;">← رجوع لتسجيل الدخول</button>
+      </form>
+
+      <!-- تعيين كلمة مرور جديدة (من رابط البريد ?reset=TOKEN) -->
+      <form id="resetForm" onsubmit="doReset(event)" style="display:none;" novalidate>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:14px;">أدخل كلمة المرور الجديدة (8 أحرف على الأقل).</p>
+        <div style="margin-bottom:16px;">
+          <label for="resetPass" style="display:block;font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:600;">كلمة المرور الجديدة</label>
+          <input id="resetPass" type="password" autocomplete="new-password" minlength="8" required
+            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--text);font-family:inherit;font-size:13px;outline:none;">
+        </div>
+        <button type="submit" id="resetBtn" style="width:100%;background:linear-gradient(135deg,var(--accent),var(--accentDark));color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">تعيين كلمة المرور</button>
       </form>
 
       <!-- Footer -->
@@ -5070,6 +5099,8 @@ function _notifyError(msg) {
 window.addEventListener('error', (ev) => {
   console.error('💥 JS Error:', ev.message, ev.filename + ':' + ev.lineno);
   _notifyError(ev.message);
+  // أبلغ الخادم ليظهر في سجل الأعطال — تعرف بالمشكلة قبل ما يتصل العميل
+  try { if (getToken()) fetch('/api/log/client-error', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ msg: ev.message, src: ev.filename, line: ev.lineno }) }).catch(()=>{}); } catch {}
 });
 window.addEventListener('unhandledrejection', (ev) => {
   const m = ev.reason && (ev.reason.message || String(ev.reason));
@@ -5097,7 +5128,8 @@ async function doLogin(e) {
     const data = await r.json();
     if (!r.ok || !data.success) throw new Error(data.error || 'فشل تسجيل الدخول');
 
-    saveToken(data.token, true);
+    // "تذكرني": مفعّل → يبقى بعد إغلاق المتصفح، غير مفعّل → جلسة واحدة فقط
+    saveToken(data.token, document.getElementById('loginRemember')?.checked !== false);
     AUTH = { token: data.token, user: data.user, permissions: data.permissions };
     onLoginSuccess();
   } catch(err) {
@@ -5280,6 +5312,59 @@ async function submitChangePassword() {
     closeModal('chpwModal');
     alert('✅ تم تغيير كلمة المرور بنجاح');
   } catch(e) { err.textContent = e.message; err.style.display = 'block'; }
+}
+
+// ── نسيت كلمة المرور + التعيين من رابط البريد ──────────────
+function showForgot(show = true) {
+  document.getElementById('loginForm').style.display  = show ? 'none' : '';
+  document.getElementById('forgotForm').style.display = show ? '' : 'none';
+  document.getElementById('resetForm').style.display  = 'none';
+  const err = document.getElementById('loginError');
+  err.style.display = 'none';
+}
+async function doForgot(e) {
+  e.preventDefault();
+  const btn = document.getElementById('forgotBtn');
+  const err = document.getElementById('loginError');
+  const email = document.getElementById('forgotEmail').value.trim();
+  if (!email) return;
+  btn.disabled = true; btn.textContent = 'جارٍ الإرسال...';
+  try {
+    const r = await _origFetch('/api/auth/forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const d = await r.json();
+    err.style.display = 'block';
+    err.style.background = r.ok ? 'rgba(16,185,129,.1)' : 'rgba(248,113,113,.1)';
+    err.style.borderColor = r.ok ? 'rgba(16,185,129,.3)' : 'rgba(248,113,113,.3)';
+    err.style.color = r.ok ? 'var(--accent2)' : 'var(--danger)';
+    err.textContent = d.message || d.error || 'تم';
+  } catch { err.style.display = 'block'; err.textContent = 'تعذّر الاتصال بالخادم'; }
+  btn.disabled = false; btn.textContent = 'إرسال رابط الاسترجاع';
+}
+async function doReset(e) {
+  e.preventDefault();
+  const btn = document.getElementById('resetBtn');
+  const err = document.getElementById('loginError');
+  const token = new URLSearchParams(location.search).get('reset');
+  const password = document.getElementById('resetPass').value;
+  if (!token || password.length < 8) { err.style.display='block'; err.textContent='كلمة المرور 8 أحرف على الأقل'; return; }
+  btn.disabled = true; btn.textContent = 'جارٍ التعيين...';
+  try {
+    const r = await _origFetch('/api/auth/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password }) });
+    const d = await r.json();
+    err.style.display = 'block';
+    if (r.ok) {
+      err.style.background='rgba(16,185,129,.1)'; err.style.borderColor='rgba(16,185,129,.3)'; err.style.color='var(--accent2)';
+      err.textContent = d.message || 'تم — سجّل دخولك الآن';
+      history.replaceState(null, '', location.pathname);
+      setTimeout(() => { document.getElementById('resetForm').style.display='none'; document.getElementById('loginForm').style.display=''; }, 1200);
+    } else err.textContent = d.error || 'فشل التعيين';
+  } catch { err.style.display='block'; err.textContent='تعذّر الاتصال بالخادم'; }
+  btn.disabled = false; btn.textContent = 'تعيين كلمة المرور';
+}
+// وصل المستخدم من رابط البريد؟ → أظهر نموذج التعيين مباشرة
+if (new URLSearchParams(location.search).get('reset')) {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('resetForm').style.display = '';
 }
 
 // ── هوية الشركة على شاشة الدخول (من إعدادات المستأجر — لا hardcoding) ──

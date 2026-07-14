@@ -20,7 +20,7 @@ const path = require('path');
 const mongoose = require('mongoose');
 
 const ROOT      = path.join(__dirname, '..');
-const BACKUP_DIR = path.join(ROOT, 'backups');
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, 'backups'); // قابل للتحديد (للاختبار الدوري)
 const KEEP       = Number(process.env.BACKUP_KEEP || 30); // كم نسخة نحتفظ بها
 const MONGO_URI  = process.env.MONGO_URI;
 

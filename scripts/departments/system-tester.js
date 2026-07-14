@@ -559,15 +559,24 @@ async function testEndToEnd(db) {
     let reportEps = ['/api/reports/pnl', '/api/reports/balance-sheet', '/api/reports/cashflow', '/api/trial-balance', '/api/financial-statements', '/api/stats'];
     const disc = await api('GET', '/api/agents/routes');
     if (disc.ok && Array.isArray(disc.data?.routes) && disc.data.routes.length) {
-      const skip = ['/api/agents/run', '/api/export', '/api/monthly-report-slide', '/api/agents/routes'];
+      // تُستثنى الـ endpoints التشغيلية/الثقيلة: تشغيل الوكلاء (يكلّف API ويأخذ دقائق) والتصدير والبثوث
+      const skip = ['/api/agents/run', '/api/agents/orchestrate', '/api/export', '/api/monthly-report-slide', '/api/agents/routes'];
       reportEps = disc.data.routes.filter(p => !skip.some(s => p.startsWith(s)));
       say(`  ↳ اكتشفت ${reportEps.length} شاشة/endpoint تلقائياً`);
     }
-    // بالتوازي (أسرع بكثير من التسلسل)
-    const sweep = await Promise.all(reportEps.map(p => api('GET', p).then(r => ({ p, s: r.status })).catch(() => ({ p, s: 0 }))));
+    // بالتوازي (أسرع بكثير من التسلسل) + قياس زمن الاستجابة (Performance budget)
+    const sweep = await Promise.all(reportEps.map(async p => {
+      const t0 = Date.now();
+      try { const r = await api('GET', p); return { p, s: r.status, ms: Date.now() - t0 }; }
+      catch { return { p, s: 0, ms: Date.now() - t0 }; }
+    }));
     const crashed = sweep.filter(x => x.s >= 500).map(x => x.p);
     if (crashed.length) flag('critical', 'تجربة: استقرار', `${crashed.length} شاشة تنهار (خطأ 500): ${crashed.slice(0, 8).join('، ')}`, 'راجع معالجة الأخطاء في هذه الـ endpoints');
     else say(`  ✅ فحصت ${reportEps.length} شاشة — كلها تعمل بدون انهيار`);
+    // ميزانية أداء (CLAUDE.md مرحلة 5): أي شاشة أبطأ من 1.5 ثانية تُعلَّم
+    const slow = sweep.filter(x => x.s > 0 && x.s < 500 && x.ms > 1500).sort((a, b) => b.ms - a.ms);
+    if (slow.length) flag('medium', 'الأداء', `${slow.length} شاشة أبطأ من ميزانية الأداء (1.5ث): ${slow.slice(0, 5).map(x => `${x.p} (${(x.ms/1000).toFixed(1)}ث)`).join('، ')}`, 'أضف فهارس/ترقيم صفحات لهذه الـ endpoints');
+    else say(`  ✅ كل الشاشات ضمن ميزانية الأداء (أسرعها ${Math.min(...sweep.map(x=>x.ms))}ms — أبطؤها ${Math.max(...sweep.map(x=>x.ms))}ms)`);
 
     // ── تجربة 6ب: اختبار عشوائي (Fuzz) — مدخلات خاطئة يجب أن تُرفض بلطف لا أن تُسقط النظام ──
     const fuzzCases = [

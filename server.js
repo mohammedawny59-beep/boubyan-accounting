@@ -259,123 +259,9 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
 })();
 const JWT_EXPIRES = '12h';
 
-// All 18 tabs and their possible actions
-const ALL_TABS = ['dashboard','upload','manual','doctors','expenses','vendors','reports','vouchers','cashrecon','insurance','payroll','journal','coa','ledger','recurring','financials','inventory','telegram','settings','ai'];
-const ALL_ACTIONS = ['view','add','edit','delete','export'];
+// All tabs/actions + default COA + roles — moved to lib/defaults.js (تفكيك تدريجي، CLAUDE.md بند 6)
+const { ALL_TABS, ALL_ACTIONS, DEFAULT_COA, DEFAULT_ROLES } = require('./lib/defaults');
 
-// ═══════════════════════════════════════════════════
-// DEFAULT CHART OF ACCOUNTS — عيادة الأسنان (Kuwait)
-// ═══════════════════════════════════════════════════
-const DEFAULT_COA = [
-  // ── الأصول المتداولة ──────────────────────────────
-  { id:'1000', code:'1000', name:'الأصول',              type:'asset',    parent:null, isGroup:true, balance:0 },
-  { id:'1100', code:'1100', name:'الصندوق — نقدي',      type:'asset',    parent:'1000', balance:0 },
-  { id:'1110', code:'1110', name:'البنك — الحساب الجاري',             type:'asset', parent:'1000', balance:0 },
-  { id:'1120', code:'1120', name:'K-Net / Visa / Master — مستحقات',  type:'asset', parent:'1000', balance:0 },
-  { id:'1125', code:'1125', name:'حسابي — مدفوعات إلكترونية',        type:'asset', parent:'1000', balance:0 },
-  { id:'1130', code:'1130', name:'ذمم مدينة — شركات التأمين',        type:'asset', parent:'1000', balance:0 },
-  { id:'1200', code:'1200', name:'الذمم المدينة — مرضى', type:'asset',   parent:'1000', balance:0 },
-  { id:'1210', code:'1210', name:'مطالبات التأمين المعلقة', type:'asset', parent:'1000', balance:0 },
-  { id:'1300', code:'1300', name:'المخزون — مستلزمات طبية', type:'asset', parent:'1000', balance:0 },
-  { id:'1400', code:'1400', name:'مصاريف مدفوعة مقدماً', type:'asset',  parent:'1000', balance:0 },
-  // ── الأصول الثابتة ────────────────────────────────
-  { id:'1500', code:'1500', name:'الأصول الثابتة',      type:'asset',    parent:'1000', isGroup:true, balance:0 },
-  { id:'1510', code:'1510', name:'معدات وأجهزة طبية',   type:'asset',    parent:'1500', balance:0 },
-  { id:'1520', code:'1520', name:'أثاث وتجهيزات',       type:'asset',    parent:'1500', balance:0 },
-  { id:'1530', code:'1530', name:'أجهزة حاسوب ومعدات مكتبية', type:'asset', parent:'1500', balance:0 },
-  { id:'1590', code:'1590', name:'(-) مجمع الإهلاك',   type:'asset',    parent:'1500', balance:0 },
-  // ── الالتزامات ────────────────────────────────────
-  { id:'2000', code:'2000', name:'الالتزامات',           type:'liability', parent:null, isGroup:true, balance:0 },
-  { id:'2100', code:'2100', name:'الذمم الدائنة — موردون', type:'liability', parent:'2000', balance:0 },
-  { id:'2200', code:'2200', name:'الرواتب المستحقة الدفع', type:'liability', parent:'2000', balance:0 },
-  { id:'2300', code:'2300', name:'إيجار مستحق',          type:'liability', parent:'2000', balance:0 },
-  { id:'2400', code:'2400', name:'قرض بنكي',             type:'liability', parent:'2000', balance:0 },
-  { id:'2500', code:'2500', name:'أمانات ودفعات مقدمة مرضى', type:'liability', parent:'2000', balance:0 },
-  // ── حقوق الملكية ─────────────────────────────────
-  { id:'3000', code:'3000', name:'حقوق الملكية',         type:'equity',   parent:null, isGroup:true, balance:0 },
-  { id:'3100', code:'3100', name:'رأس المال',            type:'equity',   parent:'3000', balance:0 },
-  { id:'3200', code:'3200', name:'الأرباح المحتجزة',     type:'equity',   parent:'3000', balance:0 },
-  { id:'3300', code:'3300', name:'أرباح/خسائر الفترة الحالية', type:'equity', parent:'3000', balance:0 },
-  // ── الإيرادات ─────────────────────────────────────
-  { id:'4000', code:'4000', name:'الإيرادات',                    type:'revenue', parent:null,   isGroup:true, balance:0 },
-  { id:'4100', code:'4100', name:'إيرادات نقدية — كاش',          type:'revenue', parent:'4000', balance:0 },
-  { id:'4110', code:'4110', name:'إيرادات K-Net',                type:'revenue', parent:'4000', balance:0 },
-  { id:'4120', code:'4120', name:'إيرادات Visa',                 type:'revenue', parent:'4000', balance:0 },
-  { id:'4130', code:'4130', name:'إيرادات Master',               type:'revenue', parent:'4000', balance:0 },
-  { id:'4140', code:'4140', name:'إيرادات Link',                 type:'revenue', parent:'4000', balance:0 },
-  { id:'4150', code:'4150', name:'إيرادات تأمين — إجمالي',       type:'revenue', parent:'4000', balance:0 },
-  { id:'4160', code:'4160', name:'إيرادات شيكات',                type:'revenue', parent:'4000', balance:0 },
-  { id:'4200', code:'4200', name:'إيرادات أخرى',                 type:'revenue', parent:'4000', balance:0 },
-  // ── المصاريف ─────────────────────────────────────
-  { id:'5000', code:'5000', name:'المصاريف',             type:'expense',  parent:null, isGroup:true, balance:0 },
-  { id:'5100', code:'5100', name:'رواتب وأجور',          type:'expense',  parent:'5000', balance:0 },
-  { id:'5110', code:'5110', name:'راتب الكادر الطبي',    type:'expense',  parent:'5100', balance:0 },
-  { id:'5120', code:'5120', name:'راتب الكادر الإداري',  type:'expense',  parent:'5100', balance:0 },
-  { id:'5200', code:'5200', name:'تكلفة المواد والمستلزمات', type:'expense', parent:'5000', balance:0 },
-  { id:'5210', code:'5210', name:'مواد مختبر أسنان',     type:'expense',  parent:'5200', balance:0 },
-  { id:'5220', code:'5220', name:'مستلزمات طبية',        type:'expense',  parent:'5200', balance:0 },
-  { id:'5300', code:'5300', name:'إيجار العيادة',         type:'expense',  parent:'5000', balance:0 },
-  { id:'5400', code:'5400', name:'مرافق — كهرباء وماء',  type:'expense',  parent:'5000', balance:0 },
-  { id:'5500', code:'5500', name:'صيانة وإصلاح',         type:'expense',  parent:'5000', balance:0 },
-  { id:'5600', code:'5600', name:'تسويق وإعلان',         type:'expense',  parent:'5000', balance:0 },
-  { id:'5700', code:'5700', name:'مصاريف إدارية عمومية', type:'expense',  parent:'5000', balance:0 },
-  { id:'5710', code:'5710', name:'هاتف وإنترنت',         type:'expense',  parent:'5700', balance:0 },
-  { id:'5720', code:'5720', name:'إقامات وتأشيرات',      type:'expense',  parent:'5700', balance:0 },
-  { id:'5730', code:'5730', name:'تأمين طبي وعمالي',     type:'expense',  parent:'5700', balance:0 },
-  { id:'5740', code:'5740', name:'قرطاسية ومطبوعات',     type:'expense',  parent:'5700', balance:0 },
-  { id:'5750', code:'5750', name:'مصاريف بنكية وعمولات', type:'expense',  parent:'5700', balance:0 },
-  { id:'5760', code:'5760', name:'خصم التأمين — حسم شركات التأمين', type:'expense', parent:'5700', balance:0 },
-  { id:'5800', code:'5800', name:'إهلاك الأصول الثابتة', type:'expense',  parent:'5000', balance:0 },
-  { id:'5900', code:'5900', name:'مصاريف أخرى متنوعة',   type:'expense',  parent:'5000', balance:0 },
-];
-
-// Default role templates
-const DEFAULT_ROLES = {
-  admin: {
-    name: 'مدير النظام',
-    color: '#4f8ef7',
-    tabs: ALL_TABS,
-    actions: Object.fromEntries(ALL_TABS.map(t => [t, ALL_ACTIONS]))
-  },
-  accountant: {
-    name: 'محاسب',
-    color: '#2dd4bf',
-    tabs: ['dashboard','manual','expenses','vendors','vouchers','cashrecon','insurance','payroll','journal','coa','ledger','recurring','financials','reports','ai'],
-    actions: {
-      dashboard: ['view','export'], manual: ['view','add'], expenses: ['view','add','edit'],
-      vendors: ['view','add','edit'], vouchers: ['view','add','edit','delete'],
-      cashrecon: ['view','add'], insurance: ['view','add','edit'],
-      payroll: ['view','add','edit'], journal: ['view','add','edit'],
-      coa: ['view','add','edit'], ledger: ['view','export'],
-      recurring: ['view','add','edit','delete'], financials: ['view','export'],
-      reports: ['view','export'], ai: ['view']
-    }
-  },
-  receptionist: {
-    name: 'موظف استقبال',
-    color: '#fbbf24',
-    tabs: ['dashboard','manual','reports'],
-    actions: {
-      dashboard: ['view'], manual: ['view','add'], reports: ['view']
-    }
-  },
-  inventory: {
-    name: 'مسؤول مخزون',
-    color: '#a78bfa',
-    tabs: ['dashboard','inventory'],
-    actions: {
-      dashboard: ['view'], inventory: ['view','add','edit']
-    }
-  },
-  viewer: {
-    name: 'مشاهد فقط',
-    color: '#94a3b8',
-    tabs: ['dashboard','reports','financials'],
-    actions: {
-      dashboard: ['view'], reports: ['view','export'], financials: ['view']
-    }
-  }
-};
 
 // Auth middleware — verifies JWT on all /api routes except /api/auth/*
 function requireAuth(req, res, next) {
@@ -803,6 +689,72 @@ app.post('/api/auth/change-password', requireAuth, (req, res) => {
   user.passwordHash = bcrypt.hashSync(newPassword, 10);
   saveDB(db);
   res.json({ success: true });
+});
+
+// ── نسيت كلمة المرور: تدفق استرجاع حقيقي بالبريد (CLAUDE.md مرحلة 4) ──
+// 1) POST /api/auth/forgot {email} → رمز صالح 30 دقيقة يُرسل بالبريد (SMTP من الإعدادات أو env)
+// 2) POST /api/auth/reset {token, password} → تعيين كلمة مرور جديدة
+app.post('/api/auth/forgot', rateLimit(5), async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'البريد الإلكتروني مطلوب' });
+  const db = loadDB();
+  const user = (db.users || []).find(u => (u.email === email || u.username === email) && u.active);
+  // رد موحّد دائماً — لا نكشف وجود البريد من عدمه (أمان)
+  const generic = { success: true, message: 'إن كان البريد مسجلاً لدينا فستصلك رسالة استرجاع خلال دقائق' };
+  if (!user) return res.json(generic);
+
+  const cfg = loadConfig();
+  const smtpHost = cfg.smtpHost || process.env.SMTP_HOST;
+  const smtpUser = cfg.smtpUser || process.env.SMTP_USER;
+  const smtpPass = cfg.smtpPass || process.env.SMTP_PASS;
+  const smtpPort = cfg.smtpPort || process.env.SMTP_PORT || 587;
+  if (!smtpHost || !smtpUser) {
+    return res.status(503).json({ error: 'خدمة البريد غير مهيأة بعد — اطلب من مدير النظام إعادة تعيين كلمة مرورك من شاشة المستخدمين، أو إعداد SMTP من الإعدادات' });
+  }
+
+  const token = require('crypto').randomBytes(32).toString('hex');
+  db.passwordResets = (db.passwordResets || []).filter(r => r.expiresAt > Date.now()); // نظّف المنتهي
+  db.passwordResets.push({ token, userId: user.id, expiresAt: Date.now() + 30 * 60 * 1000 });
+  saveDB(db);
+
+  const base = process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`;
+  const link = `${base}/index.html?reset=${token}`;
+  const comp = (db.companyInfo && db.companyInfo.name) || cfg.companyName || 'نظام المحاسبة الذكي';
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({ host: smtpHost, port: parseInt(smtpPort), secure: String(smtpPort) === '465', auth: { user: smtpUser, pass: smtpPass } });
+    await t.sendMail({
+      from: `"${comp}" <${smtpUser}>`, to: user.email || email,
+      subject: `استرجاع كلمة المرور — ${comp}`,
+      html: `<div dir="rtl" style="font-family:Arial;max-width:480px;margin:0 auto;background:#f8fafc;border-radius:12px;padding:26px;border:1px solid #e2e8f0">
+        <h2 style="color:#1e293b;margin:0 0 6px">${comp}</h2>
+        <p style="color:#475569;font-size:14px;line-height:1.8">وصلنا طلب لإعادة تعيين كلمة مرورك. اضغط الزر خلال <b>30 دقيقة</b>:</p>
+        <p style="text-align:center;margin:22px 0"><a href="${link}" style="background:#3b82f6;color:#fff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:700">إعادة تعيين كلمة المرور</a></p>
+        <p style="color:#94a3b8;font-size:12px">إن لم تطلب ذلك فتجاهل هذه الرسالة — كلمة مرورك لن تتغير.</p></div>`,
+    });
+    (db.auditLog = db.auditLog || []).unshift({ id: 'AUD-' + Date.now(), at: new Date().toISOString(), user: user.username, action: 'password-reset-requested' });
+    saveDB(db);
+    res.json(generic);
+  } catch (e) {
+    console.error('❌ reset mail failed:', e.message);
+    res.status(500).json({ error: 'تعذّر إرسال البريد — تحقق من إعدادات SMTP' });
+  }
+});
+
+app.post('/api/auth/reset', rateLimit(10), (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: 'الرمز وكلمة المرور مطلوبان' });
+  if (password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' });
+  const db = loadDB();
+  const rec = (db.passwordResets || []).find(r => r.token === token);
+  if (!rec || rec.expiresAt < Date.now()) return res.status(400).json({ error: 'رابط الاسترجاع غير صالح أو منتهي — اطلب رابطاً جديداً' });
+  const user = (db.users || []).find(u => u.id === rec.userId);
+  if (!user) return res.status(400).json({ error: 'المستخدم غير موجود' });
+  user.passwordHash = bcrypt.hashSync(password, 10);
+  db.passwordResets = db.passwordResets.filter(r => r.token !== token);
+  (db.auditLog = db.auditLog || []).unshift({ id: 'AUD-' + Date.now(), at: new Date().toISOString(), user: user.username, action: 'password-reset-completed' });
+  saveDB(db);
+  res.json({ success: true, message: 'تم تغيير كلمة المرور — سجّل دخولك الآن' });
 });
 
 // ── Apply auth to all remaining API routes ─────────
@@ -2633,6 +2585,60 @@ app.get('/api/export/excel', (req, res) => {
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!cols'] = [12,18,24,20,14,14,12].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb, ws, 'القيود اليومية');
+
+  } else if (type === 'trial-balance') {
+    // ميزان المراجعة — من القيود مباشرة (CLAUDE.md مرحلة 5: تصدير لكل تقرير)
+    const journals = filterDate(db.journalEntries || []);
+    const coa = db.chartOfAccounts || [];
+    const acName = {}; coa.forEach(a => { acName[String(a.code)] = a.name; });
+    const bal = {};
+    journals.forEach(je => (je.lines||[]).forEach(l => {
+      const key = String(l.accountCode || l.accountId || l.account || '');
+      if (!key) return;
+      if (!bal[key]) bal[key] = { dr:0, cr:0 };
+      bal[key].dr += parseFloat(l.debit)||0; bal[key].cr += parseFloat(l.credit)||0;
+    }));
+    const rows = [['الكود','الحساب','مدين (د.ك)','دائن (د.ك)','الرصيد']];
+    let tDr=0, tCr=0;
+    Object.keys(bal).sort().forEach(code => {
+      const b=bal[code]; tDr+=b.dr; tCr+=b.cr;
+      rows.push([code, acName[code]||code, +b.dr.toFixed(3), +b.cr.toFixed(3), +(b.dr-b.cr).toFixed(3)]);
+    });
+    rows.push(['','الإجمالي', +tDr.toFixed(3), +tCr.toFixed(3), +(tDr-tCr).toFixed(3)]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [10,30,16,16,16].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws, 'ميزان المراجعة');
+
+  } else if (type === 'coa') {
+    const coa = db.chartOfAccounts || [];
+    const tl = {asset:'أصول',liability:'التزامات',equity:'حقوق ملكية',revenue:'إيرادات',expense:'مصاريف'};
+    const rows = [['الكود','اسم الحساب','النوع','الحساب الأب','مجمّع','الحالة'],
+      ...[...coa].sort((a,b)=>String(a.code).localeCompare(String(b.code)))
+        .map(a=>[a.code, a.name, tl[a.type]||a.type, a.parent||'—', a.isGroup?'نعم':'لا', a.status==='inactive'?'موقوف':'فعّال'])];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [10,32,14,12,8,10].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws, 'شجرة الحسابات');
+
+  } else if (type === 'vendors') {
+    const vendors = db.vendors || [];
+    const balOf = (aid) => (db.journalEntries||[]).reduce((s,e)=>s+(e.lines||[]).reduce((x,l)=>
+      (String(l.accountId)===String(aid)||String(l.accountCode)===String(aid))?x+(parseFloat(l.credit)||0)-(parseFloat(l.debit)||0):x,0),0);
+    const rows = [['المورد','النوع','الهاتف','شروط الدفع','الرصيد المستحق (د.ك)'],
+      ...vendors.map(v=>[v.name, v.type||'—', v.phone||'—', v.terms||'—', +balOf(v.accountId).toFixed(3)])];
+    rows.push(['الإجمالي','','','', +vendors.reduce((s,v)=>s+balOf(v.accountId),0).toFixed(3)]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [26,14,14,12,18].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws, 'الموردون');
+
+  } else if (type === 'payroll') {
+    const recs = db.payroll || [];
+    const rows = [['الشهر','الموظف','الدور','أساسي','بدلات','خصومات','الصافي','الحالة']];
+    recs.forEach(r => (r.entries||[]).forEach((e,i)=>rows.push([
+      i===0?r.month:'', e.name, e.role||'—', e.basicSalary||0, e.allowances||0, e.deductions||0, e.netSalary||0, i===0?(r.status==='paid'?'مدفوع':'معلق'):''])));
+    rows.push(['الإجمالي','','', '', '', '', +recs.reduce((s,r)=>s+(r.totalNet||0),0).toFixed(3), '']);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [10,22,12,10,10,10,12,10].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws, 'الرواتب');
   }
 
   const fileName = `boubyan-${type}-${new Date().toISOString().substring(0,10)}.xlsx`;
@@ -9482,6 +9488,11 @@ app.post('/api/tenants/register', async (req, res) => {
         active: true,
         createdAt: new Date().toISOString(),
       });
+      // Onboarding تلقائي: الزبون الجديد يبدأ بشجرة حسابات IFRS كاملة وأدوار
+      // واسم شركته جاهزين — لا نظام فارغ ولا تدخل يدوي (CLAUDE.md مرحلة 5)
+      if (!(db.chartOfAccounts || []).length) db.chartOfAccounts = DEFAULT_COA.map(a => ({ ...a }));
+      if (!db.roles || !Object.keys(db.roles).length) db.roles = JSON.parse(JSON.stringify(DEFAULT_ROLES));
+      db.companyInfo = { ...(db.companyInfo || {}), name, currency: currency || 'KWD' };
       saveDB(db);
     });
 
@@ -9632,10 +9643,34 @@ app.post('/api/stripe/webhook',
   }
 );
 
+// ── إبلاغ أعطال الواجهة + عرض سجل الأعطال للمدير (CLAUDE.md مرحلة 5) ──
+app.post('/api/log/client-error', requireAuth, rateLimit(20), (req, res) => {
+  const { msg, src, line } = req.body || {};
+  logCrash('client', msg, { src: String(src || '').slice(0, 160), line, user: req.user?.username });
+  res.json({ success: true });
+});
+app.get('/api/admin/errors', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'المدير فقط' });
+  const db = loadDB();
+  res.json({ errors: db.errorLog || [] });
+});
+
 // ── 404 handler — must be AFTER all routes ───────────
 app.use((req, res) => {
   res.status(404).json({ error: 'المسار غير موجود' });
 });
+
+// ── مراقبة الأعطال الداخلية (CLAUDE.md مرحلة 5): كل عطل يُسجَّل ليُعرف قبل العميل ──
+function logCrash(source, msg, extra) {
+  try {
+    const db = loadDB();
+    (db.errorLog = db.errorLog || []).unshift({
+      at: new Date().toISOString(), source, msg: String(msg || '').slice(0, 400), ...extra,
+    });
+    if (db.errorLog.length > 200) db.errorLog = db.errorLog.slice(0, 200);
+    saveDB(db);
+  } catch { /* لا نسمح لتسجيل العطل نفسه أن يعطّل */ }
+}
 
 // ── Global error handler (must have 4 args) ──────────
 // eslint-disable-next-line no-unused-vars
@@ -9643,6 +9678,7 @@ app.use((err, req, res, next) => {
   console.error('❌ Unhandled error:', err.message);
   if (/Not allowed by CORS/.test(err.message || ''))
     return res.status(403).json({ error: 'الطلب مرفوض (CORS) — أضف نطاق موقعك إلى ALLOWED_ORIGINS' });
+  logCrash('server', err.message, { path: req.path, method: req.method });
   res.status(500).json({ error: 'خطأ داخلي في الخادم' });
 });
 

@@ -59,8 +59,11 @@ async function run() {
   const backup = JSON.parse(fs.readFileSync(file, 'utf8'));
   console.log(`🗄️  نسخة بتاريخ: ${backup.createdAt} | المصدر: ${backup.source}`);
   console.log('⚠️  سيتم استبدال كل البيانات الحالية بمحتوى هذه النسخة.');
-  const ans = await ask('اكتب "نعم" للتأكيد: ');
-  if (ans !== 'نعم') { console.log('أُلغيت الاستعادة.'); process.exit(0); }
+  // RESTORE_YES=1 أو --yes → غير تفاعلي (للاختبار الدوري الآلي فقط)
+  if (process.env.RESTORE_YES !== '1' && !process.argv.includes('--yes')) {
+    const ans = await ask('اكتب "نعم" للتأكيد: ');
+    if (ans !== 'نعم') { console.log('أُلغيت الاستعادة.'); process.exit(0); }
+  }
 
   if (backup.source === 'mongodb' && MONGO_URI) {
     await restoreMongo(backup.collections || {});
