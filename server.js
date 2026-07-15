@@ -6462,63 +6462,77 @@ app.get('/api/vouchers', (req,res)=>{
   res.json(v.sort((a,b)=>b.date.localeCompare(a.date)));
 });
 
-app.post('/api/vouchers', (req,res)=>{
-  const db=loadDB();
-  const {type,date,payee,notes,assetAccId,lines} = req.body;
-  if(!type||!date) return res.status(400).json({error:'missing fields'});
-  if(!lines||!lines.length) return res.status(400).json({error:'no lines provided'});
-
+// يبني السند + قيده المتوازن من الطلب (مشترك بين الإضافة والتعديل)
+function buildVoucherAndJE(db, body, existing) {
+  const {type,date,payee,notes,assetAccId,lines} = body;
   const accounts=db.chartOfAccounts||[];
-  const assetAcc=accounts.find(a=>a.id===assetAccId)||{id:assetAccId||'',code:assetAccId||'',name:'حساب نقدي'};
-  const total=lines.reduce((s,l)=>s+(parseFloat(l.amount)||0),0);
-
-  // Resolve each distribution line against COA
-  const resolvedLines=lines.map(l=>{
-    const acc=accounts.find(a=>a.id===l.accountId)||{id:l.accountId,code:l.accountId,name:l.accountId};
+  const assetAcc=accounts.find(a=>String(a.id)===String(assetAccId)||String(a.code)===String(assetAccId))||{id:assetAccId||'',code:assetAccId||'',name:'حساب نقدي'};
+  const resolvedLines=(lines||[]).filter(l=>(parseFloat(l.amount)||0)>0).map(l=>{
+    const acc=accounts.find(a=>String(a.id)===String(l.accountId)||String(a.code)===String(l.accountId))||{id:l.accountId,code:l.accountId,name:l.accountId};
     return {accountId:acc.id,accountCode:acc.code,accountName:acc.name,amount:parseFloat(l.amount)||0,desc:l.desc||''};
   });
-
-  const number=nextVoucherNo(db,type);
+  const total=r3(resolvedLines.reduce((s,l)=>s+l.amount,0));
+  const number = existing?.number || nextVoucherNo(db,type);
   const voucher={
-    id:'VCH-'+Date.now(), number, type, date, amount:total,
+    id: existing?.id || 'VCH-'+Date.now(), number, type, date, amount:total,
     payee:payee||'', notes:notes||'',
     assetAccId:assetAcc.id, assetAccName:assetAcc.name,
     lines:resolvedLines,
-    createdAt:new Date().toISOString()
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: existing ? new Date().toISOString() : undefined
   };
-  if(!db.vouchers) db.vouchers=[];
-  db.vouchers.push(voucher);
-
-  // Build balanced journal entry
-  if(!db.journalEntries) db.journalEntries=[];
   const jeLines=[];
   if(type==='receipt'){
-    // DEBIT: asset account (full total)
     jeLines.push({accountId:assetAcc.id,accountCode:assetAcc.code,accountName:assetAcc.name,debit:total,credit:0});
-    // CREDIT: each distribution line
     resolvedLines.forEach(l=>jeLines.push({accountId:l.accountId,accountCode:l.accountCode,accountName:l.accountName,debit:0,credit:l.amount}));
   } else {
-    // DEBIT: each distribution line
     resolvedLines.forEach(l=>jeLines.push({accountId:l.accountId,accountCode:l.accountCode,accountName:l.accountName,debit:l.amount,credit:0}));
-    // CREDIT: asset account (full total)
     jeLines.push({accountId:assetAcc.id,accountCode:assetAcc.code,accountName:assetAcc.name,debit:0,credit:total});
   }
+  const lineNote = resolvedLines.map(l=>l.desc).filter(Boolean).join('، ');
+  const jeDesc=(type==='receipt'?`سند قبض ${number}`:`سند صرف ${number}`)+(payee?` — ${payee}`:'')+(lineNote?` — ${lineNote}`:'');
+  const je={ id:'JE-'+number, date, desc:jeDesc, description:jeDesc,
+    ref:number, reference:number, type, totalDebit:total, totalCredit:total,
+    createdAt:new Date().toISOString(), lines:jeLines };
+  return { voucher, je };
+}
 
-  const jeDesc=type==='receipt'?`سند قبض ${number} — ${payee||''}`:`سند صرف ${number} — ${payee||''}`;
-  db.journalEntries.push({
-    id:'JE-'+number, date, desc:jeDesc,
-    ref:number, type, totalDebit:total, totalCredit:total,
-    createdAt:new Date().toISOString(),
-    lines:jeLines
-  });
+app.post('/api/vouchers', (req,res)=>{
+  const db=loadDB();
+  const {type,date,lines} = req.body;
+  if(!type||!date) return res.status(400).json({error:'missing fields'});
+  if(!lines||!lines.length) return res.status(400).json({error:'no lines provided'});
+  const { voucher, je } = buildVoucherAndJE(db, req.body);
+  if(!db.vouchers) db.vouchers=[];
+  if(!db.journalEntries) db.journalEntries=[];
+  db.vouchers.push(voucher);
+  db.journalEntries.push(je);
+  saveDB(db);
+  res.json({success:true,voucher});
+});
 
+// تعديل سند — يحذف قيده القديم ويعيد إنشاءه (مربوط بالقيود)
+app.put('/api/vouchers/:id', (req,res)=>{
+  const db=loadDB();
+  const idx=(db.vouchers||[]).findIndex(v=>String(v.id)===String(req.params.id));
+  if(idx<0) return res.status(404).json({error:'not found'});
+  const old=db.vouchers[idx];
+  if(!req.body.lines||!req.body.lines.length) return res.status(400).json({error:'no lines provided'});
+  // احذف قيد السند القديم (بالمعرّف أو بالمرجع)
+  db.journalEntries=(db.journalEntries||[]).filter(j=>j.id!=='JE-'+old.number && j.ref!==old.number);
+  const { voucher, je } = buildVoucherAndJE(db, { ...req.body, type: req.body.type||old.type }, old);
+  db.vouchers[idx]=voucher;
+  db.journalEntries.push(je);
   saveDB(db);
   res.json({success:true,voucher});
 });
 
 app.delete('/api/vouchers/:id', (req,res)=>{
   const db=loadDB();
-  db.vouchers=(db.vouchers||[]).filter(v=>String(v.id)!==String(req.params.id));
+  const v=(db.vouchers||[]).find(x=>String(x.id)===String(req.params.id));
+  db.vouchers=(db.vouchers||[]).filter(x=>String(x.id)!==String(req.params.id));
+  // احذف قيد السند المرتبط أيضاً (كان يبقى معلّقاً في القيود)
+  if(v) db.journalEntries=(db.journalEntries||[]).filter(j=>j.id!=='JE-'+v.number && j.ref!==v.number);
   saveDB(db);
   res.json({success:true});
 });
@@ -6686,62 +6700,132 @@ app.get('/api/payroll', (req,res)=>{
   res.json(p.sort((a,b)=>b.month.localeCompare(a.month)));
 });
 
+// ── Payroll helpers — كل شيء مربوط بالقيود (استحقاق + دفع + استرداد إذن عمل) ──
+const r3 = n => parseFloat((Number(n)||0).toFixed(3));
+
+function buildPayrollRecord(body, existing) {
+  const entries = (body.entries||[]).map(e => ({
+    name: e.name||'', role: e.role||'', accountCode: e.accountCode || '',
+    basicSalary: parseFloat(e.basicSalary)||0,
+    allowances:  parseFloat(e.allowances)||0,
+    deductions:  parseFloat(e.deductions)||0,
+    recovery:    parseFloat(e.recovery)||0, // استرداد الموظف (راتب إذن العمل)
+    netSalary:   (parseFloat(e.basicSalary)||0)+(parseFloat(e.allowances)||0)-(parseFloat(e.deductions)||0)
+  }));
+  const totalGross      = r3(entries.reduce((s,e)=>s+e.basicSalary+e.allowances,0));
+  const totalDeductions = r3(entries.reduce((s,e)=>s+e.deductions,0));
+  const totalRecovery   = r3(entries.reduce((s,e)=>s+e.recovery,0));
+  return { ...(existing||{}), month: body.month, entries,
+    totalGross, totalDeductions, totalRecovery, totalNet: r3(totalGross-totalDeductions) };
+}
+
+// مصروف كل موظف على حسابه المختار (أو طبي/إداري حسب الدور إن لم يُختر)
+function payrollExpenseAccFor(accounts, pa, e, findAcc) {
+  let acc = e.accountCode ? findAcc(e.accountCode) : null;
+  if (!acc) acc = /طبيب|دكتور|طبي/.test(String(e.role||'')) ? pa.expMedical : pa.expAdmin;
+  return acc;
+}
+
+function buildPayrollAccrual(db, rec) {
+  const accounts = db.chartOfAccounts||[];
+  const { payrollAccounts } = require('./lib/coaCodes');
+  const pa = payrollAccounts(accounts);
+  db.chartOfAccounts = accounts;
+  const findAcc = c => accounts.find(a => String(a.code)===String(c) || String(a.id)===String(c));
+  const byAcc = {};
+  (rec.entries||[]).forEach(e => {
+    const gross = (e.basicSalary||0)+(e.allowances||0);
+    if (gross<=0) return;
+    const acc = payrollExpenseAccFor(accounts, pa, e, findAcc);
+    byAcc[acc.code] = byAcc[acc.code] || { acc, amount:0 };
+    byAcc[acc.code].amount += gross;
+  });
+  const lines = Object.values(byAcc).map(x => ({accountId:x.acc.id,accountCode:x.acc.code,accountName:x.acc.name,debit:r3(x.amount),credit:0}));
+  lines.push({accountId:pa.payable.id,accountCode:pa.payable.code,accountName:pa.payable.name,debit:0,credit:rec.totalNet});
+  if(rec.totalDeductions>0) lines.push({accountId:pa.deductions.id,accountCode:pa.deductions.code,accountName:pa.deductions.name,debit:0,credit:rec.totalDeductions});
+  return { id:rec.accrualJeId, date:`${rec.month}-01`,
+    desc:`استحقاق رواتب شهر ${rec.month}`, description:`استحقاق رواتب شهر ${rec.month}`,
+    ref:'PAY-ACC-'+rec.month, reference:'PAY-ACC-'+rec.month, type:'payroll',
+    totalDebit:rec.totalGross, totalCredit:rec.totalGross, createdAt:new Date().toISOString(), lines };
+}
+
+function buildPayrollPayment(db, rec) {
+  const accs = db.chartOfAccounts||[];
+  const { payrollAccounts } = require('./lib/coaCodes');
+  const pa = payrollAccounts(accs);
+  db.chartOfAccounts = accs;
+  const findAcc = c => accs.find(a => String(a.id)===String(c)||String(a.code)===String(c));
+  let payAcc = rec.payAccount ? findAcc(rec.payAccount) : null;
+  if(!payAcc){ const credit = payMethodToAccount(rec.payMethod||'cash'); payAcc = accs.find(a=>a.code===credit.code)||{id:credit.code,code:credit.code,name:credit.name}; }
+  const net = rec.totalNet || rec.totalGross || 0;
+  const jes = [{ id:rec.paymentJeId, date:rec.paidDate,
+    desc:`دفع رواتب شهر ${rec.month}`, description:`دفع رواتب شهر ${rec.month}`,
+    ref:'PAY-PMT-'+rec.month, reference:'PAY-PMT-'+rec.month, type:'payroll_payment',
+    totalDebit:net, totalCredit:net, createdAt:new Date().toISOString(),
+    lines:[ {accountId:pa.payable.id,accountCode:pa.payable.code,accountName:pa.payable.name,debit:net,credit:0},
+            {accountId:payAcc.id,accountCode:payAcc.code,accountName:payAcc.name,debit:0,credit:net} ] }];
+  // استرداد الموظفين (راتب إذن العمل): نقد وارد يخفّض مصروف الرواتب → صافي التكلفة الحقيقية
+  const recovByAcc = {};
+  (rec.entries||[]).forEach(e => {
+    const rv = e.recovery||0; if(rv<=0) return;
+    const acc = payrollExpenseAccFor(accs, pa, e, findAcc);
+    recovByAcc[acc.code] = recovByAcc[acc.code] || { acc, amount:0 };
+    recovByAcc[acc.code].amount += rv;
+  });
+  const totalRecovery = r3(Object.values(recovByAcc).reduce((s,x)=>s+x.amount,0));
+  if(totalRecovery>0){
+    const rlines=[{accountId:payAcc.id,accountCode:payAcc.code,accountName:payAcc.name,debit:totalRecovery,credit:0}];
+    Object.values(recovByAcc).forEach(x=>rlines.push({accountId:x.acc.id,accountCode:x.acc.code,accountName:x.acc.name,debit:0,credit:r3(x.amount)}));
+    jes.push({ id:rec.recoveryJeId, date:rec.paidDate,
+      desc:`استرداد رواتب (إذن عمل) شهر ${rec.month}`, description:`استرداد رواتب شهر ${rec.month}`,
+      ref:'PAY-REC-'+rec.month, reference:'PAY-REC-'+rec.month, type:'payroll_recovery',
+      totalDebit:totalRecovery, totalCredit:totalRecovery, createdAt:new Date().toISOString(), lines:rlines });
+  }
+  return jes;
+}
+
+function removePayrollJEs(db, rec) {
+  const ids = [rec.accrualJeId, rec.paymentJeId, rec.recoveryJeId].filter(Boolean);
+  const refs = ['PAY-ACC-'+rec.month,'PAY-PMT-'+rec.month,'PAY-REC-'+rec.month];
+  db.journalEntries = (db.journalEntries||[]).filter(j =>
+    !ids.includes(j.id) && !(['payroll','payroll_payment','payroll_recovery'].includes(j.type) && refs.includes(j.ref)));
+}
+
 app.post('/api/payroll', (req,res)=>{
   const db=loadDB();
-  const {month, entries} = req.body; // entries: [{name,role,basicSalary,allowances,deductions,notes}]
+  const {month, entries} = req.body;
   if(!month||!entries||!entries.length) return res.status(400).json({error:'missing fields'});
-
-  const totalGross=entries.reduce((s,e)=>s+(parseFloat(e.basicSalary)||0)+(parseFloat(e.allowances)||0),0);
-  const totalDeductions=entries.reduce((s,e)=>s+(parseFloat(e.deductions)||0),0);
-  const totalNet=totalGross-totalDeductions;
-
-  const record={
-    id:'PAY-'+Date.now(), month, entries:entries.map(e=>({
-      ...e,
-      basicSalary:parseFloat(e.basicSalary)||0,
-      allowances:parseFloat(e.allowances)||0,
-      deductions:parseFloat(e.deductions)||0,
-      netSalary:(parseFloat(e.basicSalary)||0)+(parseFloat(e.allowances)||0)-(parseFloat(e.deductions)||0)
-    })),
-    totalGross, totalDeductions, totalNet,
-    status:'pending', createdAt:new Date().toISOString()
-  };
-
+  const rec = buildPayrollRecord(req.body);
+  rec.id='PAY-'+Date.now(); rec.status='pending'; rec.createdAt=new Date().toISOString();
+  rec.accrualJeId='JE-PAY-'+Date.now();
   if(!db.payroll) db.payroll=[];
-  db.payroll.push(record);
-
-  // Auto journal entry for payroll — IFRS (IAS 19 التزامات الموظفين):
-  // الاستحقاق: مدين مصروف رواتب (إجمالي) / دائن رواتب مستحقة 2200 (صافي)
-  //            / دائن استقطاعات رواتب 2210 (إن وُجدت خصومات)
-  // ملاحظة: 2100 = ذمم الموردين و5200 = تكلفة المواد — كانا مستخدمَين خطأً هنا
-  // وكانا يخربان الميزانية العمومية وقائمة الدخل معاً.
-  const payDate=`${month}-01`;
-  const accounts=db.chartOfAccounts||[];
-  const { payrollAccounts } = require('./lib/coaCodes');
-  const pa = payrollAccounts(accounts); // يضيف 2200/2210/5120 تلقائياً إن كانت ناقصة
-  db.chartOfAccounts = accounts;
-  // مصروف طبي/إداري حسب دور الموظف الغالب في الكشف
-  const medical = entries.filter(e=>/طبيب|دكتور|طبي/.test(String(e.role||''))).reduce((s,e)=>s+(parseFloat(e.basicSalary)||0)+(parseFloat(e.allowances)||0),0);
-  const admin   = totalGross - medical;
   if(!db.journalEntries) db.journalEntries=[];
-  const accrualJeId='JE-PAY-'+Date.now();
-  record.accrualJeId=accrualJeId; // ربط القيد بالكشف ليُحذفا معاً
-  const lines=[];
-  if(medical>0) lines.push({accountId:pa.expMedical.id,accountCode:pa.expMedical.code,accountName:pa.expMedical.name,debit:medical,credit:0});
-  if(admin>0)   lines.push({accountId:pa.expAdmin.id,  accountCode:pa.expAdmin.code,  accountName:pa.expAdmin.name,  debit:admin,  credit:0});
-  lines.push({accountId:pa.payable.id,accountCode:pa.payable.code,accountName:pa.payable.name,debit:0,credit:totalNet});
-  if(totalDeductions>0) lines.push({accountId:pa.deductions.id,accountCode:pa.deductions.code,accountName:pa.deductions.name,debit:0,credit:totalDeductions});
-  db.journalEntries.push({
-    id:accrualJeId, date:payDate,
-    desc:`استحقاق رواتب شهر ${month}`,
-    ref:'PAY-ACC-'+month, type:'payroll',
-    totalDebit:totalGross, totalCredit:totalGross,
-    createdAt:new Date().toISOString(),
-    lines
-  });
-
+  db.payroll.push(rec);
+  db.journalEntries.push(buildPayrollAccrual(db, rec));
   saveDB(db);
-  res.json({success:true,record});
+  res.json({success:true,record:rec});
+});
+
+// تعديل كشف رواتب — يحذف قيوده القديمة ويعيد إنشاءها (استحقاق + دفع إن كان مدفوعاً)
+app.put('/api/payroll/:id', (req,res)=>{
+  const db=loadDB();
+  const idx=(db.payroll||[]).findIndex(p=>String(p.id)===String(req.params.id));
+  if(idx<0) return res.status(404).json({error:'not found'});
+  const old=db.payroll[idx];
+  if(!req.body.month||!req.body.entries||!req.body.entries.length) return res.status(400).json({error:'missing fields'});
+  removePayrollJEs(db, old);
+  const rec=buildPayrollRecord(req.body,{ id:old.id, createdAt:old.createdAt, status:old.status, payAccount:old.payAccount, paidDate:old.paidDate, payMethod:old.payMethod });
+  rec.accrualJeId='JE-PAY-'+Date.now();
+  if(!db.journalEntries) db.journalEntries=[];
+  db.journalEntries.push(buildPayrollAccrual(db, rec));
+  if(rec.status==='paid'){
+    rec.paymentJeId='JE-PAY-PMT-'+Date.now();
+    rec.recoveryJeId='JE-PAY-REC-'+Date.now();
+    buildPayrollPayment(db, rec).forEach(je=>db.journalEntries.push(je));
+  }
+  db.payroll[idx]=rec;
+  saveDB(db);
+  res.json({success:true,record:rec});
 });
 
 app.put('/api/payroll/:id/status', (req,res)=>{
@@ -6751,43 +6835,15 @@ app.put('/api/payroll/:id/status', (req,res)=>{
   const prevStatus = rec.status;
   rec.status   = req.body.status   || 'paid';
   rec.paidDate = req.body.paidDate || new Date().toISOString().slice(0,10);
-
-  // When marking as paid: clear Salary Payable 2200 → chosen cash/bank account
+  if(req.body.payAccount) rec.payAccount = String(req.body.payAccount);
+  if(req.body.payMethod)  rec.payMethod  = req.body.payMethod;
+  // عند وضع «مدفوع»: قيد الدفع (رواتب مستحقة → نقد) + قيد استرداد إذن العمل إن وُجد
   if(rec.status==='paid' && prevStatus!=='paid'){
-    const accs = db.chartOfAccounts||[];
-    const { payrollAccounts } = require('./lib/coaCodes');
-    const salaryPayAcc = payrollAccounts(accs).payable;
-    db.chartOfAccounts = accs;
-    // الحساب الدائن: إما حساب محدد من الشجرة (payAccount) أو طريقة صرف قديمة (payMethod)
-    let payAcc;
-    if (req.body.payAccount) {
-      const key = String(req.body.payAccount);
-      payAcc = accs.find(a => String(a.id) === key || String(a.code) === key);
-      rec.payAccount = key;
-      rec.payMethod  = payAcc ? payAcc.name : (rec.payMethod || '');
-    }
-    if (!payAcc) {
-      rec.payMethod = req.body.payMethod || rec.payMethod || 'cash';
-      const credit = payMethodToAccount(rec.payMethod);
-      payAcc = accs.find(a=>a.code===credit.code)||{id:credit.code,code:credit.code,name:credit.name};
-    }
-    const net = rec.totalNet || rec.totalGross || 0;
     if(!db.journalEntries) db.journalEntries=[];
-    const paymentJeId='JE-PAY-PMT-'+Date.now();
-    rec.paymentJeId=paymentJeId; // ربط قيد الدفع بالكشف
-    db.journalEntries.push({
-      id:paymentJeId, date:rec.paidDate,
-      desc:`دفع رواتب شهر ${rec.month} (${rec.payMethod})`, description:`دفع رواتب شهر ${rec.month}`,
-      ref:'PAY-PMT-'+rec.month, reference:'PAY-PMT-'+rec.month, type:'payroll_payment',
-      totalDebit:net, totalCredit:net,
-      createdAt:new Date().toISOString(),
-      lines:[
-        {accountId:salaryPayAcc.id,accountCode:salaryPayAcc.code,accountName:salaryPayAcc.name,debit:net,credit:0},
-        {accountId:payAcc.id,      accountCode:payAcc.code,accountName:payAcc.name,     debit:0,credit:net}
-      ]
-    });
+    rec.paymentJeId='JE-PAY-PMT-'+Date.now();
+    rec.recoveryJeId='JE-PAY-REC-'+Date.now();
+    buildPayrollPayment(db, rec).forEach(je=>db.journalEntries.push(je));
   }
-
   saveDB(db);
   res.json({success:true,rec});
 });
@@ -6795,13 +6851,7 @@ app.put('/api/payroll/:id/status', (req,res)=>{
 app.delete('/api/payroll/:id', (req,res)=>{
   const db=loadDB();
   const rec=(db.payroll||[]).find(p=>String(p.id)===String(req.params.id));
-  // احذف القيود المرتبطة (الاستحقاق + الدفع) — بالمعرّف أو بالمرجع للكشوف القديمة
-  if(rec){
-    const ids=[rec.accrualJeId, rec.paymentJeId].filter(Boolean);
-    const refs=['PAY-ACC-'+rec.month,'PAY-PMT-'+rec.month];
-    db.journalEntries=(db.journalEntries||[]).filter(j=>
-      !ids.includes(j.id) && !(['payroll','payroll_payment'].includes(j.type) && refs.includes(j.ref)));
-  }
+  if(rec) removePayrollJEs(db, rec); // احذف قيوده (استحقاق + دفع + استرداد)
   db.payroll=(db.payroll||[]).filter(p=>String(p.id)!==String(req.params.id));
   saveDB(db);
   res.json({success:true});
@@ -8225,43 +8275,6 @@ function calcEosForEmployee(emp) {
   return { monthly, accumulated, years: parseFloat(years.toFixed(2)) };
 }
 
-app.post('/api/payroll/pifss-run', requireAuth, (req, res) => {
-  const { month } = req.body;
-  if (!month) return res.status(400).json({ error: 'month مطلوب (YYYY-MM)' });
-  const db   = loadDB();
-  const ref  = `PIFSS-${month}`;
-  if ((db.journalEntries || []).some(j => j.ref === ref))
-    return res.status(409).json({ error: `تم احتساب PIFSS لشهر ${month} مسبقاً` });
-
-  const details = [];
-  let total = 0;
-  (db.employees || []).forEach(emp => {
-    const p = calcPifssForEmployee(emp);
-    if (!p.isKuwaiti || p.total === 0) return;
-    details.push({ name: emp.name || emp.id, ...p });
-    total += p.employerShare;
-  });
-  if (!details.length) return res.json({ success: true, message: 'لا يوجد موظفون كويتيون', details: [] });
-
-  total = parseFloat(total.toFixed(3));
-  const accs    = db.chartOfAccounts || [];
-  const e5250   = accs.find(a => a.code === '5250') || { id:'5250', code:'5250', name:'مصاريف PIFSS' };
-  const e2200   = accs.find(a => a.code === '2200') || { id:'2200', code:'2200', name:'PIFSS مستحق' };
-  const je = {
-    id: 'JE-PIFSS-' + Date.now(), date: month + '-01', desc: `PIFSS شهر ${month}`,
-    ref, type: 'pifss', totalDebit: total, totalCredit: total,
-    createdAt: new Date().toISOString(),
-    lines: [
-      { accountId: e5250.id, accountCode: '5250', accountName: e5250.name, debit: total, credit: 0 },
-      { accountId: e2200.id, accountCode: '2200', accountName: e2200.name, debit: 0, credit: total },
-    ],
-  };
-  if (!db.journalEntries) db.journalEntries = [];
-  db.journalEntries.push(je);
-  saveDB(db);
-  res.json({ success: true, month, details, totalEmployerShare: total, journalEntry: je });
-});
-
 app.post('/api/payroll/eos-run', requireAuth, (req, res) => {
   const { month } = req.body;
   if (!month) return res.status(400).json({ error: 'month مطلوب' });
@@ -8297,29 +8310,6 @@ app.post('/api/payroll/eos-run', requireAuth, (req, res) => {
   db.journalEntries.push(je);
   saveDB(db);
   res.json({ success: true, month, details, totalMonthly: total, journalEntry: je });
-});
-
-app.post('/api/payroll/pifss-pay', requireAuth, (req, res) => {
-  const { month, payDate, amount } = req.body;
-  if (!month || !amount) return res.status(400).json({ error: 'month + amount مطلوبان' });
-  const db  = loadDB();
-  const amt = parseFloat(amount);
-  const accs = db.chartOfAccounts || [];
-  const e2200 = accs.find(a => a.code === '2200') || { id:'2200', code:'2200', name:'PIFSS مستحق' };
-  const e1110 = accs.find(a => a.code === '1110') || { id:'1110', code:'1110', name:'البنك' };
-  const je = {
-    id: 'JE-PIFSS-PAY-' + Date.now(), date: payDate || new Date().toISOString().slice(0, 10),
-    desc: `دفع PIFSS شهر ${month}`, ref: `PIFSS-PAY-${month}`, type: 'pifss_payment',
-    totalDebit: amt, totalCredit: amt, createdAt: new Date().toISOString(),
-    lines: [
-      { accountId: e2200.id, accountCode: '2200', accountName: e2200.name, debit: amt, credit: 0 },
-      { accountId: e1110.id, accountCode: '1110', accountName: e1110.name, debit: 0, credit: amt },
-    ],
-  };
-  if (!db.journalEntries) db.journalEntries = [];
-  db.journalEntries.push(je);
-  saveDB(db);
-  res.json({ success: true, journalEntry: je });
 });
 
 app.put('/api/employees/:id/hr', requireAuth, (req, res) => {

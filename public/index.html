@@ -2749,20 +2749,8 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       </div>
     </div>
 
-    <!-- PIFSS + EOS Panel -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-      <!-- PIFSS Card -->
-      <div class="tw" style="margin-bottom:0;padding:14px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--accent)">🏛️ PIFSS — التأمينات الاجتماعية</div>
-        <div style="font-size:12px;color:var(--text3);margin-bottom:10px">صاحب العمل 11.5% + الموظف 11% (كويتيون فقط)</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input type="month" id="pifssMonth" class="fi" aria-label="شهر احتساب PIFSS" style="flex:1;min-width:120px" value="">
-          <button class="btn bp bsm" onclick="runPifss()">احتساب PIFSS</button>
-          <button class="btn bw bsm" onclick="openPifssPayModal()">دفع PIFSS</button>
-        </div>
-        <div id="pifssResult" style="margin-top:8px;font-size:12px;display:none"></div>
-      </div>
-      <!-- EOS Card -->
+    <!-- EOS Panel -->
+    <div style="margin-bottom:14px">
       <div class="tw" style="margin-bottom:0;padding:14px">
         <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--accent)">🤝 مكافأة نهاية الخدمة (EOS)</div>
         <div style="font-size:12px;color:var(--text3);margin-bottom:10px">15 يوم/سنة (أول 5 سنوات) ثم شهر/سنة — قانون العمل الكويتي</div>
@@ -10097,10 +10085,11 @@ async function loadVouchers() {
   document.getElementById('vcTotalP').textContent = totalP.fmt();
   document.getElementById('vcNet').textContent    = (totalR-totalP).fmt();
 
+  _voucherData = data;
   const tbody = document.getElementById('vcBody');
   if(!data.length){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">لا توجد سندات</td></tr>'; return; }
   tbody.innerHTML = data.map(v=>`
-    <tr>
+    <tr style="cursor:pointer" onclick="openVoucherDetail('${v.id}')" title="اضغط لعرض التفاصيل والتعديل">
       <td><span class="badge ${v.type==='receipt'?'bg':'br'}">${v.number}</span></td>
       <td><span class="badge ${v.type==='receipt'?'bg':'br'}">${v.type==='receipt'?'قبض':'صرف'}</span></td>
       <td>${v.date}</td>
@@ -10108,14 +10097,54 @@ async function loadVouchers() {
       <td>${v.assetAccName||(v.type==='receipt'?(v.debitAccName||'—'):(v.creditAccName||'—'))}</td>
       <td style="font-size:11px;color:var(--text3)">${v.lines?v.lines.length+' بنود':(v.category||'—')}</td>
       <td class="num ${v.type==='receipt'?'pos':'neg'}" style="font-weight:700">${(v.amount||0).fmt()}</td>
-      <td><button class="btn bd bsm" onclick="deleteVoucher('${v.id}')">حذف</button></td>
+      <td onclick="event.stopPropagation()" style="display:flex;gap:6px">
+        <button class="btn bw bsm" onclick="editVoucher('${v.id}')" title="تعديل">✏️</button>
+        <button class="btn bd bsm" onclick="deleteVoucher('${v.id}')" title="حذف السند وقيده">🗑</button>
+      </td>
     </tr>`).join('');
+}
+
+let _voucherData = [];
+function openVoucherDetail(id){
+  const v=_voucherData.find(x=>String(x.id)===String(id));
+  if(!v) return;
+  const isR=v.type==='receipt';
+  const rows=(v.lines||[]).map(l=>`<tr style="border-bottom:1px solid var(--border)">
+    <td>${l.accountCode?l.accountCode+' — ':''}${escHtml(l.accountName||'')}</td>
+    <td>${escHtml(l.desc||'—')}</td>
+    <td class="num" style="font-weight:600">${(l.amount||0).fmt()}</td></tr>`).join('');
+  document.getElementById('vcDetailTitle').textContent = `${isR?'سند قبض':'سند صرف'} — ${v.number}`;
+  document.getElementById('vcDetailBody').innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin-bottom:10px">
+      <span>التاريخ: <b>${v.date}</b></span>
+      <span>${isR?'المستلم من':'المدفوع إلى'}: <b>${escHtml(v.payee||'—')}</b></span>
+      <span>${isR?'وصل إلى':'مدفوع من'}: <b>${escHtml(v.assetAccName||'—')}</b></span>
+    </div>
+    <div style="max-height:44vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead style="position:sticky;top:0;background:var(--surface2)"><tr><th style="text-align:right">الحساب</th><th style="text-align:right">البيان</th><th>المبلغ</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    ${v.notes?`<div style="margin-top:8px;font-size:11px;color:var(--text3)">ملاحظات: ${escHtml(v.notes)}</div>`:''}
+    <div style="text-align:left;margin-top:10px;padding:10px 14px;background:var(--surface2);border-radius:10px;font-size:13px">الإجمالي: <b class="${isR?'pos':'neg'}">${(v.amount||0).fmt()} د.ك</b> · القيد: <b>JE-${v.number}</b></div>`;
+  document.getElementById('vcDetailActions').innerHTML = `
+    <button class="btn bw" onclick="closeModal('vcDetailModal');editVoucher('${v.id}')">✏️ تعديل</button>
+    <button class="btn bd" onclick="closeModal('vcDetailModal');deleteVoucher('${v.id}')">🗑 حذف</button>
+    <button class="btn" onclick="closeModal('vcDetailModal')">إغلاق</button>`;
+  document.getElementById('vcDetailModal').classList.add('open');
+}
+
+function editVoucher(id){
+  const v=_voucherData.find(x=>String(x.id)===String(id));
+  if(v) openVcModal(v.type, v);
 }
 
 let _vcLineCount = 0;
 let _vcAllAccounts = [];
 
-function openVcModal(type) {
+let _vcEditId = '';
+function openVcModal(type, voucher) {
+  _vcEditId = voucher?.id || '';
   const isReceipt = type === 'receipt';
   document.getElementById('vcModalType').value = type;
   _vcLineCount = 0;
@@ -10151,19 +10180,27 @@ function openVcModal(type) {
     document.getElementById('vcDistTitle').textContent   = 'توزيع المصاريف والمدفوعات';
   }
 
-  // Start with one empty line
+  // Lines + fields — من السند عند التعديل، وإلا سطر فارغ
   document.getElementById('vcLines').innerHTML = '';
-  addVcLine();
-
-  // Reset fields
-  document.getElementById('vcModalDate').value  = new Date().toISOString().slice(0, 10);
-  document.getElementById('vcModalPayee').value = '';
-  document.getElementById('vcModalNotes').value = '';
+  if (voucher) {
+    document.getElementById('vcModalTitle').textContent += ' — تعديل';
+    document.getElementById('vcModalAssetAcc').value = voucher.assetAccId || '';
+    document.getElementById('vcModalDate').value  = voucher.date || new Date().toISOString().slice(0,10);
+    document.getElementById('vcModalPayee').value = voucher.payee || '';
+    document.getElementById('vcModalNotes').value = voucher.notes || '';
+    (voucher.lines||[]).forEach(l => addVcLine(l.accountId, l.amount, l.desc));
+    if (!(voucher.lines||[]).length) addVcLine();
+  } else {
+    addVcLine();
+    document.getElementById('vcModalDate').value  = new Date().toISOString().slice(0, 10);
+    document.getElementById('vcModalPayee').value = '';
+    document.getElementById('vcModalNotes').value = '';
+  }
   calcVcTotal();
   document.getElementById('vcModal').classList.add('open');
 }
 
-function addVcLine() {
+function addVcLine(accId, amount, desc) {
   const id = ++_vcLineCount;
   const row = document.createElement('div');
   row.className = 'vc-line';
@@ -10171,12 +10208,12 @@ function addVcLine() {
   row.innerHTML = `
     <div>
       <select class="finp" id="vcLineAcc${id}" style="width:100%;box-sizing:border-box;">
-        ${coaOptionsHTML('all', '', '— اختر الحساب —')}
+        ${coaOptionsHTML('all', accId||'', '— اختر الحساب —')}
       </select>
     </div>
-    <input type="number" step="0.001" min="0" class="finp" id="vcLineAmt${id}"
+    <input type="number" step="0.001" min="0" class="finp" id="vcLineAmt${id}" value="${amount!=null?amount:''}"
            placeholder="0.000" oninput="calcVcTotal()" style="direction:ltr;text-align:left">
-    <input type="text" class="finp" id="vcLineDesc${id}" placeholder="البيان (اختياري)">
+    <input type="text" class="finp" id="vcLineDesc${id}" value="${(desc||'').replace(/"/g,'&quot;')}" placeholder="البيان (اختياري)">
     <button class="vc-line-del" type="button" onclick="removeVcLine(${id})" aria-label="حذف البند">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>`;
@@ -10224,8 +10261,10 @@ async function saveVoucher() {
   btn.disabled = true; btn.classList.add('btn-saving');
 
   try {
-    const r = await fetch('/api/vouchers', {
-      method: 'POST',
+    const url    = _vcEditId ? `/api/vouchers/${_vcEditId}` : '/api/vouchers';
+    const method = _vcEditId ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+      method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type, date, lines, assetAccId: assetId,
@@ -10236,8 +10275,9 @@ async function saveVoucher() {
     const d = await r.json();
     if (d.success) {
       document.getElementById('vcModal').classList.remove('open');
-      loadVouchers();
-      toast('تم حفظ السند بنجاح', 'success');
+      _vcEditId = '';
+      await loadAll(); loadVouchers();
+      toast(method==='PUT'?'تم تعديل السند وإعادة إنشاء قيده':'تم حفظ السند بنجاح', 'success');
     } else {
       toast(d.error || 'فشل في حفظ السند', 'error');
     }
@@ -10249,9 +10289,9 @@ async function saveVoucher() {
 }
 
 async function deleteVoucher(id) {
-  if(!confirm('حذف هذا السند؟')) return;
+  if(!confirm('حذف هذا السند؟ سيُحذف قيده المحاسبي أيضاً.')) return;
   await fetch(`/api/vouchers/${id}`,{method:'DELETE'});
-  loadVouchers();
+  await loadAll(); loadVouchers();
 }
 
 // ══════════════════════════════════════════════════════
@@ -10403,25 +10443,27 @@ async function deleteClaim(id) {
 // PAYROLL
 // ══════════════════════════════════════════════════════
 async function endEmployee(id, name){
-  const kind = await pickResignType();
-  if(!kind) return;
-  const endDate = new Date().toISOString().slice(0,10);
-  await fetch('/api/employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status:kind,endDate})});
+  const r = await pickResignType();
+  if(!r) return;
+  await fetch('/api/employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status:r.kind,endDate:r.date})});
   await loadAll(); loadEmployees();
-  showToast(`✅ نُقل «${name}» إلى الأرشيف (${kind==='terminated'?'مفصول':'مستقيل'})`,'success');
+  showToast(`✅ نُقل «${name}» إلى الأرشيف (${r.kind==='terminated'?'مفصول':'مستقيل'}) بتاريخ ${r.date}`,'success');
 }
 function pickResignType(){
   return new Promise(resolve=>{
+    const today=new Date().toISOString().slice(0,10);
     const ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center';
-    ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;min-width:260px">
-      <div style="font-weight:700;margin-bottom:14px">إنهاء خدمة الموظف</div>
+    ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;min-width:290px">
+      <div style="font-weight:700;margin-bottom:12px">إنهاء خدمة الموظف</div>
+      <label class="flbl">تاريخ الإنهاء</label>
+      <input type="date" id="_resignDate" class="finp" value="${today}" style="width:100%;margin-bottom:14px;box-sizing:border-box">
       <div style="display:flex;flex-direction:column;gap:8px">
         <button class="btn bs" data-k="resigned" style="width:100%">🚪 استقالة</button>
         <button class="btn bo" data-k="terminated" style="width:100%">⛔ فصل / تفنيش</button>
         <button class="btn" data-k="" style="width:100%;margin-top:6px">إلغاء</button>
       </div></div>`;
-    ov.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;document.body.removeChild(ov);resolve(b.dataset.k||null);});
+    ov.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const kind=b.dataset.k;const date=ov.querySelector('#_resignDate')?.value||today;document.body.removeChild(ov);resolve(kind?{kind,date}:null);});
     document.body.appendChild(ov);
   });
 }
@@ -10478,26 +10520,84 @@ async function loadEmployees() {
   return data;
 }
 
+let _payrollData = [];
 async function loadPayroll() {
   await loadEmployees();
   const data = await fetch('/api/payroll').then(r=>r.json()).catch(()=>[]);
+  _payrollData = data;
   const tbody = document.getElementById('payBody');
   if(!data.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">لا توجد كشوف رواتب</td></tr>'; return; }
   tbody.innerHTML = data.map(p=>{
     const stCls = p.status==='paid'?'bg':'by';
     const stTxt = p.status==='paid'?'مدفوع':'معلق';
-    const payBtn = p.status!=='paid'?`<button class="btn bs bsm" onclick="markPayrollPaid('${p.id}')">تأكيد الدفع</button>`:'';
-    const delBtn = `<button class="btn bd bsm" onclick="deletePayroll('${p.id}','${p.status}')" title="حذف الكشف وقيوده">🗑</button>`;
-    return `<tr>
+    const payBtn = p.status!=='paid'?`<button class="btn bs bsm" onclick="event.stopPropagation();markPayrollPaid('${p.id}')">تأكيد الدفع</button>`:'';
+    return `<tr style="cursor:pointer" onclick="openPayrollDetail('${p.id}')" title="اضغط لعرض التفاصيل والتعديل">
       <td>${p.month}</td>
       <td>${p.entries?.length||0}</td>
       <td class="num">${(p.totalGross||0).fmt()}</td>
       <td class="num neg">${(p.totalDeductions||0).fmt()}</td>
       <td class="num pos" style="font-weight:700">${(p.totalNet||0).fmt()}</td>
       <td><span class="badge ${stCls}">${stTxt}</span></td>
-      <td style="display:flex;gap:6px;align-items:center">${payBtn}${delBtn}</td>
+      <td style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
+        ${payBtn}
+        <button class="btn bw bsm" onclick="editPayroll('${p.id}')" title="تعديل الكشف">✏️</button>
+        <button class="btn bd bsm" onclick="deletePayroll('${p.id}','${p.status}')" title="حذف الكشف وقيوده">🗑</button>
+      </td>
     </tr>`;
   }).join('');
+}
+
+function editPayroll(id){
+  const rec=_payrollData.find(p=>String(p.id)===String(id));
+  if(rec) openPayrollModal(rec);
+}
+
+function openPayrollDetail(id){
+  const p=_payrollData.find(x=>String(x.id)===String(id));
+  if(!p) return;
+  const paid = p.status==='paid';
+  const rows=(p.entries||[]).map(e=>{
+    const gross=(e.basicSalary||0)+(e.allowances||0);
+    const net=gross-(e.deductions||0);
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td>${escHtml(e.name)}<div style="font-size:10px;color:var(--text3)">${escHtml(e.role||'')}</div></td>
+      <td class="num">${(e.basicSalary||0).fmt()}</td>
+      <td class="num">${(e.allowances||0).fmt()}</td>
+      <td class="num neg">${(e.deductions||0).fmt()}</td>
+      <td class="num">${(e.recovery||0)?(e.recovery).fmt():'—'}</td>
+      <td class="num pos" style="font-weight:600">${net.fmt()}</td>
+    </tr>`;
+  }).join('');
+  const jeInfo = [
+    p.accrualJeId?`<span>قيد الاستحقاق: <b>PAY-ACC-${p.month}</b></span>`:'',
+    p.paymentJeId?`<span>قيد الدفع: <b>PAY-PMT-${p.month}</b></span>`:'',
+    p.recoveryJeId?`<span>قيد الاسترداد: <b>PAY-REC-${p.month}</b></span>`:''
+  ].filter(Boolean).join(' · ');
+  document.getElementById('payDetailTitle').textContent = `كشف رواتب — ${p.month}`;
+  document.getElementById('payDetailBody').innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+      <span class="badge ${paid?'bg':'by'}">${paid?'مدفوع':'معلق'}</span>
+      ${paid&&p.paidDate?`<span style="font-size:11px;color:var(--text3)">تاريخ الصرف: ${p.paidDate}</span>`:''}
+      ${paid&&p.payMethod?`<span style="font-size:11px;color:var(--text3)">حساب الصرف: ${escHtml(p.payMethod)}</span>`:''}
+    </div>
+    <div style="max-height:46vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead style="position:sticky;top:0;background:var(--surface2)"><tr><th style="text-align:right">الموظف</th><th>الأساسي</th><th>بدلات</th><th>خصم</th><th>استرداد</th><th>الصافي</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px;padding:10px 14px;background:var(--surface2);border-radius:10px;font-size:12px">
+      <span>الإجمالي: <b>${(p.totalGross||0).fmt()}</b></span>
+      <span>الخصومات: <b style="color:var(--danger)">${(p.totalDeductions||0).fmt()}</b></span>
+      <span>الصافي: <b style="color:var(--accent2)">${(p.totalNet||0).fmt()}</b></span>
+      ${(p.totalRecovery||0)>0?`<span>استرداد إذن العمل: <b style="color:var(--accent)">${(p.totalRecovery).fmt()}</b></span><span>صافي التكلفة: <b>${((p.totalGross||0)-(p.totalRecovery||0)).fmt()}</b></span>`:''}
+    </div>
+    ${jeInfo?`<div style="margin-top:8px;font-size:11px;color:var(--text3);display:flex;gap:14px;flex-wrap:wrap">${jeInfo}</div>`:''}`;
+  document.getElementById('payDetailActions').innerHTML = `
+    ${!paid?`<button class="btn bs" onclick="closeModal('payDetailModal');markPayrollPaid('${p.id}')">💸 تأكيد الصرف</button>`:''}
+    <button class="btn bw" onclick="closeModal('payDetailModal');editPayroll('${p.id}')">✏️ تعديل</button>
+    <button class="btn bd" onclick="closeModal('payDetailModal');deletePayroll('${p.id}','${p.status}')">🗑 حذف</button>
+    <button class="btn" onclick="closeModal('payDetailModal')">إغلاق</button>`;
+  document.getElementById('payDetailModal').classList.add('open');
 }
 
 function openEmpModal(emp) {
@@ -10511,7 +10611,8 @@ function openEmpModal(emp) {
   document.getElementById('empHousing').value    = emp?.housing || '';
   document.getElementById('empTransport').value  = emp?.transport || '';
   document.getElementById('empAllowances').value = emp?.allowances || '';
-  document.getElementById('empPifssEmp').value   = emp?.pifssEmp ?? 11;
+  document.getElementById('empSalaryAcc').innerHTML = coaOptionsHTML('expense', emp?.salaryAccount||'', '— تلقائي حسب الوظيفة (طبي/إداري) —');
+  document.getElementById('empRecovery').value   = emp?.recovery || '';
   document.getElementById('eosPreview').style.display = 'none';
   modal.classList.add('open');
   calcEosPreview();
@@ -10558,7 +10659,8 @@ async function saveEmployee() {
     housing:     parseFloat(document.getElementById('empHousing').value) || 0,
     transport:   parseFloat(document.getElementById('empTransport').value) || 0,
     allowances:  parseFloat(document.getElementById('empAllowances').value) || 0,
-    pifssEmp:    parseFloat(document.getElementById('empPifssEmp').value) || 11,
+    salaryAccount: document.getElementById('empSalaryAcc').value || '',
+    recovery:      parseFloat(document.getElementById('empRecovery').value) || 0,
   };
   body.totalSalary = body.basicSalary + body.housing + body.transport + body.allowances;
 
@@ -10568,78 +10670,115 @@ async function saveEmployee() {
   showToast('تم حفظ بيانات الموظف', 'success');
 }
 
-async function openPayrollModal() {
+let _prAllEmps = [];
+let _prRows    = [];
+let _prEditId  = '';
+const _prIsArchived = e => ['resigned','terminated','left'].includes(e.status);
+
+async function openPayrollModal(editRec) {
   const emps = await fetch('/api/employees').then(r=>r.json()).catch(()=>[]);
-  if(!emps.length){ alert('يرجى إضافة موظفين أولاً'); return; }
+  _prAllEmps = emps;
+  const active = emps.filter(e=>!_prIsArchived(e));
+  if(!active.length && !editRec){ alert('يرجى إضافة موظفين أولاً'); return; }
 
+  _prEditId = editRec?.id || '';
+  document.getElementById('prModalTitle').textContent = editRec ? '✏️ تعديل كشف رواتب' : '👥 كشف راتب جديد';
   const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  document.getElementById('prMonth').value = month;
+  document.getElementById('prMonth').value = editRec?.month || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 
-  const rows = emps.map((e,i)=>`
-    <tr>
-      <td style="text-align:center"><input type="checkbox" id="prInc${i}" checked onchange="recalcPayroll()" title="صرف راتب هذا الموظف هذا الشهر" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer"></td>
-      <td>${e.name}</td><td>${e.role||'—'}</td>
-      <td><input type="number" step="0.001" class="finp" id="prSal${i}" value="${e.basicSalary||0}" style="width:90px" oninput="recalcPayroll()"></td>
-      <td><input type="number" step="0.001" class="finp" id="prAll${i}" value="${e.allowances||0}" style="width:80px" oninput="recalcPayroll()"></td>
-      <td><input type="number" step="0.001" class="finp" id="prDed${i}" value="0" style="width:80px" oninput="recalcPayroll()"></td>
-      <td class="num" id="prNet${i}" style="font-weight:600">0.000</td>
-      <input type="hidden" id="prName${i}" value="${e.name}">
-      <input type="hidden" id="prRole${i}" value="${e.role||''}">
-    </tr>`).join('');
-  document.getElementById('prTable').innerHTML = `
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">✔ أزل علامة الصح عن أي موظف لا تريد صرف راتبه هذا الشهر.</div>
-    <div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr><th style="width:44px">صرف؟</th><th>الموظف</th><th>الوظيفة</th><th>الأساسي</th><th>البدلات</th><th>الخصومات</th><th>الصافي</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
-        <td colspan="3">الإجمالي</td>
-        <td class="num" id="prTotGross">0.000</td>
-        <td></td>
-        <td class="num" id="prTotDed">0.000</td>
-        <td class="num" id="prTotNet" style="color:var(--accent2)">0.000</td>
-      </tr></tfoot>
-    </table>
-    </div>`;
-  document.getElementById('prCount').value = emps.length;
+  _prRows = [];
+  if (editRec) {
+    (editRec.entries||[]).forEach(en => _prRows.push({ name:en.name, role:en.role, accountCode:en.accountCode||'', basic:en.basicSalary||0, all:en.allowances||0, ded:en.deductions||0, rec:en.recovery||0 }));
+  } else {
+    active.forEach(e => _prRows.push({ name:e.name, role:e.role, accountCode:e.salaryAccount||'', basic:e.basicSalary||0, all:e.allowances||0, ded:0, rec:e.recovery||0 }));
+  }
+  renderPayrollRows();
+
+  // منتقي إضافة موظف من الأرشيف (نادر — للموظفين السابقين فقط)
+  const arch = emps.filter(_prIsArchived);
+  const sel = document.getElementById('prArchiveSel');
+  sel.innerHTML = '<option value="">— موظف من الأرشيف —</option>' + arch.map(e=>`<option value="${emps.indexOf(e)}">${escHtml(e.name)}${e.status==='terminated'?' (مفصول)':' (مستقيل)'}</option>`).join('');
+  document.getElementById('prArchiveWrap').style.display = arch.length ? '' : 'none';
+
   document.getElementById('payrollModal').classList.add('open');
+}
+
+function addPayrollFromArchive(){
+  const sel=document.getElementById('prArchiveSel'); const idx=parseInt(sel.value); if(isNaN(idx))return;
+  const e=_prAllEmps[idx]; if(!e)return;
+  if(_prRows.some(r=>r.name===e.name)){ showToast('الموظف مضاف بالفعل','warning'); return; }
+  _prRows.push({ name:e.name, role:e.role, accountCode:e.salaryAccount||'', basic:e.basicSalary||0, all:e.allowances||0, ded:0, rec:e.recovery||0 });
+  renderPayrollRows(); sel.value='';
+}
+function removePayrollRow(i){ _prRows.splice(i,1); renderPayrollRows(); }
+
+function renderPayrollRows(){
+  const ea = s => escHtml(String(s||'')).replace(/"/g,'&quot;');
+  const rows = _prRows.map((r,i)=>`
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="text-align:center"><input type="checkbox" id="prInc${i}" checked onchange="recalcPayroll()" title="صرف راتب هذا الموظف هذا الشهر" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer"></td>
+      <td><div style="font-weight:600">${escHtml(r.name)}</div><div style="font-size:10px;color:var(--text3)">${escHtml(r.role||'—')}</div>
+        <input type="hidden" id="prName${i}" value="${ea(r.name)}"><input type="hidden" id="prRole${i}" value="${ea(r.role)}"><input type="hidden" id="prAcc${i}" value="${ea(r.accountCode)}"></td>
+      <td><input type="number" step="0.001" class="finp" id="prSal${i}" value="${r.basic}" style="width:84px" oninput="recalcPayroll()"></td>
+      <td><input type="number" step="0.001" class="finp" id="prAll${i}" value="${r.all}" style="width:74px" oninput="recalcPayroll()"></td>
+      <td><input type="number" step="0.001" class="finp" id="prDed${i}" value="${r.ded}" style="width:74px" oninput="recalcPayroll()"></td>
+      <td><input type="number" step="0.001" class="finp" id="prRec${i}" value="${r.rec||0}" style="width:74px" oninput="recalcPayroll()" title="استرداد إذن العمل (يُخصم من التكلفة)"></td>
+      <td class="num" id="prNet${i}" style="font-weight:600">0.000</td>
+      <td><button class="btn bd bsm" onclick="removePayrollRow(${i})" title="إزالة من الكشف">✕</button></td>
+    </tr>`).join('');
+  document.getElementById('prCount').value = _prRows.length;
+  document.getElementById('prTable').innerHTML = `
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">✔ أزل علامة الصح عن أي موظف لا تريد صرف راتبه هذا الشهر · «استرداد» = راتب إذن العمل الذي يعيده الموظف.</div>
+    <div style="max-height:48vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead style="position:sticky;top:0;background:var(--surface2);z-index:1">
+        <tr><th style="width:38px">صرف</th><th style="text-align:right">الموظف</th><th>الأساسي</th><th>بدلات</th><th>خصم</th><th>استرداد</th><th>الصافي</th><th style="width:34px"></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px">لا يوجد موظفون — أضف من الأرشيف</td></tr>'}</tbody>
+    </table></div>
+    <div id="prTotalsBar" style="display:flex;gap:18px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px;padding:10px 14px;background:var(--surface2);border-radius:10px;font-size:12px"></div>`;
   recalcPayroll();
 }
 
-// حساب الإجماليات مباشرة أثناء الإدخال (#5 الإجمالي النهائي)
 function recalcPayroll(){
-  const count=parseInt(document.getElementById('prCount').value)||0;
-  let gross=0,ded=0,net=0;
+  const count=_prRows.length;
+  let gross=0,ded=0,net=0,rec=0,n=0;
   for(let i=0;i<count;i++){
     const inc=document.getElementById('prInc'+i);
     const included = !inc || inc.checked;
     const s=parseFloat(document.getElementById('prSal'+i)?.value)||0;
     const a=parseFloat(document.getElementById('prAll'+i)?.value)||0;
     const d=parseFloat(document.getElementById('prDed'+i)?.value)||0;
-    const n=s+a-d;
+    const rv=parseFloat(document.getElementById('prRec'+i)?.value)||0;
+    const net1=s+a-d;
     const nc=document.getElementById('prNet'+i);
-    if(nc){ nc.textContent = included ? n.toFixed(3) : '—'; const row=nc.closest('tr'); if(row) row.style.opacity = included ? '1' : '.4'; }
-    if(included){ gross+=s+a; ded+=d; net+=n; }
+    if(nc){ nc.textContent = included ? net1.toFixed(3) : '—'; const row=nc.closest('tr'); if(row) row.style.opacity = included ? '1' : '.4'; }
+    if(included){ gross+=s+a; ded+=d; net+=net1; rec+=rv; n++; }
   }
-  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v.toFixed(3);};
-  set('prTotGross',gross); set('prTotDed',ded); set('prTotNet',net);
+  const bar=document.getElementById('prTotalsBar');
+  if(bar) bar.innerHTML = `
+    <span>موظفون: <b>${n}</b></span>
+    <span>الإجمالي: <b>${gross.fmt()}</b></span>
+    <span>الخصومات: <b style="color:var(--danger)">${ded.fmt()}</b></span>
+    <span>صافي الدفع: <b style="color:var(--accent2)">${net.fmt()}</b></span>
+    ${rec>0?`<span>استرداد إذن العمل: <b style="color:var(--accent)">${rec.fmt()}</b></span><span>صافي التكلفة الفعلية: <b>${(gross-rec).fmt()}</b></span>`:''}`;
 }
 
 async function savePayroll() {
   const month = document.getElementById('prMonth').value;
-  const count = parseInt(document.getElementById('prCount').value)||0;
+  const count = _prRows.length;
   if(!month) return alert('يرجى تحديد الشهر');
   const entries = [];
   for(let i=0;i<count;i++){
     const inc=document.getElementById(`prInc${i}`);
-    if(inc && !inc.checked) continue; // موظف غير مشمول بالصرف هذا الشهر
+    if(inc && !inc.checked) continue;
     entries.push({
       name:        document.getElementById(`prName${i}`)?.value||'',
       role:        document.getElementById(`prRole${i}`)?.value||'',
+      accountCode: document.getElementById(`prAcc${i}`)?.value||'',
       basicSalary: parseFloat(document.getElementById(`prSal${i}`)?.value)||0,
       allowances:  parseFloat(document.getElementById(`prAll${i}`)?.value)||0,
       deductions:  parseFloat(document.getElementById(`prDed${i}`)?.value)||0,
+      recovery:    parseFloat(document.getElementById(`prRec${i}`)?.value)||0,
     });
   }
   if(!entries.length){ showToast('لم تختر أي موظف للصرف','error'); return; }
@@ -10648,12 +10787,15 @@ async function savePayroll() {
   const btn=document.getElementById('savePayrollBtn');
   if(btn){ btn.disabled=true; btn.textContent='⏳ جارٍ الحفظ...'; }
   try{
-    const r=await fetch('/api/payroll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({month,entries})});
+    const url    = _prEditId ? `/api/payroll/${_prEditId}` : '/api/payroll';
+    const method = _prEditId ? 'PUT' : 'POST';
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({month,entries})});
     const d=await r.json();
     if(d.success){
       document.getElementById('payrollModal').classList.remove('open');
+      _prEditId='';
       await loadAll(); loadPayroll();
-      showToast(`✅ حُفظ كشف الرواتب — الإجمالي ${totalNet.toFixed(3)} د.ك وأُنشئ القيد`,'success');
+      showToast(method==='PUT'?'✅ حُدّث كشف الرواتب وأُعيد إنشاء قيوده':`✅ حُفظ كشف الرواتب — الصافي ${totalNet.toFixed(3)} د.ك وأُنشئ القيد`,'success');
     } else { showToast('❌ '+(d.error||'فشل الحفظ'),'error'); }
   }catch(e){ showToast('❌ خطأ في الاتصال','error'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent='💾 حفظ الكشف وإنشاء قيد'; } }
@@ -12783,7 +12925,11 @@ showTab = function(id, el) {
     </div>
     <div class="fr2">
       <div class="fr" style="margin:0"><label class="flbl">بدلات أخرى (د.ك)</label><input type="number" step="0.001" class="finp" id="empAllowances" placeholder="0.000"></div>
-      <div class="fr" style="margin:0"><label class="flbl">PIFSS موظف %</label><input type="number" class="finp" id="empPifssEmp" placeholder="11" value="11" step="0.01"></div>
+      <div class="fr" style="margin:0"><label class="flbl">حساب الراتب (المصروف)</label><select class="finp" id="empSalaryAcc"></select></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">استرداد إذن العمل الشهري (د.ك)</label><input type="number" step="0.001" class="finp" id="empRecovery" placeholder="0.000" title="المبلغ الذي يعيده الموظف شهرياً في حالة راتب إذن العمل (يُخصم من تكلفة الرواتب)"></div>
+      <div class="fr" style="margin:0"></div>
     </div>
     <div id="eosPreview" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.15);border-radius:8px;font-size:11px;color:var(--text2);line-height:1.8;">
       <div style="font-weight:600;color:var(--accent);margin-bottom:4px;">مكافأة نهاية الخدمة (تقديرية):</div>
@@ -12798,11 +12944,17 @@ showTab = function(id, el) {
 
 <!-- ── PAYROLL MODAL ── -->
 <div id="payrollModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
-  <div class="mbox" style="width:600px;max-width:96vw">
-    <div class="mtit">👥 كشف راتب جديد</div>
-    <div class="fr"><label class="flbl">الشهر *</label><input type="month" class="finp" id="prMonth"></div>
+  <div class="mbox" style="width:760px;max-width:97vw">
+    <div class="mtit" id="prModalTitle">👥 كشف راتب جديد</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
+      <div class="fr" style="margin:0"><label class="flbl">الشهر *</label><input type="month" class="finp" id="prMonth"></div>
+      <div class="fr" id="prArchiveWrap" style="margin:0;display:none"><label class="flbl">إضافة موظف من الأرشيف</label>
+        <div style="display:flex;gap:6px"><select class="finp" id="prArchiveSel" style="min-width:170px"></select>
+          <button class="btn bw bsm" onclick="addPayrollFromArchive()">➕</button></div>
+      </div>
+    </div>
     <input type="hidden" id="prCount" value="0">
-    <div id="prTable" style="overflow-x:auto;margin:12px 0"></div>
+    <div id="prTable" style="margin:12px 0"></div>
     <div class="mact">
       <button class="btn bp" id="savePayrollBtn" onclick="savePayroll()">💾 حفظ الكشف وإنشاء قيد</button>
       <button class="btn bd" onclick="document.getElementById('payrollModal').classList.remove('open')">إلغاء</button>
@@ -12825,6 +12977,24 @@ showTab = function(id, el) {
       <button class="btn bs" style="flex:1" onclick="savePayrollPayment()">✅ تأكيد الصرف</button>
       <button class="btn bd" onclick="document.getElementById('payrollPayModal').classList.remove('open')">إلغاء</button>
     </div>
+  </div>
+</div>
+
+<!-- Payroll Detail Modal -->
+<div id="payDetailModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mbox" style="width:720px;max-width:97vw">
+    <div class="mtit" id="payDetailTitle">تفاصيل كشف الرواتب</div>
+    <div id="payDetailBody"></div>
+    <div class="mact" id="payDetailActions" style="flex-wrap:wrap"></div>
+  </div>
+</div>
+
+<!-- Voucher Detail Modal -->
+<div id="vcDetailModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mbox" style="width:640px;max-width:96vw">
+    <div class="mtit" id="vcDetailTitle">تفاصيل السند</div>
+    <div id="vcDetailBody"></div>
+    <div class="mact" id="vcDetailActions" style="flex-wrap:wrap"></div>
   </div>
 </div>
 
@@ -12925,7 +13095,6 @@ showTab = function(id, el) {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;font-size:12px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptDep" checked> الإهلاك التلقائي</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptPifss" checked> PIFSS التأمينات</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptEos" checked> نهاية الخدمة EOS</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptClose" checked> قيد الإقفال</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="closeOptLock" checked> قفل الفترة</label>
@@ -12955,21 +13124,6 @@ showTab = function(id, el) {
 </div>
 
 <!-- ═══ PIFSS PAY MODAL ═══ -->
-<div id="pifssPayModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
-  <div class="mc" style="max-width:380px;width:95%">
-    <div class="mtit">💸 دفع PIFSS</div>
-    <div style="padding:0 20px 20px;display:flex;flex-direction:column;gap:12px">
-      <div><label class="lbl">شهر PIFSS</label><input type="month" id="pifssPayMonth" class="fi" style="width:100%"></div>
-      <div><label class="lbl">تاريخ الدفع</label><input type="date" id="pifssPayDate" class="fi" style="width:100%"></div>
-      <div><label class="lbl">المبلغ (د.ك)</label><input type="number" id="pifssPayAmt" class="fi" style="width:100%" step="0.001" placeholder="0.000"></div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn bw" onclick="document.getElementById('pifssPayModal').classList.remove('open')">إلغاء</button>
-        <button class="btn bp" onclick="payPifss()">تسجيل الدفع</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- ═══ HR SUMMARY MODAL ═══ -->
 <div id="hrModal" class="modal" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="mc" style="max-width:700px;width:95%">
@@ -13081,26 +13235,6 @@ async function dismissAnomaly(jeId, code, btn) {
 // ══════════════════════════════════════════════════════════
 // PIFSS + EOS
 // ══════════════════════════════════════════════════════════
-async function runPifss() {
-  const month = document.getElementById('pifssMonth').value;
-  if (!month) return toast('اختر الشهر', 'warning');
-  const box = document.getElementById('pifssResult');
-  box.style.display = 'none';
-  try {
-    const d = await apiFetch('payroll/pifss-run', { method:'POST', body: JSON.stringify({ month }) });
-    if (d.success) {
-      const rows = (d.details||[]).map(e => `<div style="display:flex;justify-content:space-between"><span>${e.name}</span><span>${e.employerShare.toFixed(3)} د.ك</span></div>`).join('');
-      box.innerHTML = `<div style="background:rgba(16,185,129,.1);border-radius:8px;padding:10px">
-        <div style="font-weight:700;margin-bottom:6px">✅ تم احتساب PIFSS — إجمالي: ${(d.totalEmployerShare||0).toFixed(3)} د.ك</div>
-        ${rows || '<div style="color:var(--text3)">' + (d.message||'') + '</div>'}
-      </div>`;
-      box.style.display = 'block';
-      toast('✅ تم احتساب PIFSS وإنشاء القيد', 'success');
-      loadJournal?.();
-    } else { toast(d.error || 'فشل', 'error'); }
-  } catch(e) { toast(e.message, 'error'); }
-}
-
 async function runEos() {
   const month = document.getElementById('eosMonth').value;
   if (!month) return toast('اختر الشهر', 'warning');
@@ -13116,28 +13250,6 @@ async function runEos() {
       </div>`;
       box.style.display = 'block';
       toast('✅ تم احتساب نهاية الخدمة وإنشاء القيد', 'success');
-      loadJournal?.();
-    } else { toast(d.error || 'فشل', 'error'); }
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-function openPifssPayModal() {
-  const m = document.getElementById('pifssMonth').value || new Date().toISOString().slice(0,7);
-  document.getElementById('pifssPayMonth').value = m;
-  document.getElementById('pifssPayDate').value  = new Date().toISOString().slice(0,10);
-  document.getElementById('pifssPayModal').classList.add('open');
-}
-
-async function payPifss() {
-  const month   = document.getElementById('pifssPayMonth').value;
-  const payDate = document.getElementById('pifssPayDate').value;
-  const amount  = parseFloat(document.getElementById('pifssPayAmt').value);
-  if (!month || !amount) return toast('يرجى ملء جميع الحقول', 'warning');
-  try {
-    const d = await apiFetch('payroll/pifss-pay', { method:'POST', body: JSON.stringify({ month, payDate, amount }) });
-    if (d.success) {
-      toast('✅ تم تسجيل دفع PIFSS', 'success');
-      document.getElementById('pifssPayModal').classList.remove('open');
       loadJournal?.();
     } else { toast(d.error || 'فشل', 'error'); }
   } catch(e) { toast(e.message, 'error'); }
@@ -13193,7 +13305,7 @@ async function runMonthClose() {
   if (!month) return toast('اختر الشهر', 'warning');
   const options = {
     depreciation: document.getElementById('closeOptDep').checked,
-    pifss:        document.getElementById('closeOptPifss').checked,
+    pifss:        false,
     eos:          document.getElementById('closeOptEos').checked,
     closing:      document.getElementById('closeOptClose').checked,
     lock:         document.getElementById('closeOptLock').checked,
@@ -14103,9 +14215,7 @@ setTimeout(() => { restoreDashFilter(); restoreJournalFilter(); }, 800);
     if (id === 'payroll') {
       const now  = new Date();
       const yymm = now.toISOString().slice(0,7);
-      const el1  = document.getElementById('pifssMonth');
       const el2  = document.getElementById('eosMonth');
-      if (el1 && !el1.value) el1.value = yymm;
       if (el2 && !el2.value) el2.value = yymm;
     }
   };
