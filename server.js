@@ -5379,10 +5379,32 @@ app.put('/api/journal/:id', (req, res) => {
     updatedAt: new Date().toISOString()
   };
   db.journalEntries[idx] = updated;
+  // مزامنة السند المرتبط: إن كان هذا قيدَ سند (JE-<number>) فحدِّث السند نفسه
+  syncVoucherFromJE(db, updated);
   db.journalEntries.sort((a, b) => b.date.localeCompare(a.date));
   saveDB(db);
   res.json({ success: true });
 });
+
+// يبقي السند متطابقاً مع قيده عند تعديل القيد مباشرة من شاشة القيود
+function syncVoucherFromJE(db, je) {
+  const v = (db.vouchers || []).find(x => je.ref === x.number || je.id === 'JE-' + x.number);
+  if (!v) return;
+  const isR = v.type === 'receipt';
+  const dist = (je.lines || []).filter(l =>
+    String(l.accountId) !== String(v.assetAccId) && String(l.accountCode) !== String(v.assetAccId));
+  const lines = (dist.length ? dist : je.lines || []).map(l => ({
+    accountId: l.accountId, accountCode: l.accountCode, accountName: l.accountName,
+    amount: (isR ? (l.credit || l.debit) : (l.debit || l.credit)) || 0, desc: l.desc || ''
+  }));
+  v.date   = je.date || v.date;
+  v.lines  = lines;
+  v.amount = parseFloat((je.lines || []).reduce((s, l) => s + (l.debit || 0), 0).toFixed(3));
+  // الطرف النقدي قد يتغيّر أيضاً
+  const assetLine = (je.lines || []).find(l => isR ? (l.debit > 0) : (l.credit > 0));
+  if (assetLine) { v.assetAccId = assetLine.accountId; v.assetAccName = assetLine.accountName; }
+  v.updatedAt = new Date().toISOString();
+}
 
 app.delete('/api/journal/:id', (req, res) => {
   const db = loadDB();
@@ -5396,6 +5418,9 @@ app.delete('/api/journal/:id', (req, res) => {
   }
 
   db.journalEntries = db.journalEntries.filter(e => e.id !== req.params.id);
+  // إن كان قيد سند: احذف السند المرتبط أيضاً حتى لا يبقى معلّقاً
+  const v = (db.vouchers || []).find(x => entry.ref === x.number || entry.id === 'JE-' + x.number);
+  if (v) db.vouchers = db.vouchers.filter(x => x.id !== v.id);
   saveDB(db);
   res.json({ success: true });
 });

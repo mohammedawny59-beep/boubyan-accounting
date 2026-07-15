@@ -1848,6 +1848,7 @@ body { font-size: calc(14px * var(--fs-scale)); }
 /* Per-category accent colors */
 .cat-btn[data-cat="main"]        { --cat-accent: #3b82f6; }
 .cat-btn[data-cat="finance"]     { --cat-accent: #10b981; }
+.cat-btn[data-cat="hr"]          { --cat-accent: #ec4899; }
 .cat-btn[data-cat="accounting"]  { --cat-accent: #f59e0b; }
 .cat-btn[data-cat="reports"]     { --cat-accent: #ef4444; }
 .cat-btn[data-cat="inventory"]   { --cat-accent: #8b5cf6; }
@@ -2262,10 +2263,21 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <button class="nav-item" onclick="showTab('vouchers',this)" data-label="السندات"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span><span class="nav-label" data-i18n="vouchers">السندات</span></button>
       <button class="nav-item" onclick="showTab('cashrecon',this)" data-label="تسوية الصندوق"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></span><span class="nav-label" data-i18n="cashrecon">تسوية الصندوق</span></button>
       <button class="nav-item" onclick="showTab('insurance',this)" data-label="مطالبات التأمين"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="nav-label" data-i18n="insurance">مطالبات التأمين</span></button>
-      <button class="nav-item" onclick="showTab('payroll',this)" data-label="الرواتب"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span><span class="nav-label" data-i18n="payroll">الرواتب</span></button>
       <button class="nav-item" onclick="showTab('doctors',this)" data-label="دكاترة"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span><span class="nav-label" data-i18n="doctors">دكاترة</span></button>
       <button class="nav-item" onclick="showTab('expenses',this)" data-label="المصاريف"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span><span class="nav-label" data-i18n="expenses">المصاريف</span></button>
       <button class="nav-item" onclick="showTab('vendors',this)" data-label="الموردون"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span><span class="nav-label" data-i18n="vendors">الموردون</span></button>
+    </div>
+
+    <!-- ── Category: شؤون الموظفين ── -->
+    <button class="cat-btn" onclick="toggleCat('hr')" data-cat="hr" data-tooltip="شؤون الموظفين" aria-expanded="false" aria-controls="cat-hr">
+      <span class="cat-icon" style="background:rgba(236,72,153,.15);color:#f472b6;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      </span>
+      <span class="cat-label" data-i18n="cat.hr">شؤون الموظفين</span>
+      <span class="cat-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+    </button>
+    <div class="sub-panel" id="cat-hr">
+      <button class="nav-item" onclick="showTab('payroll',this)" data-label="الرواتب"><span class="ni-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span><span class="nav-label" data-i18n="payroll">الرواتب والموظفون</span></button>
     </div>
 
     <!-- ── Category 3: المحاسبة ── -->
@@ -3179,9 +3191,10 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
     <div class="sh"><div><div class="st">كشف الحساب</div><div class="ss">Account Statement</div></div></div>
     <div class="filter-bar">
       <span class="fl">الحساب:</span>
-      <select class="fi" id="ledgerAccount" onchange="loadLedger()" style="width:280px;">
-        <option value="">— اختر الحساب —</option>
-      </select>
+      <div style="display:inline-flex;flex-direction:column;gap:2px;vertical-align:top">
+        <select class="fi" id="ledgerAccount" multiple onchange="loadLedger()" style="width:280px;min-height:104px"></select>
+        <span style="font-size:10px;color:var(--text3)">حساب واحد — أو اضغط Ctrl/⌘ لتحديد عدة حسابات (كشف مجمّع)</span>
+      </div>
       <select class="fi" id="ledgerMonth">
         <option value="all">كل الفترات</option>
       </select>
@@ -7996,14 +8009,25 @@ async function loadLedger() {
     mSel.innerHTML = '<option value="all">كل الفترات</option>' +
       months.map(m=>`<option value="${m}">${monthLbl(m)}</option>`).join('');
   }
-  // عبّئ قائمة الحسابات (كاملة، بأرقامها) مع الحفاظ على الاختيار الحالي
+  // عبّئ قائمة الحسابات (كاملة، بأرقامها) مع الحفاظ على التحديد — تدعم حساباً أو أكثر
   const accSel = document.getElementById('ledgerAccount');
-  if (accSel) { const cur = accSel.value; accSel.innerHTML = coaOptionsHTML('all', cur, '— اختر الحساب —'); }
-  const accountId = accSel?.value;
-  if (!accountId) return;
-  const acc = accounts.find(a=>a.id===accountId);
-  const accCode = acc?.code;
-  const matchLine = l => l.accountId===accountId || l.accountCode===accountId || (accCode && (l.accountCode===accCode || l.accountId===accCode));
+  let selected = accSel ? Array.from(accSel.selectedOptions).map(o=>o.value).filter(Boolean) : [];
+  if (accSel) {
+    const opts = accounts.filter(a=>a.status!=='inactive'&&!a.isGroup&&a.code).sort((a,b)=>String(a.code).localeCompare(String(b.code)));
+    accSel.innerHTML = opts.map(a=>{const v=a.id||a.code;return `<option value="${v}"${selected.includes(String(v))?' selected':''}>${a.code} — ${escHtml(a.name)}</option>`;}).join('');
+    selected = Array.from(accSel.selectedOptions).map(o=>o.value).filter(Boolean);
+  }
+  const setKpi=(d,c,b)=>{document.getElementById('ledDebit').textContent=d;document.getElementById('ledCredit').textContent=c;document.getElementById('ledBalance').textContent=b;};
+  if (!selected.length) {
+    document.getElementById('ledgerTitle').textContent='كشف الحساب';
+    setKpi('0.000','0.000','0.000');
+    document.getElementById('ledgerBody').innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">اختر حساباً أو أكثر لعرض الكشف</td></tr>';
+    return;
+  }
+  const selAccs = selected.map(id => accounts.find(a=>String(a.id)===String(id)||String(a.code)===String(id))).filter(Boolean);
+  const keys = new Set(); selAccs.forEach(a=>{ keys.add(String(a.id)); keys.add(String(a.code)); });
+  const matchLine = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
+  const acc = selAccs[0];
   const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
   const entries = (DB.journalEntries||[]).filter(e => Array.isArray(e.lines) && (filterMonth==='all'||e.date?.startsWith(filterMonth)));
   let balance = 0;
@@ -8025,7 +8049,9 @@ async function loadLedger() {
   document.getElementById('ledCredit').textContent=totalCredit.fmt();
   document.getElementById('ledBalance').textContent=balance.fmt();
   document.getElementById('ledBalance').style.color=balance>=0?'var(--accent2)':'var(--danger)';
-  document.getElementById('ledgerTitle').textContent=`كشف حساب: ${acc?.code} — ${acc?.name}`;
+  document.getElementById('ledgerTitle').textContent = selAccs.length===1
+    ? `كشف حساب: ${acc?.code} — ${acc?.name}`
+    : `كشف مجمّع (${selAccs.length} حسابات): ${selAccs.map(a=>a.code).join('، ')}`;
   document.getElementById('ledgerBody').innerHTML = rows.length ?
     rows.map(r=>`<tr style="cursor:pointer;" onclick="showLedgerEntry('${r.entryId}')" title="اضغط لعرض تفاصيل القيد">
       <td>${r.date}</td>
@@ -8187,13 +8213,16 @@ async function saveTransfer() {
 function exportLedger() {
   const sel = document.getElementById('ledgerAccount');
   const accounts = getCoaAccounts();
-  const acc = accounts.find(a=>a.id===sel?.value);
-  if (!acc) return;
+  const selected = sel ? Array.from(sel.selectedOptions).map(o=>o.value).filter(Boolean) : [];
+  const selAccs = selected.map(id => accounts.find(a=>String(a.id)===String(id)||String(a.code)===String(id))).filter(Boolean);
+  if (!selAccs.length) return;
+  const keys = new Set(); selAccs.forEach(a=>{ keys.add(String(a.id)); keys.add(String(a.code)); });
+  const match = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
   const entries = DB.journalEntries||[];
   const rows=[['التاريخ','المرجع','البيان','مدين','دائن','الرصيد']];
   let balance=0;
   entries.sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
-    e.lines.filter(l=>l.accountId===acc.id).forEach(l=>{
+    (e.lines||[]).filter(match).forEach(l=>{
       balance+=(l.debit||0)-(l.credit||0);
       rows.push([e.date,e.ref||e.id,e.desc,l.debit||0,l.credit||0,balance.fmt()]);
     });
@@ -8201,7 +8230,8 @@ function exportLedger() {
   const csv=rows.map(r=>r.join(',')).join('\n');
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download=`Ledger_${acc.code}_Boubyan.csv`;a.click();
+  const fname = selAccs.length===1 ? selAccs[0].code : (selAccs.length+'accts');
+  const a=document.createElement('a');a.href=url;a.download=`Ledger_${fname}_Boubyan.csv`;a.click();
 }
 
 // ===== RECURRING EXPENSES =====
@@ -10711,6 +10741,10 @@ function addPayrollFromArchive(){
   renderPayrollRows(); sel.value='';
 }
 function removePayrollRow(i){ _prRows.splice(i,1); renderPayrollRows(); }
+function payrollSelectAll(on){
+  for(let i=0;i<_prRows.length;i++){ const c=document.getElementById('prInc'+i); if(c) c.checked=on; }
+  recalcPayroll();
+}
 
 function renderPayrollRows(){
   const ea = s => escHtml(String(s||'')).replace(/"/g,'&quot;');
@@ -10728,7 +10762,13 @@ function renderPayrollRows(){
     </tr>`).join('');
   document.getElementById('prCount').value = _prRows.length;
   document.getElementById('prTable').innerHTML = `
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">✔ أزل علامة الصح عن أي موظف لا تريد صرف راتبه هذا الشهر · «استرداد» = راتب إذن العمل الذي يعيده الموظف.</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <div style="font-size:11px;color:var(--text3)">✔ أزل علامة الصح عن أي موظف لا تريد صرف راتبه · «استرداد» = راتب إذن العمل الذي يعيده الموظف.</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn bw bsm" type="button" onclick="payrollSelectAll(true)">☑ تحديد الكل</button>
+        <button class="btn bo bsm" type="button" onclick="payrollSelectAll(false)">☐ إلغاء التحديد</button>
+      </div>
+    </div>
     <div style="max-height:48vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead style="position:sticky;top:0;background:var(--surface2);z-index:1">
