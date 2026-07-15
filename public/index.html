@@ -2754,11 +2754,18 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
   <!-- PAYROLL ═══════════════════════════════════════ -->
   <div id="tab-payroll" class="sec">
     <div class="sh">
-      <div><div class="st">👥 كشف الرواتب</div><div class="ss">إدارة رواتب الموظفين مع قيود تلقائية</div></div>
+      <div><div class="st">👥 شؤون الموظفين</div><div class="ss">لوحة الموظفين والرواتب — قيود تلقائية</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn bw bsm" onclick="showTab('payroll-employees',null)" style="display:none">الموظفون</button>
+        <button class="btn bw bsm" onclick="openEmpModal()">+ موظف</button>
         <button class="btn bp bsm" onclick="openPayrollModal()">+ كشف راتب جديد</button>
       </div>
+    </div>
+
+    <!-- HR / Payroll overview dashboard -->
+    <div class="kpi-grid" id="hrKpis" style="margin-bottom:14px"></div>
+    <div class="tw" id="hrPayrollTrendWrap" style="margin-bottom:14px;display:none">
+      <div class="th2"><div class="tt">📊 تكلفة الرواتب الشهرية (آخر 12 شهراً)</div></div>
+      <div id="hrPayrollTrend" style="padding:12px 8px"></div>
     </div>
 
     <!-- EOS Panel -->
@@ -10551,10 +10558,62 @@ async function loadEmployees() {
 }
 
 let _payrollData = [];
+// لوحة شؤون الموظفين — مؤشرات + تكلفة الرواتب الشهرية
+function renderHrDashboard(){
+  const box = document.getElementById('hrKpis');
+  if(!box) return;
+  const emps = DB.employees || [];
+  const isArch = e => ['resigned','terminated','left'].includes(e.status);
+  const active = emps.filter(e=>!isArch(e));
+  const archived = emps.filter(isArch);
+  const monthlyStaffCost = active.reduce((s,e)=>s+((e.basicSalary||0)+(e.housing||0)+(e.transport||0)+(e.allowances||0)),0);
+  const totalRecovery = active.reduce((s,e)=>s+(e.recovery||0),0);
+  const pl = _payrollData || [];
+  const pending = pl.filter(p=>p.status!=='paid');
+  const paidThisYear = pl.filter(p=>p.status==='paid');
+  // مكافأة نهاية الخدمة المتراكمة (تقديرية)
+  const now = new Date();
+  let eosTotal = 0;
+  active.forEach(e=>{
+    if(!e.hireDate||!e.basicSalary) return;
+    const hire=new Date(e.hireDate);
+    const years=Math.max(0,(now-hire)/(365.25*864e5));
+    eosTotal += years<=5 ? (e.basicSalary/26*15*years) : (e.basicSalary/26*15*5 + e.basicSalary*(years-5));
+  });
+  const kpi=(cls,label,val,sub)=>`<div class="kc ${cls}"><div class="kl">${label}</div><div class="kv">${val}</div><div class="ks">${sub}</div></div>`;
+  box.innerHTML =
+    kpi('bl','الموظفون النشطون', active.length, `+${archived.length} في الأرشيف`) +
+    kpi('gr','تكلفة الرواتب الشهرية', monthlyStaffCost.fmt(), 'د.ك / شهر') +
+    (totalRecovery>0 ? kpi('or','صافي التكلفة بعد الاسترداد', (monthlyStaffCost-totalRecovery).fmt(), `استرداد ${totalRecovery.fmt()} د.ك`) : kpi('or','متوسط الراتب', active.length?(monthlyStaffCost/active.length).fmt():'0.000', 'د.ك / موظف')) +
+    kpi('ye','كشوف معلّقة', pending.length, pending.length?'بانتظار الصرف':'الكل مدفوع') +
+    kpi('re','مخصص نهاية الخدمة', eosTotal.fmt(), 'د.ك متراكم (تقديري)');
+
+  // اتجاه تكلفة الرواتب — آخر 12 شهراً من الكشوف
+  const byMonth = {};
+  pl.forEach(p=>{ byMonth[p.month]=(byMonth[p.month]||0)+((p.totalGross||0)-(p.totalRecovery||0)); });
+  const months = Object.keys(byMonth).sort().slice(-12);
+  const wrap = document.getElementById('hrPayrollTrendWrap');
+  const trend = document.getElementById('hrPayrollTrend');
+  if(months.length>=2 && wrap && trend){
+    const max = Math.max(...months.map(m=>byMonth[m]))||1;
+    trend.innerHTML = `<div style="display:flex;align-items:flex-end;gap:10px;height:150px;padding-top:10px">`+
+      months.map(m=>{
+        const h=Math.max(4,Math.round(byMonth[m]/max*130));
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
+          <div style="font-size:9px;color:var(--text2);white-space:nowrap">${byMonth[m].fmt()}</div>
+          <div style="width:70%;height:${h}px;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:6px 6px 0 0"></div>
+          <div style="font-size:9px;color:var(--text3);white-space:nowrap">${m}</div>
+        </div>`;
+      }).join('')+`</div>`;
+    wrap.style.display='';
+  } else if(wrap){ wrap.style.display='none'; }
+}
+
 async function loadPayroll() {
   await loadEmployees();
   const data = await fetch('/api/payroll').then(r=>r.json()).catch(()=>[]);
   _payrollData = data;
+  renderHrDashboard();
   const tbody = document.getElementById('payBody');
   if(!data.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">لا توجد كشوف رواتب</td></tr>'; return; }
   tbody.innerHTML = data.map(p=>{
@@ -10624,10 +10683,54 @@ function openPayrollDetail(id){
     ${jeInfo?`<div style="margin-top:8px;font-size:11px;color:var(--text3);display:flex;gap:14px;flex-wrap:wrap">${jeInfo}</div>`:''}`;
   document.getElementById('payDetailActions').innerHTML = `
     ${!paid?`<button class="btn bs" onclick="closeModal('payDetailModal');markPayrollPaid('${p.id}')">💸 تأكيد الصرف</button>`:''}
+    <button class="btn bp" onclick="printPayslips('${p.id}')">🖨️ قسائم الرواتب</button>
     <button class="btn bw" onclick="closeModal('payDetailModal');editPayroll('${p.id}')">✏️ تعديل</button>
     <button class="btn bd" onclick="closeModal('payDetailModal');deletePayroll('${p.id}','${p.status}')">🗑 حذف</button>
     <button class="btn" onclick="closeModal('payDetailModal')">إغلاق</button>`;
   document.getElementById('payDetailModal').classList.add('open');
+}
+
+// قسائم رواتب للطباعة — قسيمة لكل موظف في الكشف
+function printPayslips(id){
+  const p=_payrollData.find(x=>String(x.id)===String(id));
+  if(!p) return;
+  const comp = (document.getElementById('compNameDisplay')?.textContent) || 'بوبيان لطب الأسنان';
+  const slips=(p.entries||[]).map(e=>{
+    const gross=(e.basicSalary||0)+(e.allowances||0);
+    const net=gross-(e.deductions||0);
+    return `<div class="slip">
+      <div class="slip-h"><div><b>${comp}</b><div class="muted">قسيمة راتب</div></div><div style="text-align:left"><b>شهر ${p.month}</b><div class="muted">${p.paidDate?('صُرف: '+p.paidDate):(p.status==='paid'?'مدفوع':'معلّق')}</div></div></div>
+      <div class="slip-name">${e.name||''} <span class="muted">${e.role||''}</span></div>
+      <table>
+        <tr><td>الراتب الأساسي</td><td class="n">${(e.basicSalary||0).toFixed(3)}</td></tr>
+        <tr><td>البدلات</td><td class="n">${(e.allowances||0).toFixed(3)}</td></tr>
+        <tr><td>الخصومات</td><td class="n">- ${(e.deductions||0).toFixed(3)}</td></tr>
+        ${(e.recovery||0)?`<tr><td>استرداد إذن العمل</td><td class="n">- ${(e.recovery||0).toFixed(3)}</td></tr>`:''}
+        <tr class="tot"><td>صافي الراتب المستحق</td><td class="n">${net.toFixed(3)} د.ك</td></tr>
+      </table>
+      <div class="sign"><div>توقيع الموظف: ____________</div><div>المحاسب: ____________</div></div>
+    </div>`;
+  }).join('');
+  const w=window.open('','_blank','width=800,height=900');
+  if(!w){ showToast('اسمح بالنوافذ المنبثقة للطباعة','warning'); return; }
+  w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>قسائم رواتب ${p.month}</title>
+  <style>
+    body{font-family:'Segoe UI',Tahoma,sans-serif;background:#fff;color:#111;margin:0;padding:16px}
+    .slip{border:1px solid #ccc;border-radius:10px;padding:16px;margin:0 0 14px;page-break-inside:avoid}
+    .slip-h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #222;padding-bottom:8px;margin-bottom:10px}
+    .muted{color:#777;font-size:11px}
+    .slip-name{font-size:15px;font-weight:700;margin-bottom:8px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    td{padding:6px 4px;border-bottom:1px dashed #ddd}
+    td.n{text-align:left;font-family:monospace}
+    tr.tot td{border-top:2px solid #222;border-bottom:none;font-weight:700;font-size:14px;padding-top:8px}
+    .sign{display:flex;justify-content:space-between;margin-top:16px;font-size:12px;color:#555}
+    @media print{ .noprint{display:none} }
+  </style></head><body>
+  <div class="noprint" style="text-align:center;margin-bottom:12px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px;cursor:pointer">🖨️ طباعة</button></div>
+  ${slips}
+  </body></html>`);
+  w.document.close();
 }
 
 function openEmpModal(emp) {
