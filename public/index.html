@@ -208,7 +208,9 @@ html[lang="en"] .sidebar{margin:12px 0 12px 12px;}
 
 /* ── CONTENT ── */
 .content-wrap{flex:1;min-width:0;padding:0 28px;position:relative;z-index:1;}
-.sec{display:none;padding:24px 0;}
+/* السطر السفلي 110px محجوز حتى لا يغطي زر "+" العائم أزرار الإجراءات (تعديل/حذف)
+   في آخر صف من أي جدول عند التمرير لأسفل — كانت تُحجب وتصبح غير قابلة للنقر. */
+.sec{display:none;padding:24px 0 110px;}
 .sec.active{display:block;}
 .sh{
   display:flex;align-items:center;justify-content:space-between;
@@ -2407,6 +2409,8 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <div class="kc re" id="w-kIns"><div class="kl" id="kl-kIns" data-i18n="kpi.insurance">حصة التأمين</div><div class="kv" id="kIns">—</div><div class="ks" data-i18n="kpi.unit.ins">د.ك — 25% من الأصلي</div><div class="kc-sparkline"><svg id="spk-ins" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-ins"></div></div>
       <div class="kc or" id="w-kComm"><div class="kl" id="kl-kComm" data-i18n="kpi.commission">إجمالي العمولات</div><div class="kv" id="kComm">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-comm" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-comm"></div></div>
       <div class="kc ye" id="w-kPend"><div class="kl" id="kl-kPend" data-i18n="kpi.pending">عمولات معلّقة</div><div class="kv" id="kPend">—</div><div class="ks" data-i18n="kpi.unit.unpaid">د.ك غير مدفوعة</div><div class="kc-sparkline"><svg id="spk-pend" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-pend"></div></div>
+      <div class="kc re" id="w-kExp"><div class="kl">إجمالي المصاريف (والرواتب)</div><div class="kv" id="kExp">—</div><div class="ks">د.ك — لنفس الفترة</div></div>
+      <div class="kc gr" id="w-kNetIncome"><div class="kl">صافي الربح</div><div class="kv" id="kNetIncome">—</div><div class="ks">إيرادات − مصاريف</div></div>
     </div>
     <div class="ins-box" id="w-ins-box">
       <div class="ins-title" data-i18n="ins.title">🏥 تفصيل التأمين</div>
@@ -2449,9 +2453,19 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
     </div>
 
     <div class="tw" id="w-daily-table">
-      <div class="th2"><div class="tt">تفصيل يومي</div></div>
+      <div class="th2"><div class="tt">تفصيل يومي — طرق الدفع</div></div>
       <table><thead><tr><th>التاريخ</th><th>كاش</th><th>K-Net</th><th>Visa</th><th>Master</th><th>تأمين</th><th>Link</th><th>الإجمالي</th></tr></thead>
       <tbody id="dailyBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">ارفع تقرير Excel أولاً</td></tr></tbody></table>
+    </div>
+
+    <!-- تفصيل يومي مربوط بالقيود الفعلية: إيراد / مصروف (يشمل الرواتب) / صافي — يتبع نفس فلتر لوحة التحكم أعلاه -->
+    <div class="tw" id="w-daily-pl">
+      <div class="th2"><div class="tt">🧾 تفصيل يومي — الإيراد والمصاريف والرواتب (من القيود الفعلية)</div></div>
+      <div style="max-height:280px;overflow-y:auto;">
+      <table style="font-size:11px">
+        <thead style="position:sticky;top:0"><tr><th>التاريخ</th><th>الإيراد</th><th>المصاريف (وفيها الرواتب)</th><th>الرواتب</th><th>الصافي</th></tr></thead>
+        <tbody id="dailyPlBody"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px;">لا توجد حركات للفترة المحددة</td></tr></tbody></table>
+      </div>
     </div>
   </div>
 
@@ -2868,8 +2882,8 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <div class="tt">⏳ المصاريف المستحقة (غير المدفوعة)</div>
         <button class="btn bp bsm" onclick="openAccruedModal()">+ إضافة مصروف مستحق</button>
       </div>
-      <table><thead><tr><th>الوصف</th><th>الشهر</th><th>المبلغ</th><th>الحساب</th><th>المورد</th><th>تاريخ الاستحقاق</th><th>الحالة</th><th></th></tr></thead>
-      <tbody id="accruedBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr></tbody></table>
+      <table><thead><tr><th>رقم</th><th>الوصف</th><th>الشهر</th><th>المبلغ</th><th>الحساب</th><th>المورد</th><th>تاريخ الاستحقاق</th><th>الحالة</th><th></th></tr></thead>
+      <tbody id="accruedBody"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr></tbody></table>
     </div>
   </div>
 
@@ -3196,29 +3210,20 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
   <!-- ACCOUNT LEDGER -->
   <div id="tab-ledger" class="sec">
     <div class="sh"><div><div class="st">كشف الحساب</div><div class="ss">Account Statement</div></div></div>
-    <div class="filter-bar">
-      <span class="fl">الحساب:</span>
-      <div style="display:inline-flex;flex-direction:column;gap:2px;vertical-align:top">
-        <select class="fi" id="ledgerAccount" multiple onchange="loadLedger()" style="width:280px;min-height:104px"></select>
-        <span style="font-size:10px;color:var(--text3)">حساب واحد — أو اضغط Ctrl/⌘ لتحديد عدة حسابات (كشف مجمّع)</span>
-      </div>
-      <select class="fi" id="ledgerMonth">
+    <div class="filter-bar" style="flex-wrap:wrap;align-items:flex-start">
+      <span class="fl" style="padding-top:8px">الحساب:</span>
+      <div id="ledgerAccPickers" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button class="btn bw bsm" onclick="addLedgerAccPicker()" title="إضافة حساب آخر — كشف منفصل لكل حساب" style="align-self:flex-start;margin-top:1px">+ إضافة حساب</button>
+      <select class="fi" id="ledgerMonth" style="align-self:flex-start" onchange="loadLedger()">
         <option value="all">كل الفترات</option>
       </select>
-      <button class="btn bp bsm" onclick="loadLedger()">عرض</button>
-      <button class="btn bw bsm" onclick="exportLedger()">⬇ تصدير</button>
+      <button class="btn bp bsm" style="align-self:flex-start" onclick="loadLedger()">عرض</button>
+      <button class="btn bw bsm" style="align-self:flex-start" onclick="exportLedger()">⬇ تصدير الكل</button>
     </div>
-    <div class="kpi-grid">
-      <div class="kc bl"><div class="kl">إجمالي المدين</div><div class="kv" id="ledDebit">—</div><div class="ks">د.ك</div></div>
-      <div class="kc re"><div class="kl">إجمالي الدائن</div><div class="kv" id="ledCredit">—</div><div class="ks">د.ك</div></div>
-      <div class="kc gr"><div class="kl">الرصيد</div><div class="kv" id="ledBalance">—</div><div class="ks">د.ك</div></div>
-    </div>
-    <div class="tw">
-      <div class="th2"><div class="tt" id="ledgerTitle">اختر حساباً</div></div>
-      <table>
-        <thead><tr><th>التاريخ</th><th>القيد</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
-        <tbody id="ledgerBody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">اختر حساباً من القائمة</td></tr></tbody>
-      </table>
+    <div id="ledgerAccountsContainer">
+      <div class="tw"><div class="th2"><div class="tt">كشف الحساب</div></div>
+        <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">اختر حساباً واحداً أو أكثر لعرض كشف كل حساب على حدة</div>
+      </div>
     </div>
   </div>
 
@@ -4642,6 +4647,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       </div>
       <div class="fr" style="margin:0"><label class="flbl">تاريخ الدفع</label><input type="date" class="finp" id="pmDate"></div>
     </div>
+    <div class="fr"><label class="flbl">رقم الشيك (إن وُجد)</label><input class="finp" id="pmCheckNo" placeholder="مثال: 000123"></div>
     <div class="mact">
       <button class="btn bs" style="flex:1" onclick="savePay()">✅ تأكيد</button>
       <button class="btn bd" onclick="closeModal('payModal')">إلغاء</button>
@@ -4779,12 +4785,16 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <label class="flbl">المورد (اختياري)</label>
         <select class="finp" id="expVendor"><option value="">— بدون مورد —</option></select>
       </div>
-      <div class="fr" style="margin:0;display:flex;align-items:flex-end;gap:8px;padding-bottom:4px;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);cursor:pointer;">
-          <input type="checkbox" id="expAccrued" style="width:16px;height:16px;accent-color:var(--accent);">
-          <span>قيد مستحق (لم يُدفع)</span>
-        </label>
+      <div class="fr" style="margin:0">
+        <label class="flbl">رقم الشيك (إن وُجد)</label>
+        <input class="finp" id="expCheckNo" placeholder="مثال: 000123">
       </div>
+    </div>
+    <div class="fr">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);cursor:pointer;">
+        <input type="checkbox" id="expAccrued" style="width:16px;height:16px;accent-color:var(--accent);">
+        <span>قيد مستحق (لم يُدفع)</span>
+      </label>
     </div>
     <!-- Multi-line expense table -->
     <div style="margin-top:12px;">
@@ -4923,7 +4933,8 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <option value="1120">📳 K-Net / شبكة</option>
       </select>
     </div>
-    <div class="fr"><label class="flbl">ملاحظات</label><input class="finp" id="vndPayNotes" placeholder="رقم الشيك / التحويل..."></div>
+    <div class="fr"><label class="flbl">رقم الشيك (إن وُجد)</label><input class="finp" id="vndPayCheckNo" placeholder="مثال: 000123"></div>
+    <div class="fr"><label class="flbl">ملاحظات</label><input class="finp" id="vndPayNotes" placeholder="ملاحظات إضافية..."></div>
     <div class="mact">
       <button class="btn bs" style="flex:1" onclick="saveVendorPayment()">✅ حفظ الدفعة</button>
       <button class="btn bd" onclick="closeModal('vendorPayModal')">إلغاء</button>
@@ -4939,7 +4950,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
     <div class="fr"><label class="flbl">المبلغ (د.ك) *</label><input type="number" class="finp" id="vndPurAmt" placeholder="0.000" step="0.001"></div>
     <div class="fr"><label class="flbl">التاريخ *</label><input type="date" class="finp" id="vndPurDate"></div>
     <div class="fr"><label class="flbl">حساب المصروف / المشتريات *</label>
-      <select class="finp" id="vndPurAccount"><option value="">— اختر حساب المصروف —</option></select>
+      <div id="vndPurAccountWrap"></div>
     </div>
     <div class="fr"><label class="flbl">طريقة السداد</label>
       <select class="finp" id="vndPurPayVia">
@@ -4949,6 +4960,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <option value="1120">📳 مدفوع K-Net / شبكة</option>
       </select>
     </div>
+    <div class="fr"><label class="flbl">رقم الشيك (إن وُجد)</label><input class="finp" id="vndPurCheckNo" placeholder="مثال: 000123"></div>
     <div class="fr"><label class="flbl">ملاحظات / وصف</label><input class="finp" id="vndPurNotes" placeholder="وصف المشتريات..."></div>
     <div style="padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:11px;color:var(--text2);margin-bottom:4px;">
       📒 القيد: <strong style="color:var(--accent)">من ح/ المصروف (مدين)</strong> إلى <strong style="color:var(--accent)">ح/ المورد أو النقدية (دائن)</strong>
@@ -5502,6 +5514,9 @@ async function loadDashboard() {
     animateCount(document.getElementById('kIns'),   s.insShare);
     animateCount(document.getElementById('kComm'),  s.totalComm);
     animateCount(document.getElementById('kPend'),  s.pendingComm);
+    animateCount(document.getElementById('kExp'),       s.totalExpenses||0);
+    animateCount(document.getElementById('kNetIncome'), s.netIncome||0);
+    { const el=document.getElementById('kNetIncome'); if(el) el.style.color = (s.netIncome||0) >= 0 ? 'var(--accent2)' : 'var(--danger)'; }
     // Add refreshed pulse on KPI cards
     document.querySelectorAll('.kc').forEach(c => { c.classList.remove('refreshed'); void c.offsetWidth; c.classList.add('refreshed'); });
     document.getElementById('iRec').textContent   = (s.insRecorded  || 0).fmt() + ' د.ك';
@@ -5540,6 +5555,18 @@ async function loadDashboard() {
         <td class="num pos">${(d.total||0).fmt()}</td>
       </tr>`).join('') :
       '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا بيانات للفترة المحددة</td></tr>';
+
+    // تفصيل يومي من القيود الفعلية (إيراد/مصروف/رواتب/صافي) — نفس فلتر الفترة أعلاه
+    const plRows = s.dailyBreakdown || [];
+    document.getElementById('dailyPlBody').innerHTML = plRows.length ?
+      plRows.slice().reverse().map(d => `<tr>
+        <td>${d.date}</td>
+        <td class="num pos">${d.revenue.fmt()}</td>
+        <td class="num neg">${d.expenses.fmt()}</td>
+        <td class="num" style="color:var(--warning)">${d.payroll.fmt()}</td>
+        <td class="num" style="font-weight:700;color:${d.net>=0?'var(--accent2)':'var(--danger)'}">${d.net.fmt()}</td>
+      </tr>`).join('') :
+      '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px;">لا توجد حركات للفترة المحددة</td></tr>';
 
     renderDashCharts(filtered);
   } catch(e) { console.error(e); }
@@ -5666,13 +5693,14 @@ function renderAccrued() {
   const tb = document.getElementById('accruedBody');
   if (!tb) return;
   if (!_accruedList.length) {
-    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr>';
+    tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr>';
     return;
   }
   tb.innerHTML = _accruedList.map(a => {
     const statusColor = a.status==='paid' ? 'var(--accent2)' : (a.dueDate && a.dueDate < new Date().toISOString().slice(0,10)) ? 'var(--danger)' : 'var(--warning)';
     const statusLabel = a.status==='paid' ? '✅ مدفوع' : (a.dueDate && a.dueDate < new Date().toISOString().slice(0,10)) ? '⚠️ متأخر' : '⏳ مستحق';
     return `<tr>
+      <td style="font-family:monospace;font-size:10px;color:var(--accent)">${a.number||'—'}</td>
       <td>${a.description}</td>
       <td>${a.month}</td>
       <td class="num">${parseFloat(a.amount||0).toFixed(3)}</td>
@@ -5787,6 +5815,7 @@ function openPayModal() {
   document.getElementById('pmDr').innerHTML = doctors.map(d => `<option>${d.name}</option>`).join('');
   document.getElementById('pmMonth').innerHTML = months.map(m => `<option value="${m}">${monthLbl(m)}</option>`).join('');
   document.getElementById('pmDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('pmCheckNo').value = '';
   document.getElementById('payModal').classList.add('open');
 }
 
@@ -5795,6 +5824,7 @@ function quickPay(dr, month) {
   document.getElementById('pmDr').innerHTML = `<option value="${dr}">${dr}</option>`;
   document.getElementById('pmMonth').innerHTML = `<option value="${month}">${monthLbl(month)}</option>`;
   document.getElementById('pmDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('pmCheckNo').value = '';
   document.getElementById('payModal').classList.add('open');
 }
 
@@ -5803,7 +5833,8 @@ async function savePay() {
     doctor: document.getElementById('pmDr').value,
     month: document.getElementById('pmMonth').value,
     payMethod: document.getElementById('pmMethod').value,
-    payDate: document.getElementById('pmDate').value
+    payDate: document.getElementById('pmDate').value,
+    checkNo: document.getElementById('pmCheckNo')?.value.trim() || ''
   };
   const r = await fetch(`${API}/commission/pay`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
@@ -5939,6 +5970,7 @@ function filterAccPicker(txtId, hiddenId, dropId, filterType, onSelectFn) {
   let coa = (DB.chartOfAccounts || []).filter(a => a.status !== 'inactive' && !a.isGroup);
   if (filterType === 'expense') coa = coa.filter(a => a.type === 'expense');
   if (filterType === 'asset')   coa = coa.filter(a => (a.code||'').startsWith('1'));
+  if (filterType === 'cash')    coa = coa.filter(a => (a.code||'').startsWith('11'));
   const drop = document.getElementById(dropId);
   if (!drop) return;
   const matches = coa.filter(a => !q || (a.code||'').includes(q) || (a.name||'').toLowerCase().includes(q)).slice(0, 35);
@@ -6054,6 +6086,7 @@ function openExpModal() {
   document.getElementById('expDesc').value = '';
   document.getElementById('expPayMethod').value = '1100';
   document.getElementById('expAccrued').checked = false;
+  document.getElementById('expCheckNo').value = '';
   document.getElementById('expLines').innerHTML = '';
   _expLineCount = 0;
   const vSel = document.getElementById('expVendor');
@@ -6083,6 +6116,7 @@ async function saveExp() {
   const payMethod = document.getElementById('expPayMethod').value;
   const vendorId  = document.getElementById('expVendor').value;
   const accrued   = document.getElementById('expAccrued').checked;
+  const checkNo   = document.getElementById('expCheckNo')?.value.trim() || '';
   if (!desc || !date) { showToast('أدخل الوصف والتاريخ', 'warning'); return; }
 
   // Collect lines
@@ -6111,7 +6145,7 @@ async function saveExp() {
   try {
     for (const line of lines) {
       const body = {
-        desc: desc + (line.notes ? ' — ' + line.notes : ''),
+        desc: desc + (line.notes ? ' — ' + line.notes : '') + (checkNo ? ' — شيك #' + checkNo : ''),
         date, amount: line.amt,
         accountCode:     line.code,
         accountId:       line.accObj.id || line.code,
@@ -6120,7 +6154,8 @@ async function saveExp() {
         vendorId:        vendorId || '',
         vendorAccountId: vendor?.accountId || '',
         cat:             line.accObj.name,
-        notes:           line.notes || (vendor ? 'مورد: ' + vendor.name : ''),
+        notes:           (line.notes || (vendor ? 'مورد: ' + vendor.name : '')) + (checkNo ? ' — شيك #' + checkNo : ''),
+        checkNo,
       };
       await fetch(`${API}/expenses`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     }
@@ -8006,69 +8041,97 @@ function exportReport() {
   const a=document.createElement('a');a.href=url;a.download='IncomeStatement_Boubyan.csv';a.click();
 }
 
-// ===== LEDGER =====
+// ===== LEDGER — كشف حساب لواحد أو أكثر، كل حساب في جدوله المستقل (بدون دمج) =====
+let _ledPickerCount = 0;
+function addLedgerAccPicker(prefillId, prefillLabel) {
+  const n = _ledPickerCount++;
+  const wrap = document.createElement('div');
+  wrap.id = `ledPickerRow${n}`;
+  wrap.style.cssText = 'display:flex;gap:6px;align-items:center';
+  wrap.innerHTML = `
+    <div style="position:relative;width:280px">
+      <input class="fi" id="ledAccTxt${n}" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="width:100%;box-sizing:border-box;"
+        value="${prefillLabel?escHtml(prefillLabel):''}"
+        oninput="filterAccPicker('ledAccTxt${n}','ledAccVal${n}','ledAccDrop${n}','all','loadLedger')"
+        onfocus="filterAccPicker('ledAccTxt${n}','ledAccVal${n}','ledAccDrop${n}','all','loadLedger')"
+        onblur="setTimeout(()=>{let d=document.getElementById('ledAccDrop${n}');if(d)d.style.display='none'},200)">
+      <input type="hidden" id="ledAccVal${n}" value="${prefillId||''}">
+      <div id="ledAccDrop${n}" style="${_accDropStyle}"></div>
+    </div>
+    <button class="btn bd bsm" onclick="removeLedgerAccPicker(${n})" title="إزالة هذا الحساب">✕</button>`;
+  document.getElementById('ledgerAccPickers').appendChild(wrap);
+}
+function removeLedgerAccPicker(n) {
+  document.getElementById(`ledPickerRow${n}`)?.remove();
+  if (!document.querySelector('#ledgerAccPickers > div')) addLedgerAccPicker();
+  loadLedger();
+}
+function _ledgerSelectedAccounts(accounts) {
+  const vals = Array.from(document.querySelectorAll('#ledgerAccPickers [id^=ledAccVal]')).map(i=>i.value).filter(Boolean);
+  return vals.map(id => accounts.find(a=>String(a.id)===String(id)||String(a.code)===String(id))).filter(Boolean);
+}
+
 async function loadLedger() {
   await loadAll();
   const accounts = getCoaAccounts();
   const months = [...new Set((DB.journalEntries||[]).map(e=>e.date?.substring(0,7)))].sort().reverse();
   const mSel = document.getElementById('ledgerMonth');
   if (mSel) {
+    const cur = mSel.value;
     mSel.innerHTML = '<option value="all">كل الفترات</option>' +
-      months.map(m=>`<option value="${m}">${monthLbl(m)}</option>`).join('');
+      months.map(m=>`<option value="${m}"${cur===m?' selected':''}>${monthLbl(m)}</option>`).join('');
   }
-  // عبّئ قائمة الحسابات (كاملة، بأرقامها) مع الحفاظ على التحديد — تدعم حساباً أو أكثر
-  const accSel = document.getElementById('ledgerAccount');
-  let selected = accSel ? Array.from(accSel.selectedOptions).map(o=>o.value).filter(Boolean) : [];
-  if (accSel) {
-    const opts = accounts.filter(a=>a.status!=='inactive'&&!a.isGroup&&a.code).sort((a,b)=>String(a.code).localeCompare(String(b.code)));
-    accSel.innerHTML = opts.map(a=>{const v=a.id||a.code;return `<option value="${v}"${selected.includes(String(v))?' selected':''}>${a.code} — ${escHtml(a.name)}</option>`;}).join('');
-    selected = Array.from(accSel.selectedOptions).map(o=>o.value).filter(Boolean);
-  }
-  const setKpi=(d,c,b)=>{document.getElementById('ledDebit').textContent=d;document.getElementById('ledCredit').textContent=c;document.getElementById('ledBalance').textContent=b;};
-  if (!selected.length) {
-    document.getElementById('ledgerTitle').textContent='كشف الحساب';
-    setKpi('0.000','0.000','0.000');
-    document.getElementById('ledgerBody').innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">اختر حساباً أو أكثر لعرض الكشف</td></tr>';
+  if (!document.querySelector('#ledgerAccPickers > div')) addLedgerAccPicker();
+  const selAccs = _ledgerSelectedAccounts(accounts);
+  const container = document.getElementById('ledgerAccountsContainer');
+  if (!selAccs.length) {
+    container.innerHTML = `<div class="tw"><div class="th2"><div class="tt">كشف الحساب</div></div>
+      <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">اختر حساباً واحداً أو أكثر لعرض كشف كل حساب على حدة</div></div>`;
     return;
   }
-  const selAccs = selected.map(id => accounts.find(a=>String(a.id)===String(id)||String(a.code)===String(id))).filter(Boolean);
-  const keys = new Set(); selAccs.forEach(a=>{ keys.add(String(a.id)); keys.add(String(a.code)); });
-  const matchLine = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
-  const acc = selAccs[0];
   const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
   const entries = (DB.journalEntries||[]).filter(e => Array.isArray(e.lines) && (filterMonth==='all'||e.date?.startsWith(filterMonth)));
-  let balance = 0;
-  const rows = [];
-  entries.sort((a,b)=>(a.date||'').localeCompare(b.date||'')).forEach(e=>{
-    (e.lines||[]).filter(matchLine).forEach(l=>{
-      balance += (l.debit||0) - (l.credit||0);
-      // التفاصيل: وصف القيد + الطرف المقابل (لأين ذهب/جاء المبلغ)
-      const base = e.desc || e.description || l.remarks || '';
-      const others = (e.lines||[]).filter(x=>!matchLine(x)).map(x=>x.accountName).filter(Boolean);
-      const counter = others.length ? ('مقابل: '+[...new Set(others)].join('، ')) : '';
-      const desc = base ? (counter ? `${base} — ${counter}` : base) : (counter || e.ref || 'حركة');
-      rows.push({entryId:e.id,date:e.date,ref:e.ref||e.reference||e.id,desc,debit:l.debit||0,credit:l.credit||0,balance});
+  container.innerHTML = selAccs.map(acc => {
+    const keys = new Set([String(acc.id), String(acc.code)]);
+    const matchLine = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
+    let balance = 0;
+    const rows = [];
+    entries.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).forEach(e=>{
+      (e.lines||[]).filter(matchLine).forEach(l=>{
+        balance += (l.debit||0) - (l.credit||0);
+        const base = e.desc || e.description || l.remarks || '';
+        const others = (e.lines||[]).filter(x=>!matchLine(x)).map(x=>x.accountName).filter(Boolean);
+        const counter = others.length ? ('مقابل: '+[...new Set(others)].join('، ')) : '';
+        const desc = base ? (counter ? `${base} — ${counter}` : base) : (counter || e.ref || 'حركة');
+        rows.push({entryId:e.id,date:e.date,ref:e.ref||e.reference||e.id,desc,debit:l.debit||0,credit:l.credit||0,balance});
+      });
     });
-  });
-  const totalDebit=rows.reduce((s,r)=>s+r.debit,0);
-  const totalCredit=rows.reduce((s,r)=>s+r.credit,0);
-  document.getElementById('ledDebit').textContent=totalDebit.fmt();
-  document.getElementById('ledCredit').textContent=totalCredit.fmt();
-  document.getElementById('ledBalance').textContent=balance.fmt();
-  document.getElementById('ledBalance').style.color=balance>=0?'var(--accent2)':'var(--danger)';
-  document.getElementById('ledgerTitle').textContent = selAccs.length===1
-    ? `كشف حساب: ${acc?.code} — ${acc?.name}`
-    : `كشف مجمّع (${selAccs.length} حسابات): ${selAccs.map(a=>a.code).join('، ')}`;
-  document.getElementById('ledgerBody').innerHTML = rows.length ?
-    rows.map(r=>`<tr style="cursor:pointer;" onclick="showLedgerEntry('${r.entryId}')" title="اضغط لعرض تفاصيل القيد">
-      <td>${r.date}</td>
-      <td style="font-family:monospace;font-size:10px;color:var(--accent);">${escHtml(r.ref)}</td>
-      <td>${escHtml(r.desc)}</td>
-      <td class="num pos">${r.debit>0?r.debit.fmt():''}</td>
-      <td class="num neg">${r.credit>0?r.credit.fmt():''}</td>
-      <td class="num ${r.balance>=0?'pos':'neg'}" style="font-weight:600;">${r.balance.fmt()}</td>
-    </tr>`).join('') :
-    '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا الحساب</td></tr>';
+    const totalDebit = rows.reduce((s,r)=>s+r.debit,0);
+    const totalCredit= rows.reduce((s,r)=>s+r.credit,0);
+    const bodyRows = rows.length ? rows.map(r=>`<tr style="cursor:pointer;" onclick="showLedgerEntry('${r.entryId}')" title="اضغط لعرض تفاصيل القيد">
+        <td>${r.date}</td>
+        <td style="font-family:monospace;font-size:10px;color:var(--accent);">${escHtml(r.ref)}</td>
+        <td>${escHtml(r.desc)}</td>
+        <td class="num pos">${r.debit>0?r.debit.fmt():''}</td>
+        <td class="num neg">${r.credit>0?r.credit.fmt():''}</td>
+        <td class="num ${r.balance>=0?'pos':'neg'}" style="font-weight:600;">${r.balance.fmt()}</td>
+      </tr>`).join('') :
+      '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا الحساب</td></tr>';
+    return `<div class="tw">
+      <div class="th2" style="flex-wrap:wrap;gap:8px">
+        <div class="tt">📒 ${escHtml(acc.code)} — ${escHtml(acc.name)}</div>
+        <div style="display:flex;gap:14px;font-size:11px;color:var(--text2)">
+          <span>مدين: <b class="pos">${totalDebit.fmt()}</b></span>
+          <span>دائن: <b class="neg">${totalCredit.fmt()}</b></span>
+          <span>الرصيد: <b style="color:${balance>=0?'var(--accent2)':'var(--danger)'}">${balance.fmt()}</b></span>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>التاريخ</th><th>القيد</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
 }
 
 let _lemCurrentId = null;
@@ -8218,26 +8281,30 @@ async function saveTransfer() {
 }
 
 function exportLedger() {
-  const sel = document.getElementById('ledgerAccount');
   const accounts = getCoaAccounts();
-  const selected = sel ? Array.from(sel.selectedOptions).map(o=>o.value).filter(Boolean) : [];
-  const selAccs = selected.map(id => accounts.find(a=>String(a.id)===String(id)||String(a.code)===String(id))).filter(Boolean);
+  const selAccs = _ledgerSelectedAccounts(accounts);
   if (!selAccs.length) return;
-  const keys = new Set(); selAccs.forEach(a=>{ keys.add(String(a.id)); keys.add(String(a.code)); });
-  const match = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
-  const entries = DB.journalEntries||[];
-  const rows=[['التاريخ','المرجع','البيان','مدين','دائن','الرصيد']];
-  let balance=0;
-  entries.sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
-    (e.lines||[]).filter(match).forEach(l=>{
-      balance+=(l.debit||0)-(l.credit||0);
-      rows.push([e.date,e.ref||e.id,e.desc,l.debit||0,l.credit||0,balance.fmt()]);
+  const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
+  const entries = (DB.journalEntries||[]).filter(e => Array.isArray(e.lines) && (filterMonth==='all'||e.date?.startsWith(filterMonth)));
+  const rows=[];
+  selAccs.forEach((acc,idx)=>{
+    if(idx>0) rows.push([]); // فاصل بين كشوف الحسابات
+    rows.push([`كشف حساب: ${acc.code} — ${acc.name}`]);
+    rows.push(['التاريخ','المرجع','البيان','مدين','دائن','الرصيد']);
+    const keys = new Set([String(acc.id), String(acc.code)]);
+    const match = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
+    let balance=0;
+    entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
+      (e.lines||[]).filter(match).forEach(l=>{
+        balance+=(l.debit||0)-(l.credit||0);
+        rows.push([e.date,e.ref||e.id,e.desc,l.debit||0,l.credit||0,balance.fmt()]);
+      });
     });
   });
   const csv=rows.map(r=>r.join(',')).join('\n');
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
-  const fname = selAccs.length===1 ? selAccs[0].code : (selAccs.length+'accts');
+  const fname = selAccs.length===1 ? selAccs[0].code : (selAccs.length+'accounts');
   const a=document.createElement('a');a.href=url;a.download=`Ledger_${fname}_Boubyan.csv`;a.click();
 }
 
@@ -8514,6 +8581,7 @@ function recordVendorPayment() {
   document.getElementById('vndPayAmt').value  = '';
   document.getElementById('vndPayDate').value = new Date().toISOString().split('T')[0];
   document.getElementById('vndPayNotes').value = '';
+  document.getElementById('vndPayCheckNo').value = '';
   document.getElementById('vendorPayModal').classList.add('open');
 }
 
@@ -8523,6 +8591,7 @@ async function saveVendorPayment() {
   const amount = parseFloat(document.getElementById('vndPayAmt').value);
   const date   = document.getElementById('vndPayDate').value;
   const notes  = document.getElementById('vndPayNotes').value.trim();
+  const checkNo= document.getElementById('vndPayCheckNo')?.value.trim() || '';
   const payCode= document.getElementById('vndPayMethod').value;
   if (!amount || !date) { alert('أدخل المبلغ والتاريخ'); return; }
 
@@ -8530,7 +8599,7 @@ async function saveVendorPayment() {
   const vendorAcc  = accounts.find(a=>a.id===v.accountId) || { id:v.accountId, code:v.accountId, name:v.name };
   const payAcc     = accounts.find(a=>a.code===payCode)   || { id:payCode, code:payCode, name:payCode };
   const payLabels  = {'1100':'الصندوق — نقدي','1110':'البنك — الحساب الجاري','1120':'K-Net / Visa / Master'};
-  const desc = `دفعة للمورد: ${v.name}${notes?' — '+notes:''}`;
+  const desc = `دفعة للمورد: ${v.name}${notes?' — '+notes:''}${checkNo?' — شيك #'+checkNo:''}`;
 
   const entry = {
     id: 'JE-VND-' + Date.now(), date, desc,
@@ -8560,12 +8629,9 @@ function recordVendorPurchase(vendorId) {
   document.getElementById('vndPurAmt').value   = '';
   document.getElementById('vndPurDate').value  = new Date().toISOString().split('T')[0];
   document.getElementById('vndPurNotes').value = '';
+  document.getElementById('vndPurCheckNo').value = '';
   document.getElementById('vndPurPayVia').value = '';
-  // عبّئ قائمة حسابات المصروفات من شجرة الحسابات
-  const expAccts = getCoaAccounts().filter(a => a.type === 'expense' && a.status !== 'inactive');
-  const sel = document.getElementById('vndPurAccount');
-  sel.innerHTML = '<option value="">— اختر حساب المصروف —</option>' +
-    expAccts.map(a => `<option value="${a.code}">${a.code} — ${a.name}</option>`).join('');
+  document.getElementById('vndPurAccountWrap').innerHTML = accPickerHTML('vndPurAccountTxt','vndPurAccount','vndPurAccountDrop','expense','— اختر حساب المصروف —');
   document.getElementById('vendorPurchaseModal').classList.add('open');
 }
 
@@ -8577,6 +8643,7 @@ async function saveVendorPurchase() {
   const expCode= document.getElementById('vndPurAccount').value;
   const payVia = document.getElementById('vndPurPayVia').value; // '' = على حساب المورد
   const notes  = document.getElementById('vndPurNotes').value.trim();
+  const checkNo= document.getElementById('vndPurCheckNo')?.value.trim() || '';
   if (!amount || !date) { alert('أدخل المبلغ والتاريخ'); return; }
   if (!expCode) { alert('اختر حساب المصروف'); return; }
 
@@ -8584,7 +8651,7 @@ async function saveVendorPurchase() {
   const expAcc    = accounts.find(a => a.code===expCode || a.id===expCode) || { id:expCode, code:expCode, name:expCode };
   const vendorAcc = accounts.find(a => a.id===v.accountId || a.code===v.accountId) || { id:v.accountId, code:v.accountId, name:v.name };
   const creditAcc = payVia ? (accounts.find(a=>a.code===payVia) || { id:payVia, code:payVia, name:payVia }) : vendorAcc;
-  const desc = `شراء من ${v.name}${notes?' — '+notes:''}`;
+  const desc = `شراء من ${v.name}${notes?' — '+notes:''}${checkNo?' — شيك #'+checkNo:''}`;
 
   const entry = {
     id: 'JE-VPUR-' + Date.now(), date, desc,
@@ -9964,10 +10031,13 @@ const DashWidgets = (() => {
     { id: 'w-kIns',         label: 'حصة التأمين',          icon: '🏥' },
     { id: 'w-kComm',        label: 'إجمالي العمولات',      icon: '👨‍⚕️' },
     { id: 'w-kPend',        label: 'عمولات معلّقة',        icon: '⏳' },
+    { id: 'w-kExp',         label: 'إجمالي المصاريف',      icon: '💸' },
+    { id: 'w-kNetIncome',   label: 'صافي الربح',           icon: '📈' },
     { id: 'w-ins-box',      label: 'تفصيل التأمين',        icon: '📊' },
     { id: 'w-charts-row',   label: 'الرسوم البيانية',       icon: '📈' },
     { id: 'w-chart-daily',  label: 'الرسم اليومي',          icon: '📊' },
-    { id: 'w-daily-table',  label: 'التفصيل اليومي',        icon: '📋' },
+    { id: 'w-daily-table',  label: 'التفصيل اليومي (طرق الدفع)', icon: '📋' },
+    { id: 'w-daily-pl',     label: 'التفصيل اليومي (إيراد/مصروف/صافي)', icon: '🧾' },
   ];
 
   let _prefs = {};
@@ -10156,6 +10226,7 @@ function openVoucherDetail(id){
       <span>التاريخ: <b>${v.date}</b></span>
       <span>${isR?'المستلم من':'المدفوع إلى'}: <b>${escHtml(v.payee||'—')}</b></span>
       <span>${isR?'وصل إلى':'مدفوع من'}: <b>${escHtml(v.assetAccName||'—')}</b></span>
+      ${v.checkNo?`<span>رقم الشيك: <b>${escHtml(v.checkNo)}</b></span>`:''}
     </div>
     <div style="max-height:44vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -10188,7 +10259,6 @@ function openVcModal(type, voucher) {
 
   // All active leaf accounts from COA
   _vcAllAccounts = getCoaAccounts().filter(a => a.status !== 'inactive' && !a.isGroup && a.code);
-  const assets = _vcAllAccounts.filter(a => a.code.startsWith('1'));
 
   // Header
   document.getElementById('vcModalHeader').className = 'vc-header ' + (isReceipt ? 'vc-header-receipt' : 'vc-header-payment');
@@ -10197,10 +10267,6 @@ function openVcModal(type, voucher) {
     : '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V2M22 12L12 22 2 12"/></svg>';
   document.getElementById('vcModalTitle').textContent = isReceipt ? 'سند قبض' : 'سند صرف';
   document.getElementById('vcModalSub').textContent   = isReceipt ? 'توثيق حركة نقدية واردة — قيد متعدد البنود' : 'توثيق حركة نقدية صادرة — قيد متعدد البنود';
-
-  // Asset account dropdown (always 1xxx — cash / bank)
-  document.getElementById('vcModalAssetAcc').innerHTML =
-    assets.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
 
   // Labels: asset side badge + distribution side badge
   const assetBadge = document.getElementById('vcAssetBadge');
@@ -10221,17 +10287,23 @@ function openVcModal(type, voucher) {
   document.getElementById('vcLines').innerHTML = '';
   if (voucher) {
     document.getElementById('vcModalTitle').textContent += ' — تعديل';
+    const aAcc = _vcAllAccounts.find(a=>String(a.id)===String(voucher.assetAccId)) || {code:'',name:voucher.assetAccName||''};
     document.getElementById('vcModalAssetAcc').value = voucher.assetAccId || '';
+    document.getElementById('vcModalAssetAccTxt').value = voucher.assetAccId ? `${aAcc.code} — ${aAcc.name}` : '';
     document.getElementById('vcModalDate').value  = voucher.date || new Date().toISOString().slice(0,10);
     document.getElementById('vcModalPayee').value = voucher.payee || '';
     document.getElementById('vcModalNotes').value = voucher.notes || '';
+    document.getElementById('vcModalCheckNo').value = voucher.checkNo || '';
     (voucher.lines||[]).forEach(l => addVcLine(l.accountId, l.amount, l.desc));
     if (!(voucher.lines||[]).length) addVcLine();
   } else {
     addVcLine();
+    document.getElementById('vcModalAssetAcc').value = '';
+    document.getElementById('vcModalAssetAccTxt').value = '';
     document.getElementById('vcModalDate').value  = new Date().toISOString().slice(0, 10);
     document.getElementById('vcModalPayee').value = '';
     document.getElementById('vcModalNotes').value = '';
+    document.getElementById('vcModalCheckNo').value = '';
   }
   calcVcTotal();
   document.getElementById('vcModal').classList.add('open');
@@ -10239,14 +10311,19 @@ function openVcModal(type, voucher) {
 
 function addVcLine(accId, amount, desc) {
   const id = ++_vcLineCount;
+  const acc = accId ? _vcAllAccounts.find(a=>String(a.id)===String(accId)) : null;
+  const dispVal = acc ? `${acc.code} — ${acc.name}` : '';
   const row = document.createElement('div');
   row.className = 'vc-line';
   row.id = `vcLine${id}`;
   row.innerHTML = `
-    <div>
-      <select class="finp" id="vcLineAcc${id}" style="width:100%;box-sizing:border-box;">
-        ${coaOptionsHTML('all', accId||'', '— اختر الحساب —')}
-      </select>
+    <div style="position:relative;">
+      <input class="finp" id="vcLineAccTxt${id}" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" value="${dispVal.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;"
+        oninput="filterAccPicker('vcLineAccTxt${id}','vcLineAcc${id}','vcLineAccDrop${id}','all')"
+        onfocus="filterAccPicker('vcLineAccTxt${id}','vcLineAcc${id}','vcLineAccDrop${id}','all')"
+        onblur="setTimeout(()=>{let d=document.getElementById('vcLineAccDrop${id}');if(d)d.style.display='none'},200)">
+      <input type="hidden" id="vcLineAcc${id}" value="${accId||''}">
+      <div id="vcLineAccDrop${id}" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
     </div>
     <input type="number" step="0.001" min="0" class="finp" id="vcLineAmt${id}" value="${amount!=null?amount:''}"
            placeholder="0.000" oninput="calcVcTotal()" style="direction:ltr;text-align:left">
@@ -10307,6 +10384,7 @@ async function saveVoucher() {
         type, date, lines, assetAccId: assetId,
         payee: document.getElementById('vcModalPayee').value,
         notes: document.getElementById('vcModalNotes').value,
+        checkNo: document.getElementById('vcModalCheckNo')?.value.trim() || '',
       })
     });
     const d = await r.json();
@@ -10668,6 +10746,7 @@ function openPayrollDetail(id){
       <span class="badge ${paid?'bg':'by'}">${paid?'مدفوع':'معلق'}</span>
       ${paid&&p.paidDate?`<span style="font-size:11px;color:var(--text3)">تاريخ الصرف: ${p.paidDate}</span>`:''}
       ${paid&&p.payMethod?`<span style="font-size:11px;color:var(--text3)">حساب الصرف: ${escHtml(p.payMethod)}</span>`:''}
+      ${paid&&p.checkNo?`<span style="font-size:11px;color:var(--text3)">رقم الشيك: ${escHtml(p.checkNo)}</span>`:''}
     </div>
     <div style="max-height:46vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -10744,7 +10823,10 @@ function openEmpModal(emp) {
   document.getElementById('empHousing').value    = emp?.housing || '';
   document.getElementById('empTransport').value  = emp?.transport || '';
   document.getElementById('empAllowances').value = emp?.allowances || '';
-  document.getElementById('empSalaryAcc').innerHTML = coaOptionsHTML('expense', emp?.salaryAccount||'', '— تلقائي حسب الوظيفة (طبي/إداري) —');
+  document.getElementById('empSalaryAccWrap').innerHTML = accPickerHTML('empSalaryAccTxt','empSalaryAcc','empSalaryAccDrop','expense','— تلقائي حسب الوظيفة (طبي/إداري) —');
+  { const sa = emp?.salaryAccount ? getCoaAccounts().find(a=>String(a.id)===String(emp.salaryAccount)||String(a.code)===String(emp.salaryAccount)) : null;
+    document.getElementById('empSalaryAcc').value = emp?.salaryAccount || '';
+    document.getElementById('empSalaryAccTxt').value = sa ? `${sa.code} — ${sa.name}` : ''; }
   document.getElementById('empRecovery').value   = emp?.recovery || '';
   document.getElementById('eosPreview').style.display = 'none';
   modal.classList.add('open');
@@ -10961,11 +11043,8 @@ let _payrollPayId = null;
 function markPayrollPaid(id) {
   _payrollPayId = id;
   document.getElementById('prPayDate').value = new Date().toISOString().slice(0,10);
-  const sel = document.getElementById('prPayAccount');
-  if (sel) {
-    const cash = coaOptionsHTML('cash', '');
-    sel.innerHTML = '<option value="">— اختر حساب الصرف —</option>' + (cash || coaOptionsHTML('asset', ''));
-  }
+  document.getElementById('prPayCheckNo').value = '';
+  document.getElementById('prPayAccountWrap').innerHTML = accPickerHTML('prPayAccountTxt','prPayAccount','prPayAccountDrop','cash','— اختر حساب الصرف —');
   document.getElementById('payrollPayModal').classList.add('open');
 }
 
@@ -10973,10 +11052,11 @@ async function savePayrollPayment() {
   const id = _payrollPayId; if(!id) return;
   const paidDate   = document.getElementById('prPayDate').value;
   const payAccount = document.getElementById('prPayAccount').value;
+  const checkNo    = document.getElementById('prPayCheckNo')?.value.trim() || '';
   if(!paidDate){ showToast('أدخل تاريخ الصرف','warning'); return; }
   if(!payAccount){ showToast('اختر حساب الصرف','warning'); return; }
   try {
-    const r = await fetch(`/api/payroll/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'paid',payAccount,paidDate})});
+    const r = await fetch(`/api/payroll/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'paid',payAccount,paidDate,checkNo})});
     const d = await r.json();
     if(d.success!==false){
       document.getElementById('payrollPayModal').classList.remove('open');
@@ -12953,7 +13033,14 @@ showTab = function(id, el) {
         <span class="vc-flow-badge vc-debit-badge" id="vcAssetBadge">مدين</span>
         <span id="vcAssetLblTxt">الحساب النقدي (وصل إلى)</span>
       </div>
-      <select class="finp" id="vcModalAssetAcc" style="min-height:40px"></select>
+      <div style="position:relative;flex:1;min-width:180px">
+        <input class="finp" id="vcModalAssetAccTxt" placeholder="ابحث بالكود أو الاسم..." autocomplete="off" style="min-height:40px;width:100%;box-sizing:border-box"
+          oninput="filterAccPicker('vcModalAssetAccTxt','vcModalAssetAcc','vcModalAssetAccDrop','asset')"
+          onfocus="filterAccPicker('vcModalAssetAccTxt','vcModalAssetAcc','vcModalAssetAccDrop','asset')"
+          onblur="setTimeout(()=>{let d=document.getElementById('vcModalAssetAccDrop');if(d)d.style.display='none'},200)">
+        <input type="hidden" id="vcModalAssetAcc" value="">
+        <div id="vcModalAssetAccDrop" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:999;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.5);"></div>
+      </div>
       <div class="vc-asset-amt" id="vcAssetAmt">0.000 د.ك</div>
     </div>
 
@@ -12978,7 +13065,10 @@ showTab = function(id, el) {
       </div>
     </div>
 
-    <div class="fr"><label class="flbl">ملاحظات</label><input type="text" class="finp" id="vcModalNotes" placeholder="اختياري" style="min-height:40px"></div>
+    <div class="fr2">
+      <div class="fr"><label class="flbl">رقم الشيك (إن وُجد)</label><input type="text" class="finp" id="vcModalCheckNo" placeholder="مثال: 000123" style="min-height:40px"></div>
+      <div class="fr"><label class="flbl">ملاحظات</label><input type="text" class="finp" id="vcModalNotes" placeholder="اختياري" style="min-height:40px"></div>
+    </div>
 
     <div class="mact">
       <button class="btn bp" id="vcSaveBtn" onclick="saveVoucher()" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px">
@@ -13068,7 +13158,7 @@ showTab = function(id, el) {
     </div>
     <div class="fr2">
       <div class="fr" style="margin:0"><label class="flbl">بدلات أخرى (د.ك)</label><input type="number" step="0.001" class="finp" id="empAllowances" placeholder="0.000"></div>
-      <div class="fr" style="margin:0"><label class="flbl">حساب الراتب (المصروف)</label><select class="finp" id="empSalaryAcc"></select></div>
+      <div class="fr" style="margin:0"><label class="flbl">حساب الراتب (المصروف)</label><div id="empSalaryAccWrap"></div></div>
     </div>
     <div class="fr2">
       <div class="fr" style="margin:0"><label class="flbl">استرداد إذن العمل الشهري (د.ك)</label><input type="number" step="0.001" class="finp" id="empRecovery" placeholder="0.000" title="المبلغ الذي يعيده الموظف شهرياً في حالة راتب إذن العمل (يُخصم من تكلفة الرواتب)"></div>
@@ -13111,8 +13201,9 @@ showTab = function(id, el) {
     <div class="mtit">💸 صرف الرواتب</div>
     <div class="fr"><label class="flbl">تاريخ الصرف *</label><input type="date" class="finp" id="prPayDate"></div>
     <div class="fr"><label class="flbl">حساب الصرف (نقد / بنك) *</label>
-      <select class="finp" id="prPayAccount"><option value="">— اختر حساب الصرف —</option></select>
+      <div id="prPayAccountWrap"></div>
     </div>
+    <div class="fr"><label class="flbl">رقم الشيك (إن وُجد)</label><input class="finp" id="prPayCheckNo" placeholder="مثال: 000123"></div>
     <div style="padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:11px;color:var(--text2);margin-bottom:4px;">
       📒 القيد: <strong style="color:var(--accent)">من ح/ الرواتب المستحقة (مدين)</strong> إلى <strong style="color:var(--accent)">ح/ حساب الصرف المختار (دائن)</strong>
     </div>

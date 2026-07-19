@@ -1136,7 +1136,7 @@ app.post('/api/doctor-expenses', (req, res) => {
 
 // Mark commission paid
 app.post('/api/commission/pay', (req, res) => {
-  const { doctor, month, payMethod, payDate } = req.body;
+  const { doctor, month, payMethod, payDate, checkNo } = req.body;
   const db = loadDB();
   const entry = (db.commissionHistory||[]).find(c => c.doctor === doctor && c.month === month);
   if (!entry) return res.status(404).json({ success: false, message: 'لم يتم إيجاد العمولة' });
@@ -1144,6 +1144,7 @@ app.post('/api/commission/pay', (req, res) => {
   entry.paid      = true;
   entry.payMethod = payMethod;
   entry.payDate   = payDate || new Date().toISOString().slice(0,10);
+  entry.checkNo   = checkNo || '';
 
   // Journal entry: Dr Commission Expense (5100) / Cr Cash or Bank
   const accs = db.chartOfAccounts || [];
@@ -1160,7 +1161,7 @@ app.post('/api/commission/pay', (req, res) => {
     if(!db.journalEntries) db.journalEntries=[];
     db.journalEntries.push({
       id:'JE-COM-'+Date.now(), date:entry.payDate,
-      desc:`عمولة د. ${doctor} — شهر ${month}`,
+      desc:`عمولة د. ${doctor} — شهر ${month}`+(checkNo?` — شيك #${checkNo}`:''),
       ref:`COM-${month}-${doctor}`, type:'commission',
       totalDebit:amt, totalCredit:amt,
       createdAt:new Date().toISOString(),
@@ -1373,6 +1374,34 @@ app.get('/api/stats', (req, res) => {
   const totalComm  = (db.commissionHistory || []).reduce((s, c) => s + (c.commission || 0), 0);
   const pendingComm= (db.commissionHistory || []).filter(c => !c.paid).reduce((s, c) => s + (c.commission || 0), 0);
 
+  // المصاريف والرواتب — مربوطة مباشرة بالقيود الفعلية (5xxx) لنفس الفترة المختارة،
+  // مع تفصيل يومي (إيراد/مصروف/رواتب/صافي) لكل تاريخ ظهرت فيه حركة.
+  const byDate = {};
+  let totalExpenses = 0, totalPayroll = 0;
+  for (const entry of entries) {
+    const d = entry.date;
+    if (!byDate[d]) byDate[d] = { revenue: 0, expenses: 0, payroll: 0 };
+    for (const line of entry.lines || []) {
+      const acc  = coa.find(a => a.id === line.accountId || a.code === line.accountId);
+      const code = acc?.code || line.accountCode || '';
+      if (!code) continue;
+      if (code.startsWith('4') && (line.credit || 0) > 0) byDate[d].revenue += line.credit || 0;
+      if (code.startsWith('5')) {
+        const net = (line.debit || 0) - (line.credit || 0);
+        byDate[d].expenses += net;
+        totalExpenses += net;
+        if (code === '5110' || code === '5120') { byDate[d].payroll += net; totalPayroll += net; }
+      }
+    }
+  }
+  const dailyBreakdown = Object.keys(byDate).sort().map(d => ({
+    date: d,
+    revenue:  r3(byDate[d].revenue),
+    expenses: r3(byDate[d].expenses),
+    payroll:  r3(byDate[d].payroll),
+    net:      r3(byDate[d].revenue - byDate[d].expenses),
+  }));
+
   res.json({
     totalRevenue:  r3(totalRevenue),
     insRecorded:   r3(insRevenue - insShare),
@@ -1384,6 +1413,10 @@ app.get('/api/stats', (req, res) => {
     workDays,
     totalComm:     r3(totalComm),
     pendingComm:   r3(pendingComm),
+    totalExpenses: r3(totalExpenses),
+    totalPayroll:  r3(totalPayroll),
+    netIncome:     r3(totalRevenue - totalExpenses),
+    dailyBreakdown,
     // breakdown by payment method
     byMethod: {
       cash:   r3(cashRevenue),
@@ -4775,6 +4808,20 @@ function runAutoRepairSuite(db) {
     if (synced) applied.push({ area: 'القيود', action: 'account-names-synced', name: synced + ' بند', to: 'حُدّثت أسماء الحسابات لتطابق الشجرة' });
   }
 
+  // 9. توحيد مراجع المصاريف المستحقة القديمة (كانت ACR-<timestamp> طويلاً) → ACR-0001 مقروء
+  {
+    let fixedAccrued = 0;
+    (db.accruedExpenses || []).slice().sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||''))).forEach(item => {
+      if (item.number) return;
+      const number = nextAccruedNo(db);
+      item.number = number;
+      const je = (db.journalEntries || []).find(e => e.id === item.jeId || e.ref === item.id);
+      if (je) { je.ref = number; je.reference = number; }
+      fixedAccrued++;
+    });
+    if (fixedAccrued) applied.push({ area: 'المصاريف المستحقة', action: 'accrued-refs-normalized', name: fixedAccrued + ' سجل', to: 'مراجع قصيرة مقروءة (ACR-...)' });
+  }
+
   return applied;
 }
 
@@ -6478,6 +6525,14 @@ function nextVoucherNo(db, type) {
   return `${prefix}-${String(next).padStart(4,'0')}`;
 }
 
+// رقم مرجع قصير مقروء للمصاريف المستحقة (بدل ACR-<timestamp> الطويل)
+function nextAccruedNo(db) {
+  const all = db.accruedExpenses || [];
+  const nums = all.map(a=>parseInt((a.number||'0').replace(/\D/g,''))||0);
+  const next = nums.length ? Math.max(...nums)+1 : 1;
+  return `ACR-${String(next).padStart(4,'0')}`;
+}
+
 app.get('/api/vouchers', (req,res)=>{
   const db=loadDB();
   let v=db.vouchers||[];
@@ -6489,7 +6544,7 @@ app.get('/api/vouchers', (req,res)=>{
 
 // يبني السند + قيده المتوازن من الطلب (مشترك بين الإضافة والتعديل)
 function buildVoucherAndJE(db, body, existing) {
-  const {type,date,payee,notes,assetAccId,lines} = body;
+  const {type,date,payee,notes,checkNo,assetAccId,lines} = body;
   const accounts=db.chartOfAccounts||[];
   const assetAcc=accounts.find(a=>String(a.id)===String(assetAccId)||String(a.code)===String(assetAccId))||{id:assetAccId||'',code:assetAccId||'',name:'حساب نقدي'};
   const resolvedLines=(lines||[]).filter(l=>(parseFloat(l.amount)||0)>0).map(l=>{
@@ -6500,7 +6555,7 @@ function buildVoucherAndJE(db, body, existing) {
   const number = existing?.number || nextVoucherNo(db,type);
   const voucher={
     id: existing?.id || 'VCH-'+Date.now(), number, type, date, amount:total,
-    payee:payee||'', notes:notes||'',
+    payee:payee||'', notes:notes||'', checkNo:checkNo||'',
     assetAccId:assetAcc.id, assetAccName:assetAcc.name,
     lines:resolvedLines,
     createdAt: existing?.createdAt || new Date().toISOString(),
@@ -6515,7 +6570,7 @@ function buildVoucherAndJE(db, body, existing) {
     jeLines.push({accountId:assetAcc.id,accountCode:assetAcc.code,accountName:assetAcc.name,debit:0,credit:total});
   }
   const lineNote = resolvedLines.map(l=>l.desc).filter(Boolean).join('، ');
-  const jeDesc=(type==='receipt'?`سند قبض ${number}`:`سند صرف ${number}`)+(payee?` — ${payee}`:'')+(lineNote?` — ${lineNote}`:'');
+  const jeDesc=(type==='receipt'?`سند قبض ${number}`:`سند صرف ${number}`)+(payee?` — ${payee}`:'')+(lineNote?` — ${lineNote}`:'')+(checkNo?` — شيك #${checkNo}`:'');
   const je={ id:'JE-'+number, date, desc:jeDesc, description:jeDesc,
     ref:number, reference:number, type, totalDebit:total, totalCredit:total,
     createdAt:new Date().toISOString(), lines:jeLines };
@@ -6783,8 +6838,9 @@ function buildPayrollPayment(db, rec) {
   let payAcc = rec.payAccount ? findAcc(rec.payAccount) : null;
   if(!payAcc){ const credit = payMethodToAccount(rec.payMethod||'cash'); payAcc = accs.find(a=>a.code===credit.code)||{id:credit.code,code:credit.code,name:credit.name}; }
   const net = rec.totalNet || rec.totalGross || 0;
+  const checkTag = rec.checkNo ? ` — شيك #${rec.checkNo}` : '';
   const jes = [{ id:rec.paymentJeId, date:rec.paidDate,
-    desc:`دفع رواتب شهر ${rec.month}`, description:`دفع رواتب شهر ${rec.month}`,
+    desc:`دفع رواتب شهر ${rec.month}${checkTag}`, description:`دفع رواتب شهر ${rec.month}${checkTag}`,
     ref:'PAY-PMT-'+rec.month, reference:'PAY-PMT-'+rec.month, type:'payroll_payment',
     totalDebit:net, totalCredit:net, createdAt:new Date().toISOString(),
     lines:[ {accountId:pa.payable.id,accountCode:pa.payable.code,accountName:pa.payable.name,debit:net,credit:0},
@@ -6862,6 +6918,7 @@ app.put('/api/payroll/:id/status', (req,res)=>{
   rec.paidDate = req.body.paidDate || new Date().toISOString().slice(0,10);
   if(req.body.payAccount) rec.payAccount = String(req.body.payAccount);
   if(req.body.payMethod)  rec.payMethod  = req.body.payMethod;
+  rec.checkNo = req.body.checkNo || '';
   // عند وضع «مدفوع»: قيد الدفع (رواتب مستحقة → نقد) + قيد استرداد إذن العمل إن وُجد
   if(rec.status==='paid' && prevStatus!=='paid'){
     if(!db.journalEntries) db.journalEntries=[];
@@ -8658,8 +8715,9 @@ app.post('/api/accrued-expenses', requireAuth, (req, res) => {
   const { description, amount, month, accountCode, accountName, dueDate, vendor, notes } = req.body;
   if (!description || !amount || !month) return res.status(400).json({ error: 'الوصف والمبلغ والشهر مطلوبة' });
 
+  const number = nextAccruedNo(db);
   const item = {
-    id: 'ACR-' + Date.now(),
+    id: 'ACR-' + Date.now(), number,
     description, month,
     amount: parseFloat(amount),
     accountCode: accountCode || '2900',
@@ -8684,7 +8742,7 @@ app.post('/api/accrued-expenses', requireAuth, (req, res) => {
   db.journalEntries.push({
     id: jeId, date: monthEndDate(month),
     desc: `مصروف مستحق — ${description} — ${month}`,
-    ref: item.id, type: 'accrued-expense',
+    ref: number, reference: number, type: 'accrued-expense',
     totalDebit: amt, totalCredit: amt,
     createdAt: new Date().toISOString(),
     autoGenerated: true,
@@ -8714,10 +8772,11 @@ app.put('/api/accrued-expenses/:id', requireAuth, (req, res) => {
     const cashAcc = coa.find(a=>a.code==='1100') || { id:'1100', code:'1100', name:'الصندوق' };
     const amt = parseFloat(paidAmount || item.amount);
     db.journalEntries = db.journalEntries || [];
+    const payRef = (item.number || item.id) + '-PAY';
     db.journalEntries.push({
       id: 'JE-ACR-PAY-' + Date.now(), date: paidDate || new Date().toISOString().slice(0,10),
       desc: `سداد مصروف مستحق — ${item.description}`,
-      ref: item.id + '-PAY', type: 'accrued-expense-payment',
+      ref: payRef, reference: payRef, type: 'accrued-expense-payment',
       totalDebit: amt, totalCredit: amt,
       createdAt: new Date().toISOString(),
       lines: [
