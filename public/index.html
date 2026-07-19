@@ -2403,6 +2403,18 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <button class="qd-btn" onclick="qdApply('year')">هذه السنة</button>
       </div>
     </div>
+
+    <!-- الوضع المالي الآن — أرصدة لحظية (وليست مرتبطة بفلتر الفترة أعلاه) -->
+    <div class="tw" id="w-fin-position" style="margin-bottom:14px">
+      <div class="th2"><div class="tt">💼 الوضع المالي الآن</div><div style="font-size:10px;color:var(--text3)">أرصدة لحظية — لا تتأثر بفلتر الفترة</div></div>
+      <div class="kpi-grid" style="padding:14px">
+        <div class="kc bl"><div class="kl">النقدية (الصندوق)</div><div class="kv" id="finCash">—</div><div class="ks">د.ك</div></div>
+        <div class="kc bl"><div class="kl">البنك</div><div class="kv" id="finBank">—</div><div class="ks">د.ك</div></div>
+        <div class="kc ye"><div class="kl">ذمم مدينة (لنا)</div><div class="kv" id="finAR">—</div><div class="ks">تأمين + أخرى</div></div>
+        <div class="kc re"><div class="kl">ذمم دائنة (علينا)</div><div class="kv" id="finAP">—</div><div class="ks">موردون + مستحقات</div></div>
+      </div>
+    </div>
+
     <div class="kpi-grid" id="w-kpi-grid">
       <div class="kc bl" id="w-kTotal"><div class="kl" id="kl-kTotal" data-i18n="kpi.revenue">إجمالي الإيرادات</div><div class="kv" id="kTotal">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-total" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-total"></div></div>
       <div class="kc gr" id="w-kNet"><div class="kl" id="kl-kNet" data-i18n="kpi.net">صافي (بدون تأمين)</div><div class="kv" id="kNet">—</div><div class="ks" data-i18n="kpi.unit.cash">د.ك نقداً وشبكة</div><div class="kc-sparkline"><svg id="spk-net" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-net"></div></div>
@@ -2453,9 +2465,18 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
     </div>
 
     <div class="tw" id="w-daily-table">
-      <div class="th2"><div class="tt">تفصيل يومي — طرق الدفع</div></div>
+      <div class="th2" style="flex-wrap:wrap;gap:8px">
+        <div class="tt">تفصيل يومي — طرق الدفع</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input type="date" class="fi" id="dailyTblFrom" style="font-size:11px;padding:4px 8px" onchange="renderDailyTable()">
+          <span style="font-size:11px;color:var(--text3)">→</span>
+          <input type="date" class="fi" id="dailyTblTo" style="font-size:11px;padding:4px 8px" onchange="renderDailyTable()">
+          <button class="btn bw bsm" style="font-size:10px;padding:4px 8px" onclick="document.getElementById('dailyTblFrom').value='';document.getElementById('dailyTblTo').value='';renderDailyTable()">مسح</button>
+        </div>
+      </div>
       <table><thead><tr><th>التاريخ</th><th>كاش</th><th>K-Net</th><th>Visa</th><th>Master</th><th>تأمين</th><th>Link</th><th>الإجمالي</th></tr></thead>
       <tbody id="dailyBody"><tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">ارفع تقرير Excel أولاً</td></tr></tbody></table>
+      <div style="text-align:center;padding:8px" id="dailyTblMoreWrap"></div>
     </div>
 
     <!-- تفصيل يومي مربوط بالقيود الفعلية: إيراد / مصروف (يشمل الرواتب) / صافي — يتبع نفس فلتر لوحة التحكم أعلاه -->
@@ -5490,6 +5511,41 @@ function toggleFilter() {
   document.getElementById('fRange').style.display = t === 'range' ? 'flex' : 'none';
 }
 
+// جدول «تفصيل يومي — طرق الدفع» له فلتر تاريخ خاص به (منفصل عن فلتر لوحة التحكم أعلاه)
+// وعرض مختصر (آخر 10 أيام) بدل سرد كل الأيام دفعة واحدة
+let _dashDailyRows   = [];
+let _dailyTblExpanded = false;
+function renderDailyTable() {
+  const body = document.getElementById('dailyBody');
+  if (!body) return;
+  let rows = _dashDailyRows.slice();
+  const from = document.getElementById('dailyTblFrom')?.value;
+  const to   = document.getElementById('dailyTblTo')?.value;
+  if (from) rows = rows.filter(d => d.date >= from);
+  if (to)   rows = rows.filter(d => d.date <= to);
+  rows.sort((a, b) => b.date.localeCompare(a.date)); // الأحدث أولاً
+  const LIMIT = 10;
+  const shown = _dailyTblExpanded ? rows : rows.slice(0, LIMIT);
+  body.innerHTML = shown.length ?
+    shown.map(d => `<tr>
+      <td>${d.date}</td>
+      <td class="num">${(d.cash||0).fmt()}</td>
+      <td class="num">${(d.knet||0).fmt()}</td>
+      <td class="num">${(d.visa||0).fmt()}</td>
+      <td class="num">${(d.master||0).fmt()}</td>
+      <td class="num" style="color:var(--warning)">${(d.insurance||0).fmt()}</td>
+      <td class="num">${(d.link||0).fmt()}</td>
+      <td class="num pos">${(d.total||0).fmt()}</td>
+    </tr>`).join('') :
+    '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا بيانات للفترة المحددة</td></tr>';
+  const moreWrap = document.getElementById('dailyTblMoreWrap');
+  if (moreWrap) {
+    moreWrap.innerHTML = rows.length > LIMIT
+      ? `<button class="btn bw bsm" onclick="_dailyTblExpanded=!_dailyTblExpanded;renderDailyTable()">${_dailyTblExpanded ? '▲ عرض أقل' : `▼ عرض كل الأيام (${rows.length})`}</button>`
+      : '';
+  }
+}
+
 async function loadDashboard() {
   DashWidgets.apply();
   await loadAll();
@@ -5505,10 +5561,20 @@ async function loadDashboard() {
     if (to) params += `${params?'&':'?'}to=${to}`;
   }
   
+  // الوضع المالي الآن — أرصدة لحظية من الميزانية العمومية، بمعزل عن فلتر الفترة
+  fetch(`${API}/financial-statements`).then(r=>r.json()).then(fs=>{
+    const bs = fs?.balanceSheet; if(!bs) return;
+    const set=(id,v)=>{const el=document.getElementById(id); if(el) el.textContent=(v||0).fmt();};
+    set('finCash', bs.assets.current.cash);
+    set('finBank', bs.assets.current.bank);
+    set('finAR',   bs.assets.current.insuranceReceivable + bs.assets.current.otherReceivable);
+    set('finAP',   bs.liabilities.total);
+  }).catch(()=>{});
+
   try {
     const r = await fetch(`${API}/stats${params}`);
     const s = await r.json();
-    
+
     animateCount(document.getElementById('kTotal'), s.totalRevenue);
     animateCount(document.getElementById('kNet'),   s.netCash);
     animateCount(document.getElementById('kIns'),   s.insShare);
@@ -5542,19 +5608,10 @@ async function loadDashboard() {
     }
     
     document.getElementById('dashSub').textContent = `${filtered.length} يوم — ${filtered.filter(d=>d.total>0).length} يوم عمل`;
-    
-    document.getElementById('dailyBody').innerHTML = filtered.length ?
-      filtered.map(d => `<tr>
-        <td>${d.date}</td>
-        <td class="num">${(d.cash||0).fmt()}</td>
-        <td class="num">${(d.knet||0).fmt()}</td>
-        <td class="num">${(d.visa||0).fmt()}</td>
-        <td class="num">${(d.master||0).fmt()}</td>
-        <td class="num" style="color:var(--warning)">${(d.insurance||0).fmt()}</td>
-        <td class="num">${(d.link||0).fmt()}</td>
-        <td class="num pos">${(d.total||0).fmt()}</td>
-      </tr>`).join('') :
-      '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">لا بيانات للفترة المحددة</td></tr>';
+
+    // جدول التفصيل اليومي (طرق الدفع) له فلتر مستقل خاص به + عرض مختصر بدل كل الأيام دفعة واحدة
+    _dashDailyRows = filtered;
+    renderDailyTable();
 
     // تفصيل يومي من القيود الفعلية (إيراد/مصروف/رواتب/صافي) — نفس فلتر الفترة أعلاه
     const plRows = s.dailyBreakdown || [];
@@ -10026,6 +10083,7 @@ function clearAllNotifs() { NotifCenter.clearAllNotifs(); }
 // ══════════════════════════════════════════════════════
 const DashWidgets = (() => {
   const WIDGETS = [
+    { id: 'w-fin-position', label: 'الوضع المالي الآن',    icon: '💼' },
     { id: 'w-kTotal',       label: 'إجمالي الإيرادات',    icon: '💰' },
     { id: 'w-kNet',         label: 'صافي الإيرادات',       icon: '✅' },
     { id: 'w-kIns',         label: 'حصة التأمين',          icon: '🏥' },
