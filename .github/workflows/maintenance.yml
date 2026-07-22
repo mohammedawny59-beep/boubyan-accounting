@@ -1,0 +1,33 @@
+name: Weekly Maintenance Report
+
+on:
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 6 * * 1'   # Every Monday at 06:00 UTC
+  workflow_dispatch:        # Allow manual trigger
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run maintenance report
+        run: node scripts/maintenance-report.js > maintenance-report.md
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: maintenance-report-${{ github.run_number }}
+          path: maintenance-report.md
+          retention-days: 90

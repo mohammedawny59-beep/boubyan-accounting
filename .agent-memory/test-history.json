@@ -1,0 +1,43 @@
+[
+  {
+    "date": "2026-07-02",
+    "score": 88,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "findings": [
+      {
+        "severity": "high",
+        "title": "مشكلة تجريبية",
+        "category": "cat"
+      }
+    ],
+    "metrics": {}
+  },
+  {
+    "date": "2026-07-02",
+    "score": 88,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "findings": [
+      {
+        "severity": "high",
+        "title": "مشكلة تجريبية",
+        "category": "cat"
+      },
+      {
+        "severity": "info",
+        "title": "فحص نجح",
+        "category": "cat"
+      }
+    ],
+    "metrics": {
+      "سرعة": {
+        "value": 95,
+        "unit": "%",
+        "ok": true
+      }
+    }
+  }
+]

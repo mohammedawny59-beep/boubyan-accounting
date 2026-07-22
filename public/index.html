@@ -2417,11 +2417,12 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
 
     <div class="kpi-grid" id="w-kpi-grid">
       <div class="kc bl" id="w-kTotal"><div class="kl" id="kl-kTotal" data-i18n="kpi.revenue">إجمالي الإيرادات</div><div class="kv" id="kTotal">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-total" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-total"></div></div>
-      <div class="kc re" id="w-kExp"><div class="kl">إجمالي المصاريف (وفيها الرواتب)</div><div class="kv" id="kExp">—</div><div class="ks">د.ك — لنفس الفترة</div></div>
-      <div class="kc gr" id="w-kNetIncome"><div class="kl">صافي الربح</div><div class="kv" id="kNetIncome">—</div><div class="ks">إيرادات − مصاريف</div></div>
+      <div class="kc gr" id="w-kNet"><div class="kl" id="kl-kNet" data-i18n="kpi.net">صافي (بدون تأمين)</div><div class="kv" id="kNet">—</div><div class="ks" data-i18n="kpi.unit.cash">د.ك نقداً وشبكة</div><div class="kc-sparkline"><svg id="spk-net" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-net"></div></div>
+      <div class="kc re" id="w-kIns"><div class="kl" id="kl-kIns" data-i18n="kpi.insurance">حصة التأمين</div><div class="kv" id="kIns">—</div><div class="ks" data-i18n="kpi.unit.ins">د.ك — 25% من الأصلي</div><div class="kc-sparkline"><svg id="spk-ins" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-ins"></div></div>
       <div class="kc or" id="w-kComm"><div class="kl" id="kl-kComm" data-i18n="kpi.commission">إجمالي العمولات</div><div class="kv" id="kComm">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-comm" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-comm"></div></div>
       <div class="kc ye" id="w-kPend"><div class="kl" id="kl-kPend" data-i18n="kpi.pending">عمولات معلّقة</div><div class="kv" id="kPend">—</div><div class="ks" data-i18n="kpi.unit.unpaid">د.ك غير مدفوعة</div><div class="kc-sparkline"><svg id="spk-pend" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-pend"></div></div>
-      <!-- «صافي بدون تأمين» و«حصة التأمين» أُزيلا من هنا لتكرارهما في صندوق 🏥 تفصيل التأمين أدناه بتفصيل أوضح -->
+      <div class="kc re" id="w-kExp"><div class="kl">إجمالي المصاريف (والرواتب)</div><div class="kv" id="kExp">—</div><div class="ks">د.ك — لنفس الفترة</div></div>
+      <div class="kc gr" id="w-kNetIncome"><div class="kl">صافي الربح</div><div class="kv" id="kNetIncome">—</div><div class="ks">إيرادات − مصاريف</div></div>
     </div>
     <div class="ins-box" id="w-ins-box">
       <div class="ins-title" data-i18n="ins.title">🏥 تفصيل التأمين</div>
@@ -5575,6 +5576,8 @@ async function loadDashboard() {
     const s = await r.json();
 
     animateCount(document.getElementById('kTotal'), s.totalRevenue);
+    animateCount(document.getElementById('kNet'),   s.netCash);
+    animateCount(document.getElementById('kIns'),   s.insShare);
     animateCount(document.getElementById('kComm'),  s.totalComm);
     animateCount(document.getElementById('kPend'),  s.pendingComm);
     animateCount(document.getElementById('kExp'),       s.totalExpenses||0);
@@ -10082,10 +10085,12 @@ const DashWidgets = (() => {
   const WIDGETS = [
     { id: 'w-fin-position', label: 'الوضع المالي الآن',    icon: '💼' },
     { id: 'w-kTotal',       label: 'إجمالي الإيرادات',    icon: '💰' },
-    { id: 'w-kExp',         label: 'إجمالي المصاريف',      icon: '💸' },
-    { id: 'w-kNetIncome',   label: 'صافي الربح',           icon: '📈' },
+    { id: 'w-kNet',         label: 'صافي الإيرادات',       icon: '✅' },
+    { id: 'w-kIns',         label: 'حصة التأمين',          icon: '🏥' },
     { id: 'w-kComm',        label: 'إجمالي العمولات',      icon: '👨‍⚕️' },
     { id: 'w-kPend',        label: 'عمولات معلّقة',        icon: '⏳' },
+    { id: 'w-kExp',         label: 'إجمالي المصاريف',      icon: '💸' },
+    { id: 'w-kNetIncome',   label: 'صافي الربح',           icon: '📈' },
     { id: 'w-ins-box',      label: 'تفصيل التأمين',        icon: '📊' },
     { id: 'w-charts-row',   label: 'الرسوم البيانية',       icon: '📈' },
     { id: 'w-chart-daily',  label: 'الرسم اليومي',          icon: '📊' },
@@ -14538,18 +14543,26 @@ function refreshDashSparklines() {
     return arr;
   }
   const kTotal = parseFloat(document.getElementById('kTotal')?.textContent?.replace(/[^\d.]/g,'')) || 0;
+  const kNet   = parseFloat(document.getElementById('kNet')?.textContent?.replace(/[^\d.]/g,''))   || 0;
+  const kIns   = parseFloat(document.getElementById('kIns')?.textContent?.replace(/[^\d.]/g,''))   || 0;
   const kComm  = parseFloat(document.getElementById('kComm')?.textContent?.replace(/[^\d.]/g,''))  || 0;
   const kPend  = parseFloat(document.getElementById('kPend')?.textContent?.replace(/[^\d.]/g,''))  || 0;
-  if (!kTotal) return; // no data yet
+  if (!kTotal && !kNet) return; // no data yet
   const data = {
     total: trendFrom(kTotal, 5),
+    net:   trendFrom(kNet,   5),
+    ins:   trendFrom(kIns,   5),
     comm:  trendFrom(kComm,  5),
     pend:  trendFrom(kPend,  5),
   };
   drawSparkline('spk-total', data.total, '#3b82f6');
+  drawSparkline('spk-net',   data.net,   '#10b981');
+  drawSparkline('spk-ins',   data.ins,   '#ef4444');
   drawSparkline('spk-comm',  data.comm,  '#f97316');
   drawSparkline('spk-pend',  data.pend,  '#eab308');
   renderKpiTrend('trend-total', data.total);
+  renderKpiTrend('trend-net',   data.net);
+  renderKpiTrend('trend-ins',   data.ins);
   renderKpiTrend('trend-comm',  data.comm);
   renderKpiTrend('trend-pend',  data.pend);
 }

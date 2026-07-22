@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="بوبيان — نظام محاسبة ذكي بالذكاء الاصطناعي للعيادات والشركات. بديل QuickBooks و Zoho بالعربي. ابدأ تجربتك المجانية 14 يوم.">
+<meta name="keywords" content="نظام محاسبة, برنامج محاسبة, محاسبة عيادات, محاسبة بالعربي, AI accounting, Kuwait accounting software">
+
+<!-- Open Graph -->
+<meta property="og:type"        content="website">
+<meta property="og:title"       content="بوبيان — نظام المحاسبة الذكي للعيادات والشركات">
+<meta property="og:description" content="نظام محاسبة مدعوم بالذكاء الاصطناعي. أتمتة القيود، تقارير فورية، وإدارة ماليه احترافية. بديل QuickBooks بالعربي.">
+<meta property="og:image"       content="/og-image.png">
+<meta property="og:url"         content="https://boubyan.com">
+<meta name="twitter:card"       content="summary_large_image">
+<meta name="twitter:title"      content="بوبيان — نظام المحاسبة الذكي">
+<meta name="twitter:description" content="محاسبة ذكية للعيادات والشركات. ابدأ مجاناً.">
+
+<title>بوبيان — نظام المحاسبة الذكي | AI Accounting for Clinics & Businesses</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── نفس نظام تصميم الداشبورد (Slate Pro Dark) — ألوان وحواف وظلال موحّدة ── */
+:root {
+  --bg:          #0f1117;   /* نفس خلفية الداشبورد */
+  --bg-card:     #161b27;   /* نفس سطح البطاقات */
+  --bg-input:    #1c2233;   /* نفس خلفية الحقول */
+  --bg-glass:    rgba(255,255,255,0.03);
+  --border:      #252d42;   /* نفس لون الحدود */
+  --border-act:  #3a4560;
+  --text:        #e2e8f0;
+  --text-muted:  #94a3b8;
+  --primary:     #3b82f6;   /* نفس الأزرق الأساسي */
+  --primary-h:   #2563eb;
+  --accent:      #10b981;   /* نفس الأخضر (إيجابي) */
+  --warn:        #f59e0b;
+  --red:         #ef4444;
+  --radius:      10px;      /* نفس أنصاف الأقطار --r-md */
+  --radius-lg:   14px;      /* --r-lg */
+  --shadow:      0 4px 20px rgba(0,0,0,.4);
+  --shadow-acc:  0 4px 16px rgba(59,130,246,0.18);
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'IBM Plex Sans Arabic', 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+}
+/* نفس نقش الشبكة الخفيف في الداشبورد */
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 32px 32px; pointer-events: none; z-index: 0;
+}
+
+/* ── NAV ── */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(4,9,21,0.92);
+  backdrop-filter: blur(24px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 5%;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 64px;
+}
+.nav-logo {
+  font-size: 1.25rem; font-weight: 700; color: var(--text);
+  text-decoration: none; display: flex; align-items: center; gap: 8px;
+}
+.nav-logo span { color: var(--primary); }
+.nav-links { display: flex; gap: 32px; list-style: none; }
+.nav-links a { color: var(--text-muted); text-decoration: none; font-size: .9rem; transition: color .2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-cta { display: flex; gap: 12px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 22px; border-radius: var(--radius); font-weight: 600;
+  font-size: .9rem; cursor: pointer; text-decoration: none; border: none;
+  transition: all .2s; font-family: inherit;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-h); transform: translateY(-1px); box-shadow: var(--shadow-acc); }
+.btn-outline { background: var(--bg-glass); color: var(--text); border: 1px solid var(--border); }
+.btn-outline:hover { border-color: var(--border-act); background: var(--bg-input); }
+.btn-lg { padding: 13px 30px; font-size: 1rem; border-radius: var(--radius); }
+.btn-xl { padding: 16px 44px; font-size: 1.05rem; border-radius: var(--radius); }
+
+/* ── HERO ── */
+.hero {
+  padding: 96px 5% 80px;
+  text-align: center;
+  background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(59,130,246,.09) 0%, transparent 70%);
+}
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(59,130,246,.12); border: 1px solid rgba(59,130,246,.3);
+  border-radius: 100px; padding: 6px 16px; font-size: .8rem; color: var(--primary);
+  margin-bottom: 28px;
+}
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 700; line-height: 1.2;
+  margin-bottom: 20px;
+}
+.hero h1 em { font-style: normal; color: var(--primary); }
+.hero p {
+  font-size: 1.15rem; color: var(--text-muted); max-width: 600px;
+  margin: 0 auto 40px;
+}
+.hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+.hero-trust {
+  margin-top: 48px; display: flex; gap: 32px; justify-content: center; flex-wrap: wrap;
+  color: var(--text-muted); font-size: .85rem;
+}
+.hero-trust span { display: flex; align-items: center; gap: 6px; }
+.trust-icon { color: var(--accent); font-size: 1rem; }
+
+/* ── FEATURES ── */
+.section { padding: 80px 5%; }
+.section-label {
+  text-align: center; color: var(--primary); font-size: .8rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .1em; margin-bottom: 12px;
+}
+.section-title { text-align: center; font-size: clamp(1.5rem, 3vw, 2.25rem); font-weight: 700; margin-bottom: 12px; }
+.section-sub { text-align: center; color: var(--text-muted); max-width: 520px; margin: 0 auto 60px; }
+
+.features-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px; max-width: 1100px; margin: 0 auto;
+}
+.feature-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 28px;
+  transition: border-color .2s, transform .2s, box-shadow .2s;
+}
+.feature-card:hover { border-color: var(--border-act); transform: translateY(-3px); box-shadow: var(--shadow); }
+.feature-icon {
+  width: 48px; height: 48px; border-radius: var(--radius);
+  background: rgba(59,130,246,.12); display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; margin-bottom: 16px;
+}
+.feature-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+.feature-card p { color: var(--text-muted); font-size: .875rem; line-height: 1.6; }
+
+/* ── STATS ── */
+.stats-band {
+  background: var(--bg-card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  padding: 52px 5%;
+}
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 32px; max-width: 900px; margin: 0 auto; text-align: center; }
+.stat-val { font-size: 2.25rem; font-weight: 700; color: var(--accent); }
+.stat-lbl { color: var(--text-muted); font-size: .875rem; margin-top: 4px; }
+
+/* ── PRICING ── */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px; max-width: 1080px; margin: 0 auto;
+}
+.price-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 32px 28px;
+  display: flex; flex-direction: column; gap: 20px;
+  transition: border-color .2s;
+}
+.price-card.popular {
+  border-color: var(--primary);
+  background: linear-gradient(160deg, rgba(59,130,246,.08) 0%, var(--bg-card) 60%);
+  position: relative;
+  box-shadow: var(--shadow-acc);
+}
+.popular-badge {
+  position: absolute; top: -13px; right: 50%; transform: translateX(50%);
+  background: var(--primary); color: #fff; font-size: .75rem; font-weight: 700;
+  padding: 4px 16px; border-radius: 100px;
+}
+.price-plan { font-size: .8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; }
+.price-amount { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+.price-amount sup { font-size: 1rem; font-weight: 500; vertical-align: top; margin-top: 8px; }
+.price-amount sub { font-size: .875rem; font-weight: 400; color: var(--text-muted); }
+.price-desc { color: var(--text-muted); font-size: .875rem; }
+.price-features { list-style: none; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.price-features li {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: .875rem; color: var(--text-muted);
+}
+.price-features li::before { content: "✓"; color: var(--accent); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+.price-features li.disabled { opacity: .4; }
+.price-features li.disabled::before { content: "✕"; color: var(--red); }
+
+/* ── FAQ ── */
+.faq-list { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.faq-item {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.faq-q {
+  padding: 18px 20px; cursor: pointer; display: flex; justify-content: space-between;
+  align-items: center; font-weight: 500; font-size: .95rem;
+  list-style: none; user-select: none;
+}
+.faq-q::after { content: "+"; color: var(--primary); font-size: 1.25rem; font-weight: 300; transition: transform .2s; }
+details[open] .faq-q::after { transform: rotate(45deg); }
+.faq-a { padding: 0 20px 18px; color: var(--text-muted); font-size: .9rem; line-height: 1.7; }
+
+/* ── REGISTER MODAL ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.7); backdrop-filter: blur(6px);
+  align-items: center; justify-content: center; padding: 16px;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 40px 36px;
+  width: 100%; max-width: 440px; position: relative;
+}
+.modal h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; }
+.modal p { color: var(--text-muted); font-size: .875rem; margin-bottom: 28px; }
+.modal-close {
+  position: absolute; top: 16px; left: 16px;
+  background: none; border: none; color: var(--text-muted);
+  font-size: 1.5rem; cursor: pointer; padding: 4px 8px; border-radius: 6px;
+}
+.modal-close:hover { background: var(--bg-glass); }
+.form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.form-group label { font-size: .8rem; font-weight: 600; color: var(--text-muted); }
+.form-group input, .form-group select {
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; color: var(--text); font-size: .9rem; font-family: inherit;
+  transition: border-color .2s, box-shadow .2s; width: 100%;
+}
+.form-group input:focus, .form-group select:focus {
+  outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+.form-error { color: var(--red); font-size: .8rem; margin-top: -8px; display: none; }
+.form-error.show { display: block; }
+.register-btn { width: 100%; margin-top: 8px; }
+
+/* ── CTA BAND ── */
+.cta-band {
+  padding: 80px 5%; text-align: center;
+  background: linear-gradient(135deg, rgba(59,130,246,.08) 0%, rgba(16,185,129,.04) 100%);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.cta-band h2 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 700; margin-bottom: 12px; }
+.cta-band p { color: var(--text-muted); margin-bottom: 36px; }
+
+/* ── FOOTER ── */
+footer {
+  padding: 40px 5%; text-align: center; color: var(--text-muted); font-size: .825rem;
+  border-top: 1px solid var(--border);
+}
+footer a { color: var(--text-muted); text-decoration: none; }
+footer a:hover { color: var(--text); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 640px) {
+  nav { padding: 0 4%; }
+  .nav-links { display: none; }
+  .hero { padding: 64px 4% 56px; }
+  .hero-trust { gap: 16px; }
+  .section { padding: 56px 4%; }
+  .pricing-grid { grid-template-columns: 1fr; }
+  .modal { padding: 28px 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── NAVIGATION ── -->
+<nav>
+  <a href="/landing.html" class="nav-logo">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#3b82f6"/><path d="M7 12h2l2-5 2 10 2-5h2" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    بوبيان <span>AI</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#features">المميزات</a></li>
+    <li><a href="#pricing">الأسعار</a></li>
+    <li><a href="#faq">الأسئلة الشائعة</a></li>
+  </ul>
+  <div class="nav-cta">
+    <a href="/index.html" class="btn btn-outline">تسجيل الدخول</a>
+    <button onclick="openRegister()" class="btn btn-primary">ابدأ مجاناً</button>
+  </div>
+</nav>
+
+<!-- ── HERO ── -->
+<section class="hero">
+  <div class="hero-badge">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>
+    مدعوم بـ Claude AI من Anthropic
+  </div>
+  <h1>المحاسبة الذكية<br>لـ<em>عيادتك وشركتك</em></h1>
+  <p>نظام محاسبة متكامل بالذكاء الاصطناعي — قيود تلقائية، تقارير فورية، ومراقبة مالية على مدار الساعة. بديل QuickBooks و Zoho بالعربي.</p>
+  <div class="hero-actions">
+    <button onclick="openRegister()" class="btn btn-primary btn-xl">ابدأ تجربتك المجانية — 14 يوم</button>
+    <a href="/index.html" class="btn btn-outline btn-lg">دخول النظام</a>
+  </div>
+  <div class="hero-trust">
+    <span><span class="trust-icon">✓</span> لا حاجة لبطاقة ائتمانية</span>
+    <span><span class="trust-icon">✓</span> إعداد في أقل من دقيقتين</span>
+    <span><span class="trust-icon">✓</span> متوافق مع IFRS</span>
+    <span><span class="trust-icon">✓</span> دعم عربي كامل</span>
+  </div>
+</section>
+
+<!-- ── STATS ── -->
+<div class="stats-band">
+  <div class="stats-grid">
+    <div><div class="stat-val">16</div><div class="stat-lbl">وحدة ذكاء اصطناعي متخصصة</div></div>
+    <div><div class="stat-val">95%</div><div class="stat-lbl">أتمتة في إدخال البيانات</div></div>
+    <div><div class="stat-val">14</div><div class="stat-lbl">يوماً تجربة مجانية كاملة</div></div>
+    <div><div class="stat-val">24/7</div><div class="stat-lbl">مراقبة ومستشار مالي ذكي</div></div>
+  </div>
+</div>
+
+<!-- ── FEATURES ── -->
+<section class="section" id="features">
+  <div class="section-label">المميزات</div>
+  <h2 class="section-title">كل ما تحتاجه في مكان واحد</h2>
+  <p class="section-sub">من إدارة القيود اليومية إلى التحليل المالي العميق — بالعربي وبالذكاء الاصطناعي.</p>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <h3>قيود محاسبية ذكية</h3>
+      <p>الذكاء الاصطناعي يصنّف المعاملات ويُنشئ القيود تلقائياً وفق معايير IFRS. وفّر 95% من وقت الإدخال اليدوي.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <h3>تقارير فورية بلمسة واحدة</h3>
+      <p>قائمة الدخل، الميزانية العمومية، التدفق النقدي — جاهزة في ثوانٍ. PDF أو Excel بضغطة زر.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🏥</div>
+      <h3>متخصص للعيادات والمراكز الطبية</h3>
+      <p>إدارة عائدات الأطباء، العمولات، التأمين الصحي، والمدفوعات اليومية. مصمم خصيصاً للقطاع الطبي.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔍</div>
+      <h3>مستشار مالي AI على مدار الساعة</h3>
+      <p>اسأل بالعربية: "ما هامش الربح هذا الشهر؟" أو "أين أكبر مصاريفي؟" — إجابة فورية من Claude AI.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⚖️</div>
+      <h3>توافق مع IFRS و الضريبة</h3>
+      <p>قيود مُصادق عليها وفق المعايير الدولية. وكيل امتثال ضريبي يراقب المتطلبات القانونية تلقائياً.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔒</div>
+      <h3>أمان تام وعزل كامل</h3>
+      <p>كل عميل بيئة معزولة تماماً. بيانات مشفّرة. نسخ احتياطية تلقائية. لا مشاركة أي بيانات بين العملاء.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📱</div>
+      <h3>واجهة عربية احترافية</h3>
+      <p>RTL بالكامل، ألوان احترافية، يعمل على الجوال والحاسوب. لا تدريب مطلوب — بديهي من أول يوم.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🏢</div>
+      <h3>للشركات والمجموعات</h3>
+      <p>أدر عدة فروع وكيانات من لوحة تحكم واحدة. صلاحيات مُحكمة لكل مستخدم. مثالي للمجموعات الطبية.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── PRICING ── -->
+<section class="section" id="pricing" style="background: var(--bg-card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="section-label">الأسعار</div>
+  <h2 class="section-title">خطط شفافة بدون مفاجآت</h2>
+  <p class="section-sub">ابدأ مجاناً. ارقِّ عند الحاجة. لا عقود سنوية إجبارية.</p>
+
+  <div class="pricing-grid">
+    <!-- Trial -->
+    <div class="price-card">
+      <div>
+        <div class="price-plan">تجريبي</div>
+        <div class="price-amount" style="margin: 12px 0;"><sup>$</sup>0<sub>/شهر</sub></div>
+        <div class="price-desc">14 يوماً مجاناً — لا بطاقة مطلوبة</div>
+      </div>
+      <ul class="price-features">
+        <li>2 مستخدمين</li>
+        <li>500 معاملة / شهر</li>
+        <li>التقارير الأساسية</li>
+        <li>مستشار AI محدود</li>
+        <li class="disabled">قاعدة بيانات مخصصة</li>
+        <li class="disabled">دعم أولوية</li>
+      </ul>
+      <button onclick="openRegister('trial')" class="btn btn-outline btn-lg">ابدأ مجاناً</button>
+    </div>
+
+    <!-- Starter -->
+    <div class="price-card">
+      <div>
+        <div class="price-plan">Starter</div>
+        <div class="price-amount" style="margin: 12px 0;"><sup>$</sup>29<sub>/شهر</sub></div>
+        <div class="price-desc">للعيادات الصغيرة والمكاتب</div>
+      </div>
+      <ul class="price-features">
+        <li>5 مستخدمين</li>
+        <li>5,000 معاملة / شهر</li>
+        <li>جميع التقارير</li>
+        <li>مستشار AI كامل</li>
+        <li>قاعدة بيانات مخصصة</li>
+        <li class="disabled">دعم أولوية</li>
+      </ul>
+      <button onclick="openRegister('starter')" class="btn btn-outline btn-lg">ابدأ الآن</button>
+    </div>
+
+    <!-- Pro — Popular -->
+    <div class="price-card popular">
+      <div class="popular-badge">الأكثر طلباً</div>
+      <div>
+        <div class="price-plan">Pro</div>
+        <div class="price-amount" style="margin: 12px 0;"><sup>$</sup>79<sub>/شهر</sub></div>
+        <div class="price-desc">للعيادات والشركات المتنامية</div>
+      </div>
+      <ul class="price-features">
+        <li>20 مستخدماً</li>
+        <li>50,000 معاملة / شهر</li>
+        <li>جميع التقارير + AI متقدم</li>
+        <li>16 وكيل ذكاء اصطناعي</li>
+        <li>بيئة معزولة تماماً</li>
+        <li>دعم أولوية</li>
+      </ul>
+      <button onclick="openRegister('pro')" class="btn btn-primary btn-lg">ابدأ بـ Pro</button>
+    </div>
+
+    <!-- Enterprise -->
+    <div class="price-card">
+      <div>
+        <div class="price-plan">Enterprise</div>
+        <div class="price-amount" style="margin: 12px 0;"><sup>$</sup>199<sub>/شهر</sub></div>
+        <div class="price-desc">للمجموعات والمستشفيات</div>
+      </div>
+      <ul class="price-features">
+        <li>مستخدمون غير محدودين</li>
+        <li>معاملات غير محدودة</li>
+        <li>جميع المميزات + API</li>
+        <li>SLA مضمون 99.9%</li>
+        <li>تهيئة مخصصة</li>
+        <li>مدير حساب مخصص</li>
+      </ul>
+      <a href="mailto:admin@boubyan.com" class="btn btn-outline btn-lg">تواصل معنا</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── FAQ ── -->
+<section class="section" id="faq">
+  <div class="section-label">الأسئلة الشائعة</div>
+  <h2 class="section-title">أجوبة على أسئلتك</h2>
+  <p class="section-sub">لم تجد إجابتك؟ تواصل معنا مباشرة.</p>
+
+  <div class="faq-list">
+    <details class="faq-item">
+      <summary class="faq-q">هل أحتاج خبرة محاسبية لاستخدام النظام؟</summary>
+      <div class="faq-a">لا. النظام مصمم لأصحاب العيادات والشركات أولاً. الذكاء الاصطناعي يهتم بالقيود والتصنيفات تلقائياً. أنت تُدخل الأرقام — النظام يفهم المحاسبة.</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">هل بياناتي آمنة ومعزولة عن باقي العملاء؟</summary>
+      <div class="faq-a">نعم تماماً. كل عميل يحصل على قاعدة بيانات منفصلة ومعزولة. لا يوجد أي تشارك في البيانات بين العملاء. جميع البيانات مشفّرة ومحمية.</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">هل النظام متوافق مع المعايير المحاسبية الدولية IFRS؟</summary>
+      <div class="faq-a">نعم. النظام مبني على معايير IFRS. وكيل الامتثال الضريبي يراقب تلقائياً أي تغييرات في المتطلبات القانونية ويُنبّهك فوراً.</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">هل يمكنني الاشتراك بدون بطاقة ائتمانية؟</summary>
+      <div class="faq-a">نعم. التجربة المجانية 14 يوماً لا تتطلب أي بيانات دفع. يمكنك الاشتراك وتجربة كل المميزات مجاناً ثم تقرر.</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">هل يدعم النظام عدة مستخدمين وصلاحيات مختلفة؟</summary>
+      <div class="faq-a">نعم. يمكنك إضافة فريقك بأدوار مختلفة: مدير، محاسب، مشاهد. كل دور له صلاحيات محددة. في خطة Enterprise لا حدود على عدد المستخدمين.</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">هل يمكن نقل بياناتي من نظام آخر؟</summary>
+      <div class="faq-a">نعم. يدعم النظام استيراد Excel و CSV. فريق الدعم يساعدك على نقل البيانات من QuickBooks أو Zoho أو أي نظام آخر.</div>
+    </details>
+    <details class="faq-item">
+      <summary class="faq-q">هل النظام يعمل على الجوال؟</summary>
+      <div class="faq-a">نعم. الواجهة متجاوبة بالكامل وتعمل على الجوال والحاسوب والتابلت. تصميم عربي RTL احترافي على جميع الأجهزة.</div>
+    </details>
+  </div>
+</section>
+
+<!-- ── CTA BAND ── -->
+<div class="cta-band">
+  <h2>جاهز لتحويل محاسبتك إلى ذكاء اصطناعي؟</h2>
+  <p>انضم الآن وابدأ تجربتك المجانية — لا بطاقة ائتمانية، لا عقد، فقط نتائج.</p>
+  <button onclick="openRegister()" class="btn btn-primary btn-xl">ابدأ مجاناً الآن — 14 يوم</button>
+</div>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <p style="margin-bottom: 12px;">
+    <a href="#features">المميزات</a> · <a href="#pricing">الأسعار</a> · <a href="#faq">الأسئلة</a> ·
+    <a href="/index.html">دخول النظام</a> · <a href="mailto:admin@boubyan.com">تواصل معنا</a>
+  </p>
+  <p>© 2026 بوبيان للمحاسبة الذكية — جميع الحقوق محفوظة</p>
+</footer>
+
+<!-- ── REGISTER MODAL ── -->
+<div class="modal-overlay" id="registerOverlay" onclick="closeOnOverlay(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button class="modal-close" onclick="closeRegister()" aria-label="إغلاق">×</button>
+    <h2 id="modalTitle">إنشاء حساب مجاني</h2>
+    <p>ابدأ تجربتك المجانية 14 يوماً — لا بطاقة ائتمانية مطلوبة</p>
+
+    <form id="registerForm" onsubmit="submitRegister(event)" novalidate>
+      <div class="form-group">
+        <label for="reg-name">اسم العيادة / الشركة *</label>
+        <input type="text" id="reg-name" placeholder="مثال: عيادة الأمل للأسنان" required autocomplete="organization">
+      </div>
+      <div class="form-group">
+        <label for="reg-email">البريد الإلكتروني *</label>
+        <input type="email" id="reg-email" placeholder="admin@myclinic.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="reg-password">كلمة المرور * (8 أحرف على الأقل)</label>
+        <input type="password" id="reg-password" placeholder="••••••••" required minlength="8" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label for="reg-currency">العملة</label>
+        <select id="reg-currency" autocomplete="off">
+          <option value="KWD">دينار كويتي (KWD)</option>
+          <option value="SAR">ريال سعودي (SAR)</option>
+          <option value="AED">درهم إماراتي (AED)</option>
+          <option value="USD">دولار أمريكي (USD)</option>
+          <option value="EGP">جنيه مصري (EGP)</option>
+        </select>
+      </div>
+      <div id="formError" class="form-error"></div>
+      <button type="submit" class="btn btn-primary register-btn btn-lg" id="submitBtn">
+        إنشاء الحساب مجاناً
+      </button>
+    </form>
+
+    <p style="text-align:center; margin-top: 16px; font-size: .8rem; color: var(--text-muted);">
+      بإنشاء الحساب توافق على <a href="#" style="color:var(--primary)">شروط الاستخدام</a>
+    </p>
+  </div>
+</div>
+
+<script>
+let selectedPlan = 'trial';
+
+function openRegister(plan) {
+  selectedPlan = plan || 'trial';
+  document.getElementById('registerOverlay').classList.add('open');
+  document.getElementById('reg-name').focus();
+}
+
+function closeRegister() {
+  document.getElementById('registerOverlay').classList.remove('open');
+  document.getElementById('formError').classList.remove('show');
+  document.getElementById('formError').textContent = '';
+  document.getElementById('registerForm').reset();
+}
+
+function closeOnOverlay(e) {
+  if (e.target === document.getElementById('registerOverlay')) closeRegister();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRegister(); });
+
+async function submitRegister(e) {
+  e.preventDefault();
+  const name     = document.getElementById('reg-name').value.trim();
+  const email    = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const currency = document.getElementById('reg-currency').value;
+  const errEl    = document.getElementById('formError');
+  const btn      = document.getElementById('submitBtn');
+
+  errEl.classList.remove('show');
+
+  if (!name || !email || !password) {
+    errEl.textContent = 'يرجى ملء جميع الحقول المطلوبة';
+    errEl.classList.add('show');
+    return;
+  }
+  if (password.length < 8) {
+    errEl.textContent = 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
+    errEl.classList.add('show');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'جارٍ إنشاء الحساب...';
+
+  try {
+    const res = await fetch('/api/tenants/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password, currency }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      errEl.textContent = data.error || 'حدث خطأ — يرجى المحاولة مجدداً';
+      errEl.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = 'إنشاء الحساب مجاناً';
+      return;
+    }
+
+    // Success — redirect to app
+    closeRegister();
+    window.location.href = '/index.html?welcome=1&email=' + encodeURIComponent(email);
+  } catch {
+    errEl.textContent = 'تعذّر الاتصال بالخادم — تحقق من اتصالك بالإنترنت';
+    errEl.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'إنشاء الحساب مجاناً';
+  }
+}
+</script>
+</body>
+</html>

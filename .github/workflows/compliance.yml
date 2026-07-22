@@ -1,0 +1,41 @@
+name: Monthly Compliance Checklist
+
+on:
+  # schedule disabled 2026-07-03 — manual runs only (API cost control)
+  # schedule:
+  #     - cron: '0 7 1 * *'   # First day of every month at 07:00 UTC
+  workflow_dispatch:        # Allow manual trigger
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Generate compliance checklist
+        run: node scripts/compliance-check.js > /tmp/compliance.md
+
+      - name: Create GitHub Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/compliance.md', 'utf8');
+            const month = new Date().toISOString().slice(0, 7);
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `✅ تقرير الامتثال الشهري — ${month}`,
+              body,
+              labels: ['department:Compliance', 'needs-review'],
+            });
