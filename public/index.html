@@ -2420,7 +2420,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <div class="kc re" id="w-kExp"><div class="kl">إجمالي المصاريف (وفيها الرواتب)</div><div class="kv" id="kExp">—</div><div class="ks">د.ك — لنفس الفترة</div></div>
       <div class="kc gr" id="w-kNetIncome"><div class="kl">صافي الربح</div><div class="kv" id="kNetIncome">—</div><div class="ks">إيرادات − مصاريف</div></div>
       <div class="kc or" id="w-kComm"><div class="kl" id="kl-kComm" data-i18n="kpi.commission">إجمالي العمولات</div><div class="kv" id="kComm">—</div><div class="ks" data-i18n="kpi.unit.kd">د.ك</div><div class="kc-sparkline"><svg id="spk-comm" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-comm"></div></div>
-      <div class="kc ye" id="w-kPend"><div class="kl" id="kl-kPend" data-i18n="kpi.pending">عمولات معلّقة</div><div class="kv" id="kPend">—</div><div class="ks" data-i18n="kpi.unit.unpaid">د.ك غير مدفوعة</div><div class="kc-sparkline"><svg id="spk-pend" viewBox="0 0 80 28" preserveAspectRatio="none"></svg></div><div class="kc-trend" id="trend-pend"></div></div>
+      <div class="kc ye" id="w-kPend" onclick="showTab('doctors',null)" style="cursor:pointer" title="اضغط لعرض عمولات الدكاترة وصرف المعلّق منها"><div class="kl" id="kl-kPend" data-i18n="kpi.pending">عمولات معلّقة</div><div class="kv" id="kPend">—</div><div class="ks">د.ك مستحقة للدكاترة · رصيد تراكمي لا يتأثر بالفلتر ↗</div></div>
       <!-- «صافي بدون تأمين» و«حصة التأمين» أُزيلا من هنا لتكرارهما في صندوق 🏥 تفصيل التأمين أدناه بتفصيل أوضح -->
     </div>
     <div class="ins-box" id="w-ins-box">
@@ -14539,19 +14539,15 @@ function refreshDashSparklines() {
   }
   const kTotal = parseFloat(document.getElementById('kTotal')?.textContent?.replace(/[^\d.]/g,'')) || 0;
   const kComm  = parseFloat(document.getElementById('kComm')?.textContent?.replace(/[^\d.]/g,''))  || 0;
-  const kPend  = parseFloat(document.getElementById('kPend')?.textContent?.replace(/[^\d.]/g,''))  || 0;
   if (!kTotal) return; // no data yet
   const data = {
     total: trendFrom(kTotal, 5),
     comm:  trendFrom(kComm,  5),
-    pend:  trendFrom(kPend,  5),
   };
   drawSparkline('spk-total', data.total, '#3b82f6');
   drawSparkline('spk-comm',  data.comm,  '#f97316');
-  drawSparkline('spk-pend',  data.pend,  '#eab308');
   renderKpiTrend('trend-total', data.total);
   renderKpiTrend('trend-comm',  data.comm);
-  renderKpiTrend('trend-pend',  data.pend);
 }
 </script>
 
