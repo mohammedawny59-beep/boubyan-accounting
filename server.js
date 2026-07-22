@@ -8720,6 +8720,9 @@ app.post('/api/accrued-expenses', requireAuth, (req, res) => {
     id: 'ACR-' + Date.now(), number,
     description, month,
     amount: parseFloat(amount),
+    paidAmount: 0,
+    remaining: parseFloat(amount),
+    payments: [],
     accountCode: accountCode || '2900',
     accountName: accountName || 'مصاريف مستحقة',
     dueDate: dueDate || '',
@@ -8791,13 +8794,70 @@ app.put('/api/accrued-expenses/:id', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// دفعة جزئية على مصروف مستحق — تُسجّل قسطاً، تُنشئ قيده، وتحدّث المتبقي والحالة
+app.post('/api/accrued-expenses/:id/pay', requireAuth, (req, res) => {
+  const db   = loadDB();
+  const item = (db.accruedExpenses||[]).find(a => a.id === req.params.id);
+  if (!item) return res.status(404).json({ error: 'السجل غير موجود' });
+
+  const amount     = parseFloat(req.body.amount);
+  const payDate    = req.body.payDate || new Date().toISOString().slice(0,10);
+  const payAccount = req.body.payAccount || '1100';
+  const checkNo    = (req.body.checkNo || '').toString().trim();
+
+  const total       = parseFloat(item.amount) || 0;
+  // احسب المدفوع من السجل (مع دعم البيانات القديمة: مدفوع كامل إن كانت الحالة paid)
+  const alreadyPaid = item.paidAmount != null
+    ? (parseFloat(item.paidAmount) || 0)
+    : (item.status === 'paid' ? total : 0);
+  const remaining   = r3(total - alreadyPaid);
+
+  if (!(amount > 0)) return res.status(400).json({ error: 'المبلغ مطلوب ويجب أن يكون رقماً موجباً' });
+  if (amount > remaining + 0.001) return res.status(400).json({ error: `المبلغ (${amount.toFixed(3)}) أكبر من المتبقي (${remaining.toFixed(3)} د.ك)` });
+
+  const coa    = db.chartOfAccounts || [];
+  const acrAcc = ensureAccount(db, '2900', 'مصاريف مستحقة', 'liability', '2000');
+  const payAcc = coa.find(a => String(a.id)===String(payAccount) || String(a.code)===String(payAccount))
+                 || { id: payAccount, code: payAccount, name: payAccount };
+
+  db.journalEntries = db.journalEntries || [];
+  const seq     = (item.payments?.length || 0) + 1;
+  const jeId    = 'JE-ACR-PAY-' + Date.now();
+  const payRef  = (item.number || item.id) + '-PAY' + seq;
+  const checkTag= checkNo ? ` — شيك #${checkNo}` : '';
+  db.journalEntries.push({
+    id: jeId, date: payDate,
+    desc: `سداد مصروف مستحق — ${item.description} (قسط ${seq})${checkTag}`,
+    ref: payRef, reference: payRef, type: 'accrued-expense-payment',
+    totalDebit: r3(amount), totalCredit: r3(amount),
+    createdAt: new Date().toISOString(),
+    lines: [
+      { accountId: acrAcc.id, accountCode: '2900',      accountName: acrAcc.name, debit: r3(amount), credit: 0 },
+      { accountId: payAcc.id, accountCode: payAcc.code, accountName: payAcc.name, debit: 0, credit: r3(amount) },
+    ],
+  });
+
+  item.payments   = item.payments || [];
+  item.payments.push({ amount: r3(amount), date: payDate, account: payAcc.code, accountName: payAcc.name, checkNo, jeId });
+  item.paidAmount = r3(alreadyPaid + amount);
+  item.remaining  = r3(total - item.paidAmount);
+  item.status     = item.remaining <= 0.001 ? 'paid' : 'partial';
+  if (item.status === 'paid') item.paidDate = payDate;
+
+  saveDB(db);
+  res.json({ success: true, item });
+});
+
 app.delete('/api/accrued-expenses/:id', requireAuth, (req, res) => {
   const db  = loadDB();
   const idx = (db.accruedExpenses||[]).findIndex(a => a.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'السجل غير موجود' });
   const item = db.accruedExpenses[idx];
-  // Remove associated journal entry
-  if (item.jeId) db.journalEntries = (db.journalEntries||[]).filter(e => e.id !== item.jeId);
+  // احذف قيد الاستحقاق + كل قيود الدفعات المرتبطة (بالمعرّف أو بمرجع السداد)
+  const payJeIds = new Set([item.jeId, ...((item.payments||[]).map(p => p.jeId))].filter(Boolean));
+  const payRefPrefix = (item.number || item.id) + '-PAY';
+  db.journalEntries = (db.journalEntries||[]).filter(e =>
+    !payJeIds.has(e.id) && !(e.type === 'accrued-expense-payment' && String(e.ref||'').startsWith(payRefPrefix)));
   db.accruedExpenses.splice(idx, 1);
   saveDB(db);
   res.json({ success: true });

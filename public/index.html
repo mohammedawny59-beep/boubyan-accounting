@@ -2902,8 +2902,8 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <div class="tt">⏳ المصاريف المستحقة (غير المدفوعة)</div>
         <button class="btn bp bsm" onclick="openAccruedModal()">+ إضافة مصروف مستحق</button>
       </div>
-      <table><thead><tr><th>رقم</th><th>الوصف</th><th>الشهر</th><th>المبلغ</th><th>الحساب</th><th>المورد</th><th>تاريخ الاستحقاق</th><th>الحالة</th><th></th></tr></thead>
-      <tbody id="accruedBody"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr></tbody></table>
+      <table><thead><tr><th>رقم</th><th>الوصف</th><th>الشهر</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>الحساب</th><th>الاستحقاق</th><th>الحالة</th><th></th></tr></thead>
+      <tbody id="accruedBody"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr></tbody></table>
     </div>
   </div>
 
@@ -4784,6 +4784,31 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
   </div>
 </div>
 
+<!-- Accrued Expense Partial-Payment Modal -->
+<div class="modal" id="accruedPayModal">
+  <div class="mbox" style="width:440px;max-width:95vw;">
+    <div class="mtit" id="acrPayTitle">دفع مصروف مستحق</div>
+    <div id="acrPayInfo" style="font-size:12px;color:var(--text2);margin-bottom:12px;padding:8px 12px;background:var(--surface2);border-radius:8px;"></div>
+    <div class="fr">
+      <label class="flbl">المبلغ المدفوع الآن (د.ك) *</label>
+      <input type="number" class="finp" id="acrPayAmount" placeholder="0.000" step="0.001" min="0">
+      <div id="acrPayQuick" style="display:flex;gap:6px;margin-top:6px"></div>
+    </div>
+    <div class="fr2">
+      <div class="fr" style="margin:0"><label class="flbl">تاريخ الدفع *</label><input type="date" class="finp" id="acrPayDate"></div>
+      <div class="fr" style="margin:0"><label class="flbl">رقم الشيك (إن وُجد)</label><input class="finp" id="acrPayCheckNo" placeholder="مثال: 000123"></div>
+    </div>
+    <div class="fr"><label class="flbl">حساب الدفع (نقد / بنك) *</label><div id="acrPayAccountWrap"></div></div>
+    <div style="padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:11px;color:var(--text2);margin-bottom:4px;">
+      📒 القيد: <strong style="color:var(--accent)">من ح/ المصروف المستحق (مدين)</strong> إلى <strong style="color:var(--accent)">ح/ حساب الدفع (دائن)</strong> — يُخصم من المتبقي فقط
+    </div>
+    <div class="mact">
+      <button class="btn bs" style="flex:1" onclick="saveAccruedPay()">✅ تأكيد الدفعة</button>
+      <button class="btn bd" onclick="closeModal('accruedPayModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="expModal">
   <div class="mbox" style="width:620px;max-width:96vw;">
     <div class="mtit">💸 إضافة مصروف</div>
@@ -5747,40 +5772,93 @@ function renderAccrued() {
   const tb = document.getElementById('accruedBody');
   if (!tb) return;
   if (!_accruedList.length) {
-    tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr>';
+    tb.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:12px;">لا توجد مصاريف مستحقة</td></tr>';
     return;
   }
+  const today = new Date().toISOString().slice(0,10);
   tb.innerHTML = _accruedList.map(a => {
-    const statusColor = a.status==='paid' ? 'var(--accent2)' : (a.dueDate && a.dueDate < new Date().toISOString().slice(0,10)) ? 'var(--danger)' : 'var(--warning)';
-    const statusLabel = a.status==='paid' ? '✅ مدفوع' : (a.dueDate && a.dueDate < new Date().toISOString().slice(0,10)) ? '⚠️ متأخر' : '⏳ مستحق';
+    const total = parseFloat(a.amount||0);
+    // دعم البيانات القديمة: إن لم يكن paidAmount مسجّلاً، اعتبره كامل الدفع لو الحالة paid
+    const paid  = a.paidAmount != null ? parseFloat(a.paidAmount) : (a.status==='paid' ? total : 0);
+    const remaining = Math.max(0, total - paid);
+    const isPaid    = remaining <= 0.001;
+    const isPartial = paid > 0.001 && !isPaid;
+    const overdue   = !isPaid && a.dueDate && a.dueDate < today;
+    const statusColor = isPaid ? 'var(--accent2)' : isPartial ? 'var(--warning)' : overdue ? 'var(--danger)' : 'var(--warning)';
+    const statusLabel = isPaid ? '✅ مدفوع' : isPartial ? '◑ مدفوع جزئياً' : overdue ? '⚠️ متأخر' : '⏳ مستحق';
+    const nPay = (a.payments||[]).length;
     return `<tr>
       <td style="font-family:monospace;font-size:10px;color:var(--accent)">${a.number||'—'}</td>
-      <td>${a.description}</td>
+      <td>${escHtml(a.description||'')}${nPay?` <span style="cursor:pointer;color:var(--text3);font-size:10px" title="عرض الدفعات" onclick="showAccruedPayments('${a.id}')">📜 ${nPay} دفعة</span>`:''}</td>
       <td>${a.month}</td>
-      <td class="num">${parseFloat(a.amount||0).toFixed(3)}</td>
-      <td style="font-size:11px">${a.accountCode} ${a.accountName}</td>
-      <td>${a.vendor||'-'}</td>
+      <td class="num">${total.fmt()}</td>
+      <td class="num pos">${paid>0?paid.fmt():'—'}</td>
+      <td class="num" style="font-weight:700;color:${remaining>0?'var(--danger)':'var(--accent2)'}">${remaining.fmt()}</td>
+      <td style="font-size:11px">${a.accountCode} ${escHtml(a.accountName||'')}</td>
       <td>${a.dueDate||'-'}</td>
       <td><span style="color:${statusColor};font-size:11px">${statusLabel}</span></td>
       <td style="display:flex;gap:4px;">
-        ${a.status!=='paid'?`<button onclick="markAccruedPaid('${a.id}')" style="background:rgba(0,255,157,.08);color:var(--accent2);border:1px solid rgba(0,255,157,.2);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 7px;">دفع</button>`:''}
+        ${!isPaid?`<button onclick="openAccruedPay('${a.id}')" style="background:rgba(0,255,157,.08);color:var(--accent2);border:1px solid rgba(0,255,157,.2);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 7px;">💵 دفع</button>`:''}
         <button onclick="deleteAccrued('${a.id}')" style="background:rgba(248,113,113,.08);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 7px;">حذف</button>
       </td>
     </tr>`;
   }).join('');
 }
 
-async function markAccruedPaid(id) {
-  const paidDate = prompt('تاريخ السداد:', new Date().toISOString().slice(0,10));
-  if (!paidDate) return;
-  const paidAmount = prompt('المبلغ المدفوع (اتركه فارغاً للمبلغ الكامل):', '');
+let _accruedPayId = null;
+function _accruedRemaining(a){
+  const total = parseFloat(a.amount||0);
+  const paid  = a.paidAmount != null ? parseFloat(a.paidAmount) : (a.status==='paid' ? total : 0);
+  return { total, paid, remaining: Math.max(0, total - paid) };
+}
+
+function openAccruedPay(id){
+  const a = _accruedList.find(x => x.id === id);
+  if (!a) return;
+  _accruedPayId = id;
+  const { total, paid, remaining } = _accruedRemaining(a);
+  document.getElementById('acrPayTitle').textContent = `دفع مصروف مستحق — ${a.description}`;
+  document.getElementById('acrPayInfo').innerHTML =
+    `الإجمالي: <b>${total.fmt()}</b> · المدفوع: <b style="color:var(--accent2)">${paid.fmt()}</b> · المتبقي: <b style="color:var(--danger)">${remaining.fmt()}</b> د.ك`;
+  document.getElementById('acrPayAmount').value = remaining.toFixed(3);
+  document.getElementById('acrPayAmount').max   = remaining.toFixed(3);
+  document.getElementById('acrPayDate').value   = new Date().toISOString().slice(0,10);
+  document.getElementById('acrPayCheckNo').value = '';
+  document.getElementById('acrPayAccountWrap').innerHTML = accPickerHTML('acrPayAccTxt','acrPayAccount','acrPayAccDrop','cash','— اختر حساب الدفع —');
+  // زرّان سريعان: نصف المتبقي / كامل المتبقي
+  document.getElementById('acrPayQuick').innerHTML =
+    `<button class="btn bw bsm" type="button" onclick="document.getElementById('acrPayAmount').value=(${remaining}/2).toFixed(3)">½ نصف المتبقي</button>
+     <button class="btn bw bsm" type="button" onclick="document.getElementById('acrPayAmount').value=(${remaining}).toFixed(3)">كامل المتبقي</button>`;
+  document.getElementById('accruedPayModal').classList.add('open');
+}
+
+async function saveAccruedPay(){
+  const id = _accruedPayId; if(!id) return;
+  const amount     = parseFloat(document.getElementById('acrPayAmount').value);
+  const payDate    = document.getElementById('acrPayDate').value;
+  const payAccount = document.getElementById('acrPayAccount').value;
+  const checkNo    = document.getElementById('acrPayCheckNo').value.trim();
+  if (!(amount > 0)) { showToast('أدخل مبلغاً صحيحاً', 'warning'); return; }
+  if (!payDate)     { showToast('أدخل تاريخ الدفع', 'warning'); return; }
+  if (!payAccount)  { showToast('اختر حساب الدفع', 'warning'); return; }
   try {
-    const body = { status:'paid', paidDate, paidAmount: paidAmount||undefined };
-    const r = await fetch(`${API}/accrued-expenses/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const r = await fetch(`${API}/accrued-expenses/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ amount, payDate, payAccount, checkNo }) });
     const d = await r.json();
-    if (d.success) { showToast('تم تسجيل السداد وإنشاء قيد العكس', 'success'); await loadAll(); loadAccrued(); }
-    else showToast(d.error||'خطأ', 'error');
+    if (d.success) {
+      closeModal('accruedPayModal');
+      const st = d.item?.status === 'paid' ? 'اكتمل السداد ✅' : `المتبقي ${(d.item?.remaining||0).fmt()} د.ك`;
+      showToast(`تم تسجيل الدفعة وإنشاء قيدها — ${st}`, 'success');
+      await loadAll(); loadAccrued();
+    } else showToast(d.error||'خطأ في الدفع', 'error');
   } catch { showToast('خطأ في الاتصال', 'error'); }
+}
+
+function showAccruedPayments(id){
+  const a = _accruedList.find(x => x.id === id);
+  if (!a || !(a.payments||[]).length) return;
+  const rows = a.payments.map((p,i) => `${i+1}. ${p.date} — ${(p.amount||0).fmt()} د.ك — ${p.accountName||p.account||''}${p.checkNo?` — شيك #${p.checkNo}`:''}`).join('\n');
+  const { paid, remaining } = _accruedRemaining(a);
+  alert(`دفعات «${a.description}»:\n\n${rows}\n\nالمدفوع: ${paid.fmt()} · المتبقي: ${remaining.fmt()} د.ك`);
 }
 
 async function deleteAccrued(id) {
