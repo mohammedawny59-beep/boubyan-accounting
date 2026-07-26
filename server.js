@@ -7117,15 +7117,16 @@ app.get('/api/bank-recon', requireAuth, (req, res) => {
   (db.journalEntries || []).forEach(je => {
     if (!je.date.startsWith(period)) return;
     (je.lines || []).forEach(line => {
-      if (String(line.account) === String(account)) {
+      const lineAcc = line.accountCode != null ? line.accountCode : line.account;
+      if (String(lineAcc) === String(account)) {
         journalLines.push({
-          id: je.id + '-' + (line.account),
+          id: je.id + '-' + lineAcc,
           date: je.date,
           desc: je.desc,
           ref: je.ref,
           debit: line.debit || 0,
           credit: line.credit || 0,
-          matched: existing?.matchedLines?.includes(je.id + '-' + line.account) || false
+          matched: existing?.matchedLines?.includes(je.id + '-' + lineAcc) || false
         });
       }
     });
@@ -9176,6 +9177,124 @@ ${coa}
     } catch(_) {}
   }
   res.json({ success: true, transactions: categorized });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// BANK SETTLEMENT RECONCILIATION — مطابقة كشف البنك (عمولات الشبكة + التوقيت + وسيط حسابي)
+//   الفكرة: مبيعات الشبكة (كي-نت/فيزا/ماستر) تُرحَّل مديناً لحساب مستحقات (1125 حسابي مثلاً)،
+//   ثم تصل للبنك لاحقاً ناقصاً عمولة. هذا المحرّك يطابق كل إيداع في كشف البنك مع
+//   مستحق مفتوح، ويحسب العمولة = (الإجمالي المستحق − الصافي الواصل)، وأي مبلغ غير معروف
+//   يُعرض ليُسنده المستخدم لحساب ووصف. عام لأي منشأة (الحسابات كلها قابلة للاختيار).
+// ══════════════════════════════════════════════════════════════════════════
+app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
+  const db = loadDB();
+  const {
+    lines = [], settleAccount = '1125', bankAccount = '1110',
+    feeAccount = '5750', windowDays = 4, feeMaxPct = 0.2
+  } = req.body;
+  const matched = new Set(db.bankMatchedLineIds || []);
+  // المستحقات المفتوحة = بنود مدينة على حساب التسوية لم تُطابَق بعد
+  const outstanding = [];
+  (db.journalEntries || []).forEach(je => {
+    (je.lines || []).forEach((l, i) => {
+      if (String(l.accountCode) === String(settleAccount) && (parseFloat(l.debit) || 0) > 0) {
+        const key = `${je.id}#${i}`;
+        if (!matched.has(key)) outstanding.push({ key, date: je.date, gross: parseFloat(l.debit) || 0, desc: je.desc || je.description || '' });
+      }
+    });
+  });
+  outstanding.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  const dayDiff = (a, b) => Math.abs((new Date(a) - new Date(b)) / 864e5);
+  const usedKeys = new Set();
+  const proposals = [];
+  lines.forEach((bl, idx) => {
+    const amt = parseFloat(bl.amount) || 0;
+    if (amt > 0) {
+      // إيداع — طابقه مع مستحق إجماليه ≥ الصافي، والعمولة (الفرق) ضمن السقف
+      let best = null, bestScore = Infinity;
+      for (const o of outstanding) {
+        if (usedKeys.has(o.key)) continue;
+        const fee = o.gross - amt;
+        if (fee < -0.001) continue;
+        if (fee > o.gross * feeMaxPct + 0.001) continue;
+        const dd = dayDiff(bl.date, o.date);
+        if (dd > windowDays + 6) continue;
+        const score = Math.abs(fee) + dd * 0.05;
+        if (score < bestScore) { bestScore = score; best = o; }
+      }
+      if (best) {
+        usedKeys.add(best.key);
+        proposals.push({
+          id: 'P' + idx, kind: 'settlement', bankDate: bl.date, bankDesc: bl.desc,
+          net: parseFloat(amt.toFixed(3)), gross: parseFloat(best.gross.toFixed(3)),
+          fee: parseFloat((best.gross - amt).toFixed(3)),
+          bookKey: best.key, bookDate: best.date, bookDesc: best.desc,
+          settleAccount, bankAccount, feeAccount,
+        });
+      } else {
+        proposals.push({ id: 'P' + idx, kind: 'deposit-unmatched', bankDate: bl.date, bankDesc: bl.desc, amount: parseFloat(amt.toFixed(3)), bankAccount, assignAccount: '', assignDesc: bl.desc || '' });
+      }
+    } else if (amt < 0) {
+      proposals.push({ id: 'P' + idx, kind: 'withdrawal', bankDate: bl.date, bankDesc: bl.desc, amount: parseFloat(Math.abs(amt).toFixed(3)), bankAccount, assignAccount: '', assignDesc: bl.desc || '' });
+    }
+  });
+  const inTransit = outstanding.filter(o => !usedKeys.has(o.key))
+    .map(o => ({ date: o.date, gross: parseFloat(o.gross.toFixed(3)), desc: o.desc }));
+
+  res.json({
+    success: true, proposals, inTransit,
+    summary: {
+      deposits: lines.filter(l => (parseFloat(l.amount) || 0) > 0).length,
+      withdrawals: lines.filter(l => (parseFloat(l.amount) || 0) < 0).length,
+      settlements: proposals.filter(p => p.kind === 'settlement').length,
+      needsInput: proposals.filter(p => p.kind !== 'settlement').length,
+      inTransit: inTransit.length,
+      totalFees: parseFloat(proposals.filter(p => p.kind === 'settlement').reduce((s, p) => s + (p.fee || 0), 0).toFixed(3)),
+    }
+  });
+});
+
+app.post('/api/bank/reconcile-commit', requireAuth, (req, res) => {
+  const db = loadDB();
+  const { proposals = [] } = req.body;
+  const coa = db.chartOfAccounts || [];
+  const findAcc = c => coa.find(a => String(a.code) === String(c) || String(a.id) === String(c)) || { id: c, code: c, name: String(c) };
+  db.journalEntries = db.journalEntries || [];
+  db.bankMatchedLineIds = db.bankMatchedLineIds || [];
+  const batchId = 'BRECON-' + Date.now();
+  let posted = 0, skipped = 0;
+  proposals.forEach((p, i) => {
+    const bankAcc = findAcc(p.bankAccount || '1110');
+    const jeBase = { id: 'JE-BRC-' + Date.now() + '-' + i, ref: 'BRECON', reference: 'BRECON', _batchId: batchId, createdAt: new Date().toISOString() };
+    if (p.kind === 'settlement') {
+      const net = r3(p.net), fee = r3(p.fee || 0), gross = r3(p.gross);
+      const settleAcc = findAcc(p.settleAccount || '1125');
+      const feeAcc = findAcc(p.feeAccount || '5750');
+      const lines = [{ accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: net, credit: 0 }];
+      if (fee > 0.001) lines.push({ accountId: feeAcc.id, accountCode: feeAcc.code, accountName: feeAcc.name, debit: fee, credit: 0 });
+      lines.push({ accountId: settleAcc.id, accountCode: settleAcc.code, accountName: settleAcc.name, debit: 0, credit: gross });
+      db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: `تسوية إيداع بنكي — ${p.bankDesc || ''}${fee > 0 ? ` (عمولة ${fee})` : ''}`, type: 'bank-settlement', totalDebit: r3(net + fee), totalCredit: gross, lines });
+      if (p.bookKey) db.bankMatchedLineIds.push(p.bookKey);
+      posted++;
+    } else if (p.kind === 'deposit-unmatched') {
+      if (!p.assignAccount) { skipped++; return; }
+      const other = findAcc(p.assignAccount);
+      const amt = r3(p.amount);
+      db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: p.assignDesc || p.bankDesc || 'إيداع بنكي', type: 'bank-deposit', totalDebit: amt, totalCredit: amt,
+        lines: [{ accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: amt, credit: 0 }, { accountId: other.id, accountCode: other.code, accountName: other.name, debit: 0, credit: amt }] });
+      posted++;
+    } else if (p.kind === 'withdrawal') {
+      if (!p.assignAccount) { skipped++; return; }
+      const other = findAcc(p.assignAccount);
+      const amt = r3(p.amount);
+      db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: p.assignDesc || p.bankDesc || 'سحب بنكي', type: 'bank-withdrawal', totalDebit: amt, totalCredit: amt,
+        lines: [{ accountId: other.id, accountCode: other.code, accountName: other.name, debit: amt, credit: 0 }, { accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: 0, credit: amt }] });
+      posted++;
+    }
+  });
+  saveDB(db);
+  res.json({ success: true, posted, skipped, batchId });
 });
 
 // ── 5. PRO EXPORT — HTML / Print-ready PDF ────────────────────────

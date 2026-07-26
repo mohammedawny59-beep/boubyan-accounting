@@ -4284,6 +4284,20 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       </div>
       <input type="file" id="bciFile" accept=".csv,.xlsx,.xls" aria-hidden="true" style="display:none" onchange="uploadBankCsv(this.files[0])">
       <div id="bciStatus" style="display:none;text-align:center;padding:12px;font-size:12px;color:var(--text2);"></div>
+      <!-- Smart settlement matching (fees + timing + Hesabi middleman) -->
+      <div id="bciSmartBar" style="display:none;margin-top:12px;padding:12px;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.18);border-radius:10px;">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--accent)">🔁 مطابقة ذكية — تسوية إيداعات الشبكة (عمولة + توقيت)</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+          <div class="fr" style="margin:0;min-width:180px"><label class="flbl">حساب المستحقات (يُصفّى منه)</label><div id="brSettleWrap"></div></div>
+          <div class="fr" style="margin:0;min-width:180px"><label class="flbl">الحساب البنكي (يصل إليه)</label><div id="brBankWrap"></div></div>
+          <div class="fr" style="margin:0;min-width:180px"><label class="flbl">حساب العمولة (الفرق المخصوم)</label><div id="brFeeWrap"></div></div>
+          <div class="fr" style="margin:0;width:110px"><label class="flbl">مهلة الأيام</label><input type="number" class="finp" id="brWindow" value="4" min="0" step="1"></div>
+          <button class="btn bp bsm" onclick="runBankReconMatch()">🔁 طابق تلقائياً</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3)">يطابق كل إيداع بنكي مع مستحق مفتوح، يحسب العمولة تلقائياً، ويسأل عن أي مبلغ مجهول.</div>
+      </div>
+      <div id="brResults" style="display:none;margin-top:12px"></div>
+
       <!-- Results table -->
       <div id="bciResults" style="display:none;margin-top:12px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
@@ -15724,6 +15738,7 @@ async function uploadBankCsv(file) {
     _bciLines = d.lines.map(l => ({ ...l, suggestedAccount:'', category:'', confidence:0, checked:true }));
     status.textContent = `✅ تم قراءة ${d.count} معاملة`;
     renderBciTable();
+    initBankReconBar();
   } catch(e) { status.textContent = '❌ خطأ: ' + e.message; }
 }
 
@@ -15793,6 +15808,98 @@ async function saveBciAsJournals() {
     toggleBankImport();
     if (typeof loadJournal === 'function') loadJournal();
   } catch(e) { toast('خطأ: '+e.message, 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// BANK SMART RECONCILIATION — تسوية إيداعات الشبكة (عمولة + توقيت + وسيط حسابي)
+// ══════════════════════════════════════════════════════════════
+let _brProposals = [];
+function initBankReconBar() {
+  document.getElementById('bciSmartBar').style.display = 'block';
+  // حسابات افتراضية عامة — قابلة للتغيير لأي منشأة
+  const has = c => getCoaAccounts().some(a => String(a.code) === c);
+  document.getElementById('brSettleWrap').innerHTML = accPickerHTML('brSettleTxt','brSettle','brSettleDrop','asset','حساب المستحقات...');
+  document.getElementById('brBankWrap').innerHTML   = accPickerHTML('brBankTxt','brBank','brBankDrop','cash','الحساب البنكي...');
+  document.getElementById('brFeeWrap').innerHTML    = accPickerHTML('brFeeTxt','brFee','brFeeDrop','expense','حساب العمولة...');
+  const pre = (txt,val,code,label) => { const c=getCoaAccounts().find(a=>String(a.code)===code); if(c){ document.getElementById(val).value=c.id||c.code; document.getElementById(txt).value=`${c.code} — ${c.name}`; } };
+  pre('brSettleTxt','brSettle','1125'); pre('brBankTxt','brBank','1110'); pre('brFeeTxt','brFee','5750');
+}
+
+async function runBankReconMatch() {
+  if (!_bciLines.length) { toast('ارفع كشف البنك أولاً', 'warning'); return; }
+  const settleAccount = document.getElementById('brSettle').value;
+  const bankAccount   = document.getElementById('brBank').value;
+  const feeAccount    = document.getElementById('brFee').value;
+  const windowDays    = parseInt(document.getElementById('brWindow').value) || 4;
+  if (!settleAccount || !bankAccount) { toast('اختر حساب المستحقات والحساب البنكي', 'warning'); return; }
+  const settleCode = getCoaAccounts().find(a => String(a.id)===String(settleAccount)||String(a.code)===String(settleAccount))?.code || settleAccount;
+  const bankCode   = getCoaAccounts().find(a => String(a.id)===String(bankAccount)||String(a.code)===String(bankAccount))?.code || bankAccount;
+  const feeCode    = getCoaAccounts().find(a => String(a.id)===String(feeAccount)||String(a.code)===String(feeAccount))?.code || feeAccount;
+  try {
+    const d = await apiFetch('bank/reconcile-match', { method:'POST', body: JSON.stringify({ lines: _bciLines.map(l=>({date:l.date,desc:l.desc,amount:l.amount})), settleAccount:settleCode, bankAccount:bankCode, feeAccount:feeCode, windowDays }) });
+    _brProposals = d.proposals || [];
+    renderBankReconProposals(d);
+  } catch(e) { toast('خطأ في المطابقة: '+e.message, 'error'); }
+}
+
+function renderBankReconProposals(d) {
+  const box = document.getElementById('brResults');
+  const s = d.summary || {};
+  const expOpts = getCoaAccounts().filter(a=>!a.isGroup&&a.code).sort((a,b)=>String(a.code).localeCompare(String(b.code)))
+    .map(a=>`<option value="${a.code}">${a.code} — ${escHtml(a.name)}</option>`).join('');
+  const rows = _brProposals.map((p,i) => {
+    if (p.kind === 'settlement') {
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td>${p.bankDate}</td>
+        <td style="font-size:11px">${escHtml(p.bankDesc||'')}<div style="color:var(--text3);font-size:10px">مقابل: ${escHtml(p.bookDesc||'')} (${p.bookDate})</div></td>
+        <td class="num pos">${(p.net||0).fmt()}</td>
+        <td class="num">${(p.gross||0).fmt()}</td>
+        <td><input type="number" class="finp" style="width:80px" value="${(p.fee||0).toFixed(3)}" step="0.001" onchange="_brProposals[${i}].fee=parseFloat(this.value)||0"></td>
+        <td><span class="badge bg" style="font-size:9px">تسوية ✓</span></td>
+      </tr>`;
+    }
+    const kindLabel = p.kind==='withdrawal' ? '<span class="badge br" style="font-size:9px">سحب</span>' : '<span class="badge by" style="font-size:9px">إيداع مجهول</span>';
+    return `<tr style="border-bottom:1px solid var(--border);background:rgba(245,158,11,.05)">
+      <td>${p.bankDate}</td>
+      <td style="font-size:11px">${escHtml(p.bankDesc||'')}</td>
+      <td class="num ${p.kind==='withdrawal'?'neg':'pos'}">${(p.amount||0).fmt()}</td>
+      <td colspan="1"><select class="finp" style="width:150px;font-size:11px" onchange="_brProposals[${i}].assignAccount=this.value"><option value="">— اختر الحساب —</option>${expOpts}</select></td>
+      <td><input type="text" class="finp" style="width:120px;font-size:11px" value="${(p.assignDesc||'').replace(/"/g,'&quot;')}" placeholder="الوصف" onchange="_brProposals[${i}].assignDesc=this.value"></td>
+      <td>${kindLabel}</td>
+    </tr>`;
+  }).join('');
+  const inTransit = (d.inTransit||[]).map(o=>`<div style="font-size:11px;color:var(--text2)">• ${o.date} — ${(o.gross||0).fmt()} د.ك — ${escHtml(o.desc||'')}</div>`).join('');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
+      <span>تسويات: <b style="color:var(--accent2)">${s.settlements||0}</b></span>
+      <span>إجمالي العمولات: <b style="color:var(--warning)">${(s.totalFees||0).fmt()} د.ك</b></span>
+      <span>تحتاج إسناد: <b style="color:var(--danger)">${s.needsInput||0}</b></span>
+      <span>لم تصل بعد: <b>${s.inTransit||0}</b></span>
+    </div>
+    <div style="max-height:44vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead style="position:sticky;top:0;background:var(--surface2)"><tr><th>التاريخ</th><th style="text-align:right">البيان</th><th>الصافي/المبلغ</th><th>الإجمالي</th><th>العمولة/الحساب</th><th>الحالة</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">لا توجد حركات</td></tr>'}</tbody>
+      </table>
+    </div>
+    ${inTransit ? `<div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;margin-bottom:4px">⏳ مستحقات لم تصل البنك بعد (فروقات توقيت):</div>${inTransit}</div>` : ''}
+    <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn bp" onclick="commitBankRecon()">✅ ترحيل القيود</button>
+    </div>`;
+}
+
+async function commitBankRecon() {
+  const needAssign = _brProposals.filter(p => p.kind!=='settlement' && !p.assignAccount);
+  if (needAssign.length && !confirm(`${needAssign.length} حركة بدون حساب مُسنَد وسيتم تخطّيها. المتابعة؟`)) return;
+  try {
+    const d = await apiFetch('bank/reconcile-commit', { method:'POST', body: JSON.stringify({ proposals: _brProposals }) });
+    toast(`✅ رُحّل ${d.posted} قيد${d.skipped?` (${d.skipped} تخطّي)`:''}`, 'success');
+    document.getElementById('brResults').style.display = 'none';
+    _brProposals = [];
+    await loadAll();
+    if (typeof loadJournal === 'function') loadJournal();
+  } catch(e) { toast('خطأ في الترحيل: '+e.message, 'error'); }
 }
 
 // ══════════════════════════════════════════════════════════════
