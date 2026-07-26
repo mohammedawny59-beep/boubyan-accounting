@@ -7731,6 +7731,8 @@ app.post('/api/import/patient-opening', requireAuth, upload.single('file'), (req
 const Anthropic = require('@anthropic-ai/sdk');
 const pdfParse  = require('pdf-parse');
 const multerPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10*1024*1024 } });
+// كشف البنك: يقبل CSV و Excel (التحقق من الامتداد داخل المعالج ليعطي رسالة واضحة بدل خطأ 500)
+const uploadBank = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10*1024*1024 } });
 
 function buildFinancialSnapshot(db) {
   const now       = new Date();
@@ -9068,14 +9070,27 @@ app.get('/api/smart-suggest', requireAuth, (req, res) => {
 });
 
 // ── 3. BANK CSV/EXCEL IMPORT ─────────────────────────────────────
-app.post('/api/bank/import-csv', requireAuth, upload.single('file'), (req, res) => {
+app.post('/api/bank/import-csv', requireAuth, uploadBank.single('file'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
+    const fname = (req.file.originalname || '').toLowerCase();
+    const ext   = fname.slice(fname.lastIndexOf('.'));
+    if (!['.csv', '.xlsx', '.xls', '.txt'].includes(ext))
+      return res.status(400).json({ error: 'صيغة غير مدعومة — ارفع ملف CSV أو Excel' });
     const buf = req.file.buffer || require('fs').readFileSync(req.file.path);
-    const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
+    // CSV/TXT: اقرأه كنص (مع دعم UTF-8 BOM والعربية)؛ Excel: كـ buffer
+    let wb;
+    if (ext === '.csv' || ext === '.txt') {
+      let text = buf.toString('utf8');
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // إزالة BOM
+      wb = XLSX.read(text, { type: 'string', cellDates: true, raw: false });
+    } else {
+      wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
+    }
+    if (!wb.SheetNames.length) return res.status(400).json({ error: 'الملف فارغ أو تالف' });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    if (rows.length < 2) return res.status(400).json({ error: 'الملف لا يحتوي بيانات' });
+    if (rows.length < 2) return res.status(400).json({ error: 'الملف لا يحتوي بيانات (يجب أن يحتوي صف عناوين وصف بيانات على الأقل)' });
 
     const hdr = rows[0].map(h => String(h || '').trim().toLowerCase());
     const idx = key => hdr.findIndex(h => h.includes(key));
@@ -9115,9 +9130,13 @@ app.post('/api/bank/import-csv', requireAuth, upload.single('file'), (req, res) 
       lines.push({ date, desc, amount });
     }
     if (req.file.path) require('fs').unlink(req.file.path, () => {});
+    if (!lines.length) {
+      return res.status(400).json({ error: `لم يتم التعرّف على أي معاملة. تأكد أن الملف يحتوي أعمدة: التاريخ، البيان، والمبلغ (أو مدين/دائن). العناوين المقروءة: ${hdr.filter(Boolean).join(' | ') || '—'}` });
+    }
     res.json({ success: true, lines, count: lines.length });
   } catch(e) {
-    res.status(500).json({ error: e.message });
+    console.error('bank import-csv error:', e);
+    res.status(400).json({ error: 'تعذّرت قراءة الملف: ' + e.message });
   }
 });
 
