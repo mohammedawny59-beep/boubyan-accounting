@@ -4259,10 +4259,11 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
   <div id="tab-bankrecon" class="sec">
     <div class="sh">
       <div><div class="st">🏦 التسوية البنكية</div><div class="sd">مطابقة كشف البنك مع الدفاتر — Bank Reconciliation</div></div>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn bw bsm" onclick="toggleBankImport()" title="استيراد كشف البنك من CSV/Excel">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> استيراد CSV
         </button>
+        <button class="btn bo bsm" onclick="runPreHesabiMigration()" title="نقل إيرادات ما قبل «حسابي» من حساب حسابي إلى البنك مباشرة + قيد العمولة">🔄 تصحيح ما قبل حسابي</button>
         <button class="btn bp bsm" onclick="saveBankRecon()">💾 حفظ التسوية</button>
       </div>
     </div>
@@ -4322,8 +4323,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
         <label style="font-size:11px;color:var(--text3);">الحساب البنكي</label>
         <select id="reconAccount" class="inp" onchange="loadBankRecon()">
-          <option value="1110">1110 - البنك الأهلي</option>
-          <option value="1120">1120 - K-Net / Visa / Master</option>
+          <!-- تُملأ ديناميكياً من شجرة الحسابات (حسابات النقد والبنوك) -->
         </select>
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:160px;">
@@ -12086,7 +12086,32 @@ function initBankRecon() {
   loadBankRecon();
 }
 
+// نقل إيرادات ما قبل «حسابي» من حساب 1125 إلى البنك مباشرة + قيد العمولة (كي-نت 0.65% / فيزا-ماستر 2.65%)
+async function runPreHesabiMigration() {
+  const month = prompt('إيرادات البطاقات قبل أي شهر كانت تدخل البنك مباشرة (بدأ «حسابي» من)؟\nاكتب الشهر بصيغة YYYY-MM:', '2026-06');
+  if (!month) return;
+  if (!confirm(`سيتم نقل إيرادات البطاقات قبل ${month} من حساب «حسابي» (1125) إلى البنك مباشرةً، مع خصم عمولة (كي-نت 0.65% / فيزا-ماستر 2.65%) لحساب العمولات. متابعة؟`)) return;
+  try {
+    const d = await apiFetch('migrate/pre-hesabi', { method:'POST', body: JSON.stringify({ hesabiStart: month }) });
+    toast(`✅ عُدِّل ${d.entriesFixed} قيد (${d.linesReclassified} بند بطاقة) — نُقلت للبنك وسُجّلت العمولة`, 'success');
+    await loadAll();
+    if (typeof loadJournal === 'function') loadJournal();
+  } catch(e) { toast('خطأ: '+e.message, 'error'); }
+}
+
+function populateReconAccountSelect() {
+  const sel = document.getElementById('reconAccount');
+  if (!sel) return;
+  const cur = sel.value;
+  // حسابات النقد والبنوك من الشجرة (تبدأ بـ 11) — بالاسم الحقيقي، لا أسماء ثابتة
+  const cash = getCoaAccounts().filter(a => a.status!=='inactive' && !a.isGroup && String(a.code).startsWith('11'));
+  if (!cash.length) { sel.innerHTML = '<option value="1110">1110 — البنك</option>'; return; }
+  sel.innerHTML = cash.sort((a,b)=>String(a.code).localeCompare(String(b.code)))
+    .map(a => `<option value="${a.code}"${String(a.code)===cur?' selected':''}>${escHtml(a.name)} (${a.code})</option>`).join('');
+}
+
 async function loadBankRecon() {
+  populateReconAccountSelect();
   const account = document.getElementById('reconAccount').value;
   const period  = document.getElementById('reconPeriod').value;
   if (!account || !period) return;

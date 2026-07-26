@@ -845,6 +845,7 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
       const hisabi1125= findAcc('1125'); // حسابي — K-Net / Visa / Master / Link
       const ins1130   = findAcc('1130'); // Insurance receivable (net)
       const exp5760   = findAcc('5760'); // خصم التأمين
+      const bankFee5750 = findAcc('5750') || { id:'5750', code:'5750', name:'مصاريف بنكية وعمولات' }; // عمولة الشبكة
 
       // Group uploaded records by month (YYYY-MM)
       const monthGroups = {};
@@ -870,8 +871,26 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
         const r = (v) => parseFloat(v.toFixed(3));
         const cfg = loadConfig();
         const insRate = typeof cfg.insDeductionRate === 'number' ? cfg.insDeductionRate : 0.13;
+        // عمولة الشبكة + وسيط «حسابي»: قبل شهر البدء تذهب البطاقات للبنك مباشرة ناقصاً العمولة،
+        // ومن شهر البدء فصاعداً تذهب لحساب «حسابي» (1125) وتُسوّى لاحقاً عبر كشف البنك.
+        const feeKnet     = typeof cfg.feeKnet === 'number' ? cfg.feeKnet : 0.0065; // كي-نت 0.65%
+        const feeCard     = typeof cfg.feeCard === 'number' ? cfg.feeCard : 0.0265; // فيزا/ماستر 2.65%
+        const hesabiStart = cfg.hesabiStartMonth || '2026-06';
+        const useHesabi   = month >= hesabiStart;
         const lines = [];
         let totalDebitRev = 0;
+        // ترحيل قناة بطاقة: إمّا لحسابي (إجمالي) أو للبنك مباشرة (صافي + عمولة)
+        const postCard = (gross, rate, remarks) => {
+          if (gross <= 0) return;
+          if (useHesabi) {
+            lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:gross, credit:0, remarks });
+          } else {
+            const fee = r(gross * rate), net = r(gross - fee);
+            lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:net, credit:0, remarks:`${remarks} (صافي بعد عمولة ${(rate*100).toFixed(2)}%)` });
+            if (fee > 0) lines.push({ accountId:bankFee5750.id, accountCode:'5750', accountName:bankFee5750.name, debit:fee, credit:0, remarks:`عمولة بنكية — ${remarks}` });
+          }
+          totalDebitRev += gross;
+        };
 
         // Debit lines
         if (g.cash > 0) {
@@ -879,27 +898,17 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
           lines.push({ accountId:cash1100.id, accountCode:'1100', accountName:cash1100.name, debit:v, credit:0 });
           totalDebitRev += v;
         }
-        // K-Net → حسابي (separate line)
-        if (g.knet > 0) {
-          const v = r(g.knet);
-          lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:v, credit:0, remarks:`كي-نت: ${v} د.ك` });
-          totalDebitRev += v;
-        }
-        // Visa + Master → حسابي (one combined line)
+        // K-Net → حسابي أو البنك مباشرة (عمولة 0.65%)
+        postCard(r(g.knet), feeKnet, `كي-نت: ${r(g.knet)} د.ك`);
+        // Visa + Master → حسابي أو البنك مباشرة (عمولة 2.65%)
         if ((g.visa + g.master) > 0) {
-          const v = r(g.visa + g.master);
           const parts = [];
           if (g.visa   > 0) parts.push(`فيزا: ${r(g.visa)} د.ك`);
           if (g.master > 0) parts.push(`ماستر: ${r(g.master)} د.ك`);
-          lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:v, credit:0, remarks:parts.join(' | ') });
-          totalDebitRev += v;
+          postCard(r(g.visa + g.master), feeCard, parts.join(' | '));
         }
-        // Link → حسابي (separate line)
-        if (g.link > 0) {
-          const v = r(g.link);
-          lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:v, credit:0, remarks:`لينك: ${v} د.ك` });
-          totalDebitRev += v;
-        }
+        // Link → حسابي أو البنك مباشرة (عمولة 2.65%)
+        postCard(r(g.link), feeCard, `لينك: ${r(g.link)} د.ك`);
         // Cheque → Bank
         if (g.cheque > 0) {
           const v = r(g.cheque);
@@ -9314,6 +9323,41 @@ app.post('/api/bank/reconcile-commit', requireAuth, (req, res) => {
   });
   saveDB(db);
   res.json({ success: true, posted, skipped, batchId });
+});
+
+// نقل إيرادات ما قبل «حسابي» من حساب 1125 إلى البنك مباشرة (صافي) + قيد العمولة
+// (أول 5 أشهر كانت البطاقات تدخل البنك مباشرة؛ حسابي بدأ من شهر 6). idempotent.
+app.post('/api/migrate/pre-hesabi', requireAuth, (req, res) => {
+  const db  = loadDB();
+  const cfg = loadConfig();
+  const feeKnet     = typeof cfg.feeKnet === 'number' ? cfg.feeKnet : 0.0065;
+  const feeCard     = typeof cfg.feeCard === 'number' ? cfg.feeCard : 0.0265;
+  const hesabiStart = req.body.hesabiStart || cfg.hesabiStartMonth || '2026-06';
+  const coa     = db.chartOfAccounts || [];
+  const bank    = coa.find(a => a.code === '1110') || { id:'1110', code:'1110', name:'البنك' };
+  const feeAcc  = coa.find(a => a.code === '5750') || { id:'5750', code:'5750', name:'مصاريف بنكية وعمولات' };
+  const r3f = v => Math.round((Number(v)||0) * 1000) / 1000;
+  let entries = 0, reclassified = 0;
+  (db.journalEntries || []).forEach(je => {
+    if (je.type !== 'auto-income') return;
+    if ((je.date || '').slice(0,7) >= hesabiStart) return; // pre-Hesabi only
+    if (je._preHesabiFixed) return;                        // idempotent
+    let touched = false;
+    const out = [];
+    for (const l of (je.lines || [])) {
+      if (String(l.accountCode) === '1125' && (parseFloat(l.debit)||0) > 0) {
+        const rate  = /كي-نت|knet/i.test(l.remarks || '') ? feeKnet : feeCard;
+        const gross = parseFloat(l.debit) || 0;
+        const fee   = r3f(gross * rate), net = r3f(gross - fee);
+        out.push({ accountId:bank.id, accountCode:bank.code, accountName:bank.name, debit:net, credit:0, remarks:`${l.remarks||''} → البنك مباشرة (صافي)` });
+        if (fee > 0) out.push({ accountId:feeAcc.id, accountCode:feeAcc.code, accountName:feeAcc.name, debit:fee, credit:0, remarks:`عمولة بنكية ${(rate*100).toFixed(2)}% — ${l.remarks||''}` });
+        touched = true; reclassified++;
+      } else out.push(l);
+    }
+    if (touched) { je.lines = out; je._preHesabiFixed = true; entries++; }
+  });
+  saveDB(db);
+  res.json({ success: true, entriesFixed: entries, linesReclassified: reclassified, hesabiStart });
 });
 
 // ── 5. PRO EXPORT — HTML / Print-ready PDF ────────────────────────
