@@ -343,6 +343,7 @@ function migrateDB(db) {
       '4140': 'إيرادات Link',
       '1110': 'البنك — الحساب الجاري',
       '1120': 'K-Net / Visa / Master — مستحقات',
+      '1125': 'مستحقات الشبكة — Visa/Master/KNET/Link',
       '1130': 'ذمم مدينة — شركات التأمين',
     };
     for (const [code, correctName] of Object.entries(coaFixes)) {
@@ -353,7 +354,7 @@ function migrateDB(db) {
     const newAccounts = [
       { id:'4150', code:'4150', name:'إيرادات تأمين — إجمالي',             type:'revenue', parent:'4000', balance:0 },
       { id:'4160', code:'4160', name:'إيرادات شيكات',                       type:'revenue', parent:'4000', balance:0 },
-      { id:'1125', code:'1125', name:'حسابي — مدفوعات إلكترونية',           type:'asset',   parent:'1000', balance:0 },
+      { id:'1125', code:'1125', name:'مستحقات الشبكة — Visa/Master/KNET/Link', type:'asset', parent:'1000', balance:0 },
       { id:'5760', code:'5760', name:'خصم التأمين — حسم شركات التأمين',     type:'expense', parent:'5700', balance:0 },
     ];
     for (const acc of newAccounts) {
@@ -880,15 +881,13 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
         const lines = [];
         let totalDebitRev = 0;
         // ترحيل قناة بطاقة: إمّا لحسابي (إجمالي) أو للبنك مباشرة (صافي + عمولة)
+        // نموذج المستحقات: إيرادات البطاقات تُسجَّل مديناً على «مستحقات الشبكة» (1125) بالصافي
+        // بعد العمولة، والعمولة مصروفاً فوراً. يُصفّى المستحق لاحقاً عبر كشف البنك (مدين بنك/دائن مستحق).
         const postCard = (gross, rate, remarks) => {
           if (gross <= 0) return;
-          if (useHesabi) {
-            lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:gross, credit:0, remarks });
-          } else {
-            const fee = r(gross * rate), net = r(gross - fee);
-            lines.push({ accountId:bank1110.id, accountCode:'1110', accountName:bank1110.name, debit:net, credit:0, remarks:`${remarks} (صافي بعد عمولة ${(rate*100).toFixed(2)}%)` });
-            if (fee > 0) lines.push({ accountId:bankFee5750.id, accountCode:'5750', accountName:bankFee5750.name, debit:fee, credit:0, remarks:`عمولة بنكية — ${remarks}` });
-          }
+          const fee = r(gross * rate), net = r(gross - fee);
+          lines.push({ accountId:hisabi1125.id, accountCode:'1125', accountName:hisabi1125.name, debit:net, credit:0, remarks:`${remarks} (صافي بعد عمولة ${(rate*100).toFixed(2)}% — يُصفّى عبر البنك)` });
+          if (fee > 0) lines.push({ accountId:bankFee5750.id, accountCode:'5750', accountName:bankFee5750.name, debit:fee, credit:0, remarks:`عمولة الشبكة ${(rate*100).toFixed(2)}% — ${remarks}` });
           totalDebitRev += gross;
         };
 
@@ -9164,6 +9163,8 @@ app.post('/api/bank/categorize', requireAuth, async (req, res) => {
 
   const db = loadDB();
   const rules = [
+    // إيداعات الشبكة (كي-نت/فيزا/ماستر/لينك/POS Settlement) = تصفية مستحقات الشبكة، لا إيراد جديد
+    { re: /pos|settlement|تسوية|k-?net|كي-?نت|knet|visa|فيزا|master|ماستر|mastercard|link|لينك|\bmid\b/i, debitAcc:'1125', creditAcc:'1125', label:'تصفية مستحقات الشبكة' },
     { re: /راتب|salary|payroll|رواتب/i,              debitAcc:'5100', creditAcc:'2100', label:'رواتب' },
     { re: /إيجار|rent|اجار/i,                         debitAcc:'5200', creditAcc:'1100', label:'إيجار' },
     { re: /كهرباء|electric|mew|moo/i,                 debitAcc:'5300', creditAcc:'1100', label:'كهرباء' },
