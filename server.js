@@ -4727,6 +4727,13 @@ function runAutoRepairSuite(db) {
     applied.push({ area: 'شجرة الحسابات', action: 'account-restored', name: nm || code, to: code });
   }
 
+  // 2ب. ضمان وجود حساب معلّق (Suspense) — مكان مؤقّت لأي مبلغ بنكي غير محدّد حتى تصنيفه
+  if (!codes.has('1900')) {
+    ensureAccount(db, '1900', 'حساب معلّق — تسوية مؤقتة (Suspense)', 'asset', '1000');
+    codes.add('1900');
+    applied.push({ area: 'شجرة الحسابات', action: 'account-added', name: 'حساب معلّق — تسوية مؤقتة', to: '1900' });
+  }
+
   // 3. قيود إجماليّها المخزّن لا يطابق بنودها → إعادة احتساب (تظهر بصفر في الشاشة)
   let recomputed = 0;
   for (const e of db.journalEntries || []) {
