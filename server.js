@@ -9233,11 +9233,40 @@ app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
   });
   outstanding.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
+  // دفتر البنك المُسجَّل مسبقاً — لاكتشاف الحركات المُدخَلة سابقاً (إيرادات/رواتب/مدفوعات)
+  // كي لا تُنشأ قيوداً مكرّرة لحركةٍ موجودة أصلاً في الدفاتر.
+  const bankLedger = [];
+  (db.journalEntries || []).forEach(je => {
+    (je.lines || []).forEach((l, i) => {
+      if (String(l.accountCode) === String(bankAccount)) {
+        const signed = (parseFloat(l.debit) || 0) - (parseFloat(l.credit) || 0); // + دخول للبنك، - خروج
+        if (Math.abs(signed) > 0.0005) bankLedger.push({ key: `${je.id}#B${i}`, date: je.date, amt: signed, desc: je.desc || je.description || '' });
+      }
+    });
+  });
+
   const dayDiff = (a, b) => Math.abs((new Date(a) - new Date(b)) / 864e5);
   const usedKeys = new Set();
+  const usedBookKeys = new Set();
   const proposals = [];
   lines.forEach((bl, idx) => {
     const amt = parseFloat(bl.amount) || 0;
+    if (Math.abs(amt) < 0.0005) return;
+    // (0) مطابقة مع دفتر البنك: هل الحركة مُسجَّلة مسبقاً؟ → لا حاجة لقيد جديد
+    let bookMatch = null, bookScore = Infinity;
+    for (const bk of bankLedger) {
+      if (usedBookKeys.has(bk.key)) continue;
+      if ((bk.amt < 0) !== (amt < 0)) continue;
+      if (Math.abs(bk.amt - amt) > 0.005) continue;
+      const dd = dayDiff(bl.date, bk.date);
+      if (dd > windowDays + 10) continue;
+      if (dd < bookScore) { bookScore = dd; bookMatch = bk; }
+    }
+    if (bookMatch) {
+      usedBookKeys.add(bookMatch.key);
+      proposals.push({ id: 'P' + idx, kind: 'matched-book', bankDate: bl.date, bankDesc: bl.desc, amount: parseFloat(Math.abs(amt).toFixed(3)), direction: amt < 0 ? 'withdrawal' : 'deposit', bookDate: bookMatch.date, bookDesc: bookMatch.desc });
+      return;
+    }
     if (amt > 0) {
       // إيداع — طابقه مع مستحق إجماليه ≥ الصافي، والعمولة (الفرق) ضمن السقف
       let best = null, bestScore = Infinity;
@@ -9276,7 +9305,8 @@ app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
       deposits: lines.filter(l => (parseFloat(l.amount) || 0) > 0).length,
       withdrawals: lines.filter(l => (parseFloat(l.amount) || 0) < 0).length,
       settlements: proposals.filter(p => p.kind === 'settlement').length,
-      needsInput: proposals.filter(p => p.kind !== 'settlement').length,
+      matchedBook: proposals.filter(p => p.kind === 'matched-book').length,
+      needsInput: proposals.filter(p => p.kind === 'deposit-unmatched' || p.kind === 'withdrawal').length,
       inTransit: inTransit.length,
       totalFees: parseFloat(proposals.filter(p => p.kind === 'settlement').reduce((s, p) => s + (p.fee || 0), 0).toFixed(3)),
     }
@@ -9305,24 +9335,57 @@ app.post('/api/bank/reconcile-commit', requireAuth, (req, res) => {
       db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: `تسوية إيداع بنكي — ${p.bankDesc || ''}${fee > 0 ? ` (عمولة ${fee})` : ''}`, type: 'bank-settlement', totalDebit: r3(net + fee), totalCredit: gross, lines });
       if (p.bookKey) db.bankMatchedLineIds.push(p.bookKey);
       posted++;
-    } else if (p.kind === 'deposit-unmatched') {
-      if (!p.assignAccount) { skipped++; return; }
-      const other = findAcc(p.assignAccount);
+    } else if (p.kind === 'deposit-unmatched' || p.kind === 'withdrawal') {
+      const isDeposit = p.kind === 'deposit-unmatched';
       const amt = r3(p.amount);
-      db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: p.assignDesc || p.bankDesc || 'إيداع بنكي', type: 'bank-deposit', totalDebit: amt, totalCredit: amt,
-        lines: [{ accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: amt, credit: 0 }, { accountId: other.id, accountCode: other.code, accountName: other.name, debit: 0, credit: amt }] });
-      posted++;
-    } else if (p.kind === 'withdrawal') {
-      if (!p.assignAccount) { skipped++; return; }
-      const other = findAcc(p.assignAccount);
-      const amt = r3(p.amount);
-      db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: p.assignDesc || p.bankDesc || 'سحب بنكي', type: 'bank-withdrawal', totalDebit: amt, totalCredit: amt,
-        lines: [{ accountId: other.id, accountCode: other.code, accountName: other.name, debit: amt, credit: 0 }, { accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: 0, credit: amt }] });
+      // أسطر الإسناد: إمّا تقسيم على عدّة حسابات (splits[]) أو حساب واحد (assignAccount)
+      let assigns = [];
+      if (Array.isArray(p.splits) && p.splits.length) {
+        assigns = p.splits
+          .filter(s => s && s.accountCode && r3(s.amount) > 0.0005)
+          .map(s => ({ acc: findAcc(s.accountCode), amount: r3(s.amount), desc: s.desc || p.bankDesc || '' }));
+      } else if (p.assignAccount) {
+        assigns = [{ acc: findAcc(p.assignAccount), amount: amt, desc: p.assignDesc || p.bankDesc || '' }];
+      }
+      if (!assigns.length) { skipped++; return; }
+      const assignTotal = r3(assigns.reduce((s, a) => s + a.amount, 0));
+      if (Math.abs(assignTotal - amt) > 0.005) { skipped++; return; }  // يجب أن يوازن مجموع التقسيم المبلغ
+      const otherLines = assigns.map(a => isDeposit
+        ? { accountId: a.acc.id, accountCode: a.acc.code, accountName: a.acc.name, debit: 0, credit: a.amount, remarks: a.desc }
+        : { accountId: a.acc.id, accountCode: a.acc.code, accountName: a.acc.name, debit: a.amount, credit: 0, remarks: a.desc });
+      const bankLine = isDeposit
+        ? { accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: amt, credit: 0 }
+        : { accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: 0, credit: amt };
+      db.journalEntries.push({ ...jeBase, date: p.bankDate,
+        desc: p.assignDesc || p.bankDesc || (isDeposit ? 'إيداع بنكي' : 'سحب بنكي'),
+        type: isDeposit ? 'bank-deposit' : 'bank-withdrawal', totalDebit: amt, totalCredit: amt,
+        lines: isDeposit ? [bankLine, ...otherLines] : [...otherLines, bankLine] });
       posted++;
     }
   });
   saveDB(db);
   res.json({ success: true, posted, skipped, batchId });
+});
+
+// حذف كل القيود الناتجة عن استيراد/تسوية كشف البنك (تنظيف) — لا يمسّ القيود اليدوية
+app.post('/api/bank/reconcile-undo-all', requireAuth, (req, res) => {
+  const db = loadDB();
+  const isReconEntry = je => {
+    const ref  = String(je.ref || je.reference || '');
+    const type = String(je.type || '');
+    const id   = String(je.id || '');
+    return ref === 'BRECON' || ref === 'BANK'
+        || id.startsWith('JE-BRC-')
+        || type === 'bank-settlement' || type === 'bank-deposit' || type === 'bank-withdrawal';
+  };
+  const all = db.journalEntries || [];
+  const removedList = all.filter(isReconEntry);
+  db.journalEntries = all.filter(je => !isReconEntry(je));
+  db.bankMatchedLineIds = [];   // إعادة ضبط المطابقات كي يمكن إعادة التسوية من جديد
+  const removedTotal = r3(removedList.reduce((s, je) =>
+    s + (je.lines || []).reduce((x, l) => x + (parseFloat(l.debit) || 0), 0), 0));
+  saveDB(db);
+  res.json({ success: true, removed: removedList.length, remaining: db.journalEntries.length, removedTotal });
 });
 
 // نقل إيرادات ما قبل «حسابي» من حساب 1125 إلى البنك مباشرة (صافي) + قيد العمولة

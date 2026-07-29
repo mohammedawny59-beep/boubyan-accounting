@@ -4264,6 +4264,7 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> استيراد CSV
         </button>
         <button class="btn bo bsm" onclick="runPreHesabiMigration()" title="نقل إيرادات ما قبل «حسابي» من حساب حسابي إلى البنك مباشرة + قيد العمولة">🔄 تصحيح ما قبل حسابي</button>
+        <button class="btn br bsm" onclick="undoAllBankRecon()" title="حذف كل القيود التي أنشأتها التسوية البنكية (لا يمسّ القيود اليدوية)">🗑️ حذف قيود التسوية</button>
         <button class="btn bp bsm" onclick="saveBankRecon()">💾 حفظ التسوية</button>
       </div>
     </div>
@@ -4305,7 +4306,6 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
           <div style="font-size:12px;font-weight:700;" id="bciResultCount"></div>
           <button class="btn bp bsm" onclick="runAutoCategorizeBci()">🤖 تصنيف AI تلقائي</button>
           <button class="btn bw bsm" onclick="applyBciToRecon()">✅ أضف لكشف البنك</button>
-          <button class="btn bw bsm" onclick="saveBciAsJournals()">📖 حفظ كقيود يومية</button>
         </div>
         <div class="bci-table-wrap">
           <table class="bci-table">
@@ -15867,56 +15867,137 @@ async function runBankReconMatch() {
   } catch(e) { toast('خطأ في المطابقة: '+e.message, 'error'); }
 }
 
+// خيارات دليل الحسابات (مع تحديد الحساب المختار)
+function coaOptsHtml(selectedCode) {
+  return getCoaAccounts().filter(a=>!a.isGroup&&a.code).sort((a,b)=>String(a.code).localeCompare(String(b.code)))
+    .map(a=>`<option value="${a.code}" ${String(a.code)===String(selectedCode)?'selected':''}>${a.code} — ${escHtml(a.name)}</option>`).join('');
+}
+const _r3c = v => Math.round((Number(v)||0)*1000)/1000;
+
+// محرّر تقسيم مبلغ واحد على حساب واحد أو أكثر
+function renderSplitEditor(i) {
+  const p = _brProposals[i];
+  if (!Array.isArray(p.splits) || !p.splits.length) p.splits = [{ accountCode:'', amount:p.amount, desc:p.bankDesc||'' }];
+  const rows = p.splits.map((sp, r) => `
+    <div style="display:grid;grid-template-columns:1fr 90px 1fr 28px;gap:4px;margin-bottom:4px;align-items:center">
+      <select class="finp" style="font-size:11px" onchange="updateSplit(${i},${r},'accountCode',this.value)">
+        <option value="">— اختر الحساب —</option>${coaOptsHtml(sp.accountCode)}
+      </select>
+      <input type="number" class="finp" style="font-size:11px" step="0.001" placeholder="0.000"
+        value="${sp.amount!=null&&sp.amount!==''?Number(sp.amount).toFixed(3):''}"
+        onchange="updateSplit(${i},${r},'amount',this.value)">
+      <input class="finp" style="font-size:11px" placeholder="الوصف"
+        value="${escHtml(sp.desc||'')}" onchange="updateSplit(${i},${r},'desc',this.value)">
+      <button title="حذف السطر" onclick="removeSplit(${i},${r})"
+        style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2);border-radius:6px;cursor:pointer;font-size:14px;width:28px;height:30px">×</button>
+    </div>`).join('');
+  const assigned = p.splits.reduce((a,x)=>a+(parseFloat(x.amount)||0),0);
+  const remaining = (parseFloat(p.amount)||0) - assigned;
+  const ok = Math.abs(remaining) < 0.005;
+  return `${rows}
+    <div style="display:flex;gap:10px;align-items:center;margin-top:2px">
+      <button class="btn bw bsm" onclick="addSplit(${i})">➕ تقسيم على حساب آخر</button>
+      <span style="font-size:11px">المتبقّي: <b style="color:${ok?'var(--accent2)':'var(--danger)'}">${remaining.toFixed(3)}</b> ${ok?'✓':''}</span>
+    </div>`;
+}
+function updateSplit(i,r,field,val){ const p=_brProposals[i]; if(!p||!p.splits[r])return; p.splits[r][field] = field==='amount'?(parseFloat(val)||0):val; refreshSplit(i); }
+function addSplit(i){ const p=_brProposals[i]; const assigned=p.splits.reduce((a,x)=>a+(parseFloat(x.amount)||0),0); const remaining=Math.max(0,(parseFloat(p.amount)||0)-assigned); p.splits.push({accountCode:'',amount:_r3c(remaining),desc:''}); refreshSplit(i); }
+function removeSplit(i,r){ const p=_brProposals[i]; p.splits.splice(r,1); if(!p.splits.length)p.splits.push({accountCode:'',amount:p.amount,desc:p.bankDesc||''}); refreshSplit(i); }
+function refreshSplit(i){ const el=document.getElementById('needEditor_'+i); if(el) el.innerHTML=renderSplitEditor(i); }
+
 function renderBankReconProposals(d) {
   const box = document.getElementById('brResults');
   const s = d.summary || {};
-  const expOpts = getCoaAccounts().filter(a=>!a.isGroup&&a.code).sort((a,b)=>String(a.code).localeCompare(String(b.code)))
-    .map(a=>`<option value="${a.code}">${a.code} — ${escHtml(a.name)}</option>`).join('');
-  const rows = _brProposals.map((p,i) => {
-    if (p.kind === 'settlement') {
-      return `<tr style="border-bottom:1px solid var(--border)">
-        <td>${p.bankDate}</td>
-        <td style="font-size:11px">${escHtml(p.bankDesc||'')}<div style="color:var(--text3);font-size:10px">مقابل: ${escHtml(p.bookDesc||'')} (${p.bookDate})</div></td>
-        <td class="num pos">${(p.net||0).fmt()}</td>
-        <td class="num">${(p.gross||0).fmt()}</td>
-        <td><input type="number" class="finp" style="width:80px" value="${(p.fee||0).toFixed(3)}" step="0.001" onchange="_brProposals[${i}].fee=parseFloat(this.value)||0"></td>
-        <td><span class="badge bg" style="font-size:9px">تسوية ✓</span></td>
-      </tr>`;
-    }
-    const kindLabel = p.kind==='withdrawal' ? '<span class="badge br" style="font-size:9px">سحب</span>' : '<span class="badge by" style="font-size:9px">إيداع مجهول</span>';
-    return `<tr style="border-bottom:1px solid var(--border);background:rgba(245,158,11,.05)">
-      <td>${p.bankDate}</td>
-      <td style="font-size:11px">${escHtml(p.bankDesc||'')}</td>
-      <td class="num ${p.kind==='withdrawal'?'neg':'pos'}">${(p.amount||0).fmt()}</td>
-      <td colspan="1"><select class="finp" style="width:150px;font-size:11px" onchange="_brProposals[${i}].assignAccount=this.value"><option value="">— اختر الحساب —</option>${expOpts}</select></td>
-      <td><input type="text" class="finp" style="width:120px;font-size:11px" value="${(p.assignDesc||'').replace(/"/g,'&quot;')}" placeholder="الوصف" onchange="_brProposals[${i}].assignDesc=this.value"></td>
-      <td>${kindLabel}</td>
-    </tr>`;
-  }).join('');
+  _brProposals.forEach(p => {
+    if ((p.kind==='deposit-unmatched'||p.kind==='withdrawal') && !Array.isArray(p.splits))
+      p.splits = [{ accountCode:'', amount:p.amount, desc:p.bankDesc||'' }];
+  });
+  const matched = _brProposals.filter(p=>p.kind==='matched-book');
+  const settle  = _brProposals.filter(p=>p.kind==='settlement');
+  const need    = _brProposals.filter(p=>p.kind==='deposit-unmatched'||p.kind==='withdrawal');
+
+  const matchedHtml = matched.length ? `
+    <details style="margin-bottom:10px;border:1px solid rgba(74,230,175,.25);border-radius:10px;background:rgba(74,230,175,.05)">
+      <summary style="cursor:pointer;padding:10px;font-size:12px;font-weight:700;color:var(--accent2)">✅ مسجّلة مسبقاً في الدفاتر (${matched.length}) — لن يُنشأ لها قيد</summary>
+      <div style="padding:0 12px 10px">${matched.map(p=>`<div style="font-size:11px;color:var(--text2);padding:3px 0;border-bottom:1px solid var(--border)">${p.bankDate} — ${(p.amount||0).fmt()} د.ك — ${escHtml(p.bankDesc||'')} <span style="color:var(--text3)">↔ ${escHtml(p.bookDesc||'')} (${p.bookDate||''})</span></div>`).join('')}</div>
+    </details>` : '';
+
+  const settleHtml = settle.length ? `
+    <div style="font-size:12px;font-weight:700;margin:6px 0;color:var(--accent)">🔁 تسويات الشبكة (عمولة + توقيت)</div>
+    <div style="max-height:30vh;overflow:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead style="position:sticky;top:0;background:var(--surface2)"><tr><th>التاريخ</th><th style="text-align:right">البيان</th><th>الصافي</th><th>الإجمالي</th><th>العمولة</th><th>الحالة</th></tr></thead>
+        <tbody>${settle.map(p=>{const i=_brProposals.indexOf(p);return `<tr style="border-bottom:1px solid var(--border)">
+          <td>${p.bankDate}</td>
+          <td style="font-size:11px">${escHtml(p.bankDesc||'')}<div style="color:var(--text3);font-size:10px">مقابل: ${escHtml(p.bookDesc||'')} (${p.bookDate})</div></td>
+          <td class="num pos">${(p.net||0).fmt()}</td>
+          <td class="num">${(p.gross||0).fmt()}</td>
+          <td><input type="number" class="finp" style="width:80px" value="${(p.fee||0).toFixed(3)}" step="0.001" onchange="_brProposals[${i}].fee=parseFloat(this.value)||0"></td>
+          <td><span class="badge bg" style="font-size:9px">تسوية ✓</span></td></tr>`;}).join('')}</tbody>
+      </table>
+    </div>` : '';
+
+  const needHtml = need.length ? `
+    <div style="display:flex;align-items:center;gap:10px;margin:6px 0;flex-wrap:wrap">
+      <div style="font-size:12px;font-weight:700;color:var(--danger)">❓ غير مسجّلة — تحتاج إسناد حساب (${need.length})</div>
+      <button class="btn bp bsm" onclick="suggestReconAccounts()">🤖 اقترح الحسابات</button>
+    </div>
+    ${need.map(p=>{const i=_brProposals.indexOf(p);const badge=p.kind==='withdrawal'?'<span class="badge br" style="font-size:9px">سحب</span>':'<span class="badge by" style="font-size:9px">إيداع</span>';return `
+      <div style="border:1px solid rgba(245,158,11,.25);background:rgba(245,158,11,.05);border-radius:10px;padding:10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px">
+          <span>${p.bankDate} — ${escHtml(p.bankDesc||'')} ${badge}</span>
+          <span class="num ${p.kind==='withdrawal'?'neg':'pos'}" style="font-weight:700">${(p.amount||0).fmt()} د.ك</span>
+        </div>
+        <div id="needEditor_${i}">${renderSplitEditor(i)}</div>
+      </div>`;}).join('')}` : '';
+
   const inTransit = (d.inTransit||[]).map(o=>`<div style="font-size:11px;color:var(--text2)">• ${o.date} — ${(o.gross||0).fmt()} د.ك — ${escHtml(o.desc||'')}</div>`).join('');
   box.style.display = 'block';
   box.innerHTML = `
-    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
-      <span>تسويات: <b style="color:var(--accent2)">${s.settlements||0}</b></span>
-      <span>إجمالي العمولات: <b style="color:var(--warning)">${(s.totalFees||0).fmt()} د.ك</b></span>
-      <span>تحتاج إسناد: <b style="color:var(--danger)">${s.needsInput||0}</b></span>
-      <span>لم تصل بعد: <b>${s.inTransit||0}</b></span>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">
+      <span>✅ مسجّلة مسبقاً: <b style="color:var(--accent2)">${s.matchedBook||0}</b></span>
+      <span>🔁 تسويات: <b style="color:var(--accent)">${s.settlements||0}</b></span>
+      <span>❓ تحتاج إسناد: <b style="color:var(--danger)">${s.needsInput||0}</b></span>
+      <span>⏳ لم تصل بعد: <b>${s.inTransit||0}</b></span>
+      <span>عمولات: <b style="color:var(--warning)">${(s.totalFees||0).fmt()} د.ك</b></span>
     </div>
-    <div style="max-height:44vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead style="position:sticky;top:0;background:var(--surface2)"><tr><th>التاريخ</th><th style="text-align:right">البيان</th><th>الصافي/المبلغ</th><th>الإجمالي</th><th>العمولة/الحساب</th><th>الحالة</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">لا توجد حركات</td></tr>'}</tbody>
-      </table>
-    </div>
+    ${matchedHtml}${settleHtml}${needHtml}
     ${inTransit ? `<div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;margin-bottom:4px">⏳ مستحقات لم تصل البنك بعد (فروقات توقيت):</div>${inTransit}</div>` : ''}
-    <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn bp" onclick="commitBankRecon()">✅ ترحيل القيود</button>
-    </div>`;
+    ${(settle.length||need.length) ? `<div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn bp" onclick="commitBankRecon()">✅ ترحيل القيود المختارة</button>
+    </div>` : (matched.length ? '<div style="margin-top:10px;font-size:12px;color:var(--accent2)">✅ كل الحركات مسجّلة مسبقاً — لا حاجة لترحيل قيود جديدة.</div>' : '')}`;
+}
+
+// اقتراح الحسابات للحركات غير المسجّلة (يعتمد على قواعد + AI من دليل الحسابات)
+async function suggestReconAccounts() {
+  const need = _brProposals.filter(p=>p.kind==='deposit-unmatched'||p.kind==='withdrawal');
+  if (!need.length) return;
+  try {
+    const txs = need.map(p=>({ desc:p.bankDesc||'', amount: p.kind==='withdrawal' ? -(parseFloat(p.amount)||0) : (parseFloat(p.amount)||0) }));
+    const d = await apiFetch('bank/categorize', { method:'POST', body: JSON.stringify({ transactions: txs }) });
+    (d.transactions||[]).forEach((t,k) => {
+      const p = need[k]; const i = _brProposals.indexOf(p);
+      if (t.suggestedAccount && p.splits && p.splits[0] && !p.splits[0].accountCode) {
+        p.splits[0].accountCode = t.suggestedAccount;
+        if (!p.splits[0].desc) p.splits[0].desc = t.category || '';
+      }
+      refreshSplit(i);
+    });
+    toast('🤖 تم اقتراح الحسابات — راجعها قبل الترحيل','success');
+  } catch(e){ toast('تعذّر الاقتراح: '+e.message,'error'); }
 }
 
 async function commitBankRecon() {
-  const needAssign = _brProposals.filter(p => p.kind!=='settlement' && !p.assignAccount);
-  if (needAssign.length && !confirm(`${needAssign.length} حركة بدون حساب مُسنَد وسيتم تخطّيها. المتابعة؟`)) return;
+  const need = _brProposals.filter(p=>p.kind==='deposit-unmatched'||p.kind==='withdrawal');
+  const unbalanced = need.filter(p => {
+    const hasAcc = (p.splits||[]).some(x=>x.accountCode);
+    if (!hasAcc) return false;
+    const t = (p.splits||[]).filter(x=>x.accountCode).reduce((a,x)=>a+(parseFloat(x.amount)||0),0);
+    return Math.abs(t-(parseFloat(p.amount)||0))>0.005;
+  });
+  if (unbalanced.length) { toast(`${unbalanced.length} حركة: مجموع التقسيم لا يساوي المبلغ — صحّحها أولاً`,'warning'); return; }
+  const noAcc = need.filter(p => !(p.splits||[]).some(x=>x.accountCode));
+  if (noAcc.length && !confirm(`${noAcc.length} حركة بدون حساب مُسنَد وسيتم تخطّيها. المتابعة؟`)) return;
   try {
     const d = await apiFetch('bank/reconcile-commit', { method:'POST', body: JSON.stringify({ proposals: _brProposals }) });
     toast(`✅ رُحّل ${d.posted} قيد${d.skipped?` (${d.skipped} تخطّي)`:''}`, 'success');
@@ -15925,6 +16006,17 @@ async function commitBankRecon() {
     await loadAll();
     if (typeof loadJournal === 'function') loadJournal();
   } catch(e) { toast('خطأ في الترحيل: '+e.message, 'error'); }
+}
+
+// حذف كل القيود الناتجة عن استيراد/تسوية كشف البنك (تنظيف)
+async function undoAllBankRecon() {
+  if (!confirm('سيتم حذف كل القيود الناتجة عن استيراد/تسوية كشف البنك نهائياً.\nلن يُمسّ أي قيد سجّلته يدوياً.\nمتابعة؟')) return;
+  try {
+    const d = await apiFetch('bank/reconcile-undo-all', { method:'POST', body: JSON.stringify({}) });
+    toast(`🗑️ حُذف ${d.removed} قيد تسوية بنكية (بقي ${d.remaining} قيد)`, 'success');
+    await loadAll();
+    if (typeof loadJournal === 'function') loadJournal();
+  } catch(e) { toast('خطأ في الحذف: '+e.message, 'error'); }
 }
 
 // ══════════════════════════════════════════════════════════════
