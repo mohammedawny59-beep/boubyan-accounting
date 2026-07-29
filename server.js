@@ -9259,7 +9259,7 @@ app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
       if ((bk.amt < 0) !== (amt < 0)) continue;
       if (Math.abs(bk.amt - amt) > 0.005) continue;
       const dd = dayDiff(bl.date, bk.date);
-      if (dd > windowDays + 10) continue;
+      if (dd > 45) continue; // مهلة واسعة تُغطّي فروقات التوقيت عبر الشهور (المبلغ هو المفتاح الأقوى)
       if (dd < bookScore) { bookScore = dd; bookMatch = bk; }
     }
     if (bookMatch) {
@@ -9276,7 +9276,7 @@ app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
         if (fee < -0.001) continue;
         if (fee > o.gross * feeMaxPct + 0.001) continue;
         const dd = dayDiff(bl.date, o.date);
-        if (dd > windowDays + 6) continue;
+        if (dd > windowDays + 35) continue; // تسويات الشبكة قد تصل الشهر التالي (فرق توقيت عبر الشهور)
         const score = Math.abs(fee) + dd * 0.05;
         if (score < bestScore) { bestScore = score; best = o; }
       }

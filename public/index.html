@@ -4293,10 +4293,10 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
           <div class="fr" style="margin:0;min-width:180px"><label class="flbl">حساب المستحقات (يُصفّى منه)</label><div id="brSettleWrap"></div></div>
           <div class="fr" style="margin:0;min-width:180px"><label class="flbl">الحساب البنكي (يصل إليه)</label><div id="brBankWrap"></div></div>
           <div class="fr" style="margin:0;min-width:180px"><label class="flbl">حساب العمولة (الفرق المخصوم)</label><div id="brFeeWrap"></div></div>
-          <div class="fr" style="margin:0;width:110px"><label class="flbl">مهلة الأيام</label><input type="number" class="finp" id="brWindow" value="4" min="0" step="1"></div>
+          <div class="fr" style="margin:0;width:110px"><label class="flbl">مهلة الأيام</label><input type="number" class="finp" id="brWindow" value="7" min="0" step="1"></div>
           <button class="btn bp bsm" onclick="runBankReconMatch()">🔁 طابق تلقائياً</button>
         </div>
-        <div style="font-size:10px;color:var(--text3)">يطابق كل إيداع بنكي مع مستحق مفتوح، يحسب العمولة تلقائياً، ويسأل عن أي مبلغ مجهول.</div>
+        <div style="font-size:10px;color:var(--text3)">يتعرّف على الحركات المسجّلة مسبقاً في دفاترك (لا يكرّرها)، يطابق إيداعات الشبكة مع مستحقاتها ويحسب العمولة، ويحتمل فروقات التوقيت عبر الشهور (إيراد آخر الشهر يصل الشهر التالي). لا يُطلب منك تصنيف إلا الحركات غير المسجّلة — باختيار الحساب بالاسم.</div>
       </div>
       <div id="brResults" style="display:none;margin-top:12px"></div>
 
@@ -4304,13 +4304,15 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <div id="bciResults" style="display:none;margin-top:12px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
           <div style="font-size:12px;font-weight:700;" id="bciResultCount"></div>
-          <button class="btn bp bsm" onclick="runAutoCategorizeBci()">🤖 تصنيف AI تلقائي</button>
-          <button class="btn bw bsm" onclick="applyBciToRecon()">✅ أضف لكشف البنك</button>
+          <button class="btn bw bsm" onclick="applyBciToRecon()">✅ أضف لكشف البنك اليدوي</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+          💡 هذه معاينة فقط. للتصنيف والترحيل الصحيح اضغط <b>🔁 طابق تلقائياً</b> بالأعلى — سيتعرّف على الحركات المسجّلة مسبقاً ويطلب منك فقط تصنيف غير المسجّل (باختيار الحساب بالاسم).
         </div>
         <div class="bci-table-wrap">
           <table class="bci-table">
             <thead><tr>
-              <th>التاريخ</th><th>البيان</th><th>المبلغ</th><th>التصنيف المقترح</th><th>الحساب</th><th>ثقة</th>
+              <th>التاريخ</th><th>البيان</th><th>المبلغ</th>
             </tr></thead>
             <tbody id="bciTableBody"></tbody>
           </table>
@@ -15770,16 +15772,13 @@ async function uploadBankCsv(file) {
 function renderBciTable() {
   const results = document.getElementById('bciResults');
   results.style.display = 'block';
-  document.getElementById('bciResultCount').textContent = `${_bciLines.length} معاملة — حدد التصنيف`;
+  document.getElementById('bciResultCount').textContent = `${_bciLines.length} معاملة في الكشف — معاينة`;
   const tbody = document.getElementById('bciTableBody');
   tbody.innerHTML = _bciLines.map((l,i) => `
     <tr>
       <td>${l.date}</td>
-      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${l.desc}">${l.desc}</td>
+      <td style="max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(l.desc)}">${escHtml(l.desc)}</td>
       <td class="${l.amount>=0?'conf-high':'conf-low'}" style="text-align:left;font-family:monospace;">${l.amount>=0?'+':''}${l.amount.toFixed(3)}</td>
-      <td><span id="bci_cat_${i}" style="font-size:11px;">${l.category||'—'}</span></td>
-      <td><input type="text" value="${l.suggestedAccount||''}" class="fi" style="width:90px;font-size:11px;padding:3px 6px;" id="bci_acc_${i}" placeholder="كود"></td>
-      <td><span class="${l.confidence>=0.8?'conf-high':l.confidence>=0.5?'conf-med':'conf-low'}" style="font-size:10px;">${l.confidence?(l.confidence*100).toFixed(0)+'%':'—'}</span></td>
     </tr>`).join('');
 }
 
@@ -15867,22 +15866,42 @@ async function runBankReconMatch() {
   } catch(e) { toast('خطأ في المطابقة: '+e.message, 'error'); }
 }
 
-// خيارات دليل الحسابات (مع تحديد الحساب المختار)
-function coaOptsHtml(selectedCode) {
-  return getCoaAccounts().filter(a=>!a.isGroup&&a.code).sort((a,b)=>String(a.code).localeCompare(String(b.code)))
-    .map(a=>`<option value="${a.code}" ${String(a.code)===String(selectedCode)?'selected':''}>${a.code} — ${escHtml(a.name)}</option>`).join('');
-}
 const _r3c = v => Math.round((Number(v)||0)*1000)/1000;
+// اسم الحساب المعروض من كوده
+function accLabel(code){ if(!code) return ''; const a=(DB.chartOfAccounts||[]).find(x=>String(x.code)===String(code)); return a?`${a.code} — ${a.name}`:String(code); }
 
-// محرّر تقسيم مبلغ واحد على حساب واحد أو أكثر
+// منتقي حساب بالبحث بالاسم أو الكود (نفس أسلوب القيود اليومية) لأسطر التقسيم
+function filterBrAcc(i,r){
+  const q=(document.getElementById(`brsp_txt_${i}_${r}`)?.value||'').toLowerCase();
+  const coa=(DB.chartOfAccounts||[]).filter(a=>a.status!=='inactive'&&!a.isGroup&&a.code);
+  const drop=document.getElementById(`brsp_drop_${i}_${r}`); if(!drop)return;
+  const matches=coa.filter(a=>!q||(a.code||'').includes(q)||(a.name||'').toLowerCase().includes(q)).slice(0,35);
+  if(!matches.length){drop.style.display='none';return;}
+  drop.innerHTML=matches.map(a=>{const sn=(a.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div style="${_accPickStyle}" ${_accPickHov} onmousedown="pickBrAcc(${i},${r},'${a.code}','${sn}')">${a.code} — ${escHtml(a.name)}</div>`;}).join('');
+  drop.style.display='block';
+}
+function pickBrAcc(i,r,code,name){
+  const p=_brProposals[i]; if(!p||!p.splits[r])return;
+  p.splits[r].accountCode=code;
+  const ti=document.getElementById(`brsp_txt_${i}_${r}`); if(ti)ti.value=code+' — '+name;
+  const di=document.getElementById(`brsp_drop_${i}_${r}`); if(di)di.style.display='none';
+  updateSplitRemaining(i);
+}
+
+// محرّر تقسيم مبلغ واحد على حساب واحد أو أكثر — اختيار الحساب بالبحث بالاسم
 function renderSplitEditor(i) {
   const p = _brProposals[i];
   if (!Array.isArray(p.splits) || !p.splits.length) p.splits = [{ accountCode:'', amount:p.amount, desc:p.bankDesc||'' }];
   const rows = p.splits.map((sp, r) => `
-    <div style="display:grid;grid-template-columns:1fr 90px 1fr 28px;gap:4px;margin-bottom:4px;align-items:center">
-      <select class="finp" style="font-size:11px" onchange="updateSplit(${i},${r},'accountCode',this.value)">
-        <option value="">— اختر الحساب —</option>${coaOptsHtml(sp.accountCode)}
-      </select>
+    <div style="display:grid;grid-template-columns:1fr 90px 1fr 28px;gap:4px;margin-bottom:4px;align-items:start">
+      <div style="position:relative">
+        <input class="finp" id="brsp_txt_${i}_${r}" autocomplete="off" placeholder="اكتب اسم الحساب أو كوده..."
+          style="font-size:11px;width:100%;box-sizing:border-box" value="${escHtml(accLabel(sp.accountCode))}"
+          oninput="filterBrAcc(${i},${r})" onfocus="filterBrAcc(${i},${r})"
+          onblur="setTimeout(()=>{let d=document.getElementById('brsp_drop_${i}_${r}');if(d)d.style.display='none'},200)">
+        <div id="brsp_drop_${i}_${r}" style="${_accDropStyle}"></div>
+      </div>
       <input type="number" class="finp" style="font-size:11px" step="0.001" placeholder="0.000"
         value="${sp.amount!=null&&sp.amount!==''?Number(sp.amount).toFixed(3):''}"
         onchange="updateSplit(${i},${r},'amount',this.value)">
@@ -15896,12 +15915,13 @@ function renderSplitEditor(i) {
   const ok = Math.abs(remaining) < 0.005;
   return `${rows}
     <div style="display:flex;gap:10px;align-items:center;margin-top:2px">
-      <button class="btn bw bsm" onclick="addSplit(${i})">➕ تقسيم على حساب آخر</button>
-      <span style="font-size:11px">المتبقّي: <b style="color:${ok?'var(--accent2)':'var(--danger)'}">${remaining.toFixed(3)}</b> ${ok?'✓':''}</span>
+      <button class="btn bw bsm" onclick="addSplit(${i})">➕ حساب آخر لنفس الحركة</button>
+      <span style="font-size:11px">المتبقّي: <b id="brrem_${i}" style="color:${ok?'var(--accent2)':'var(--danger)'}">${remaining.toFixed(3)}</b></span>
     </div>`;
 }
-function updateSplit(i,r,field,val){ const p=_brProposals[i]; if(!p||!p.splits[r])return; p.splits[r][field] = field==='amount'?(parseFloat(val)||0):val; refreshSplit(i); }
-function addSplit(i){ const p=_brProposals[i]; const assigned=p.splits.reduce((a,x)=>a+(parseFloat(x.amount)||0),0); const remaining=Math.max(0,(parseFloat(p.amount)||0)-assigned); p.splits.push({accountCode:'',amount:_r3c(remaining),desc:''}); refreshSplit(i); }
+function updateSplit(i,r,field,val){ const p=_brProposals[i]; if(!p||!p.splits[r])return; p.splits[r][field] = field==='amount'?(parseFloat(val)||0):val; updateSplitRemaining(i); }
+function updateSplitRemaining(i){ const p=_brProposals[i]; if(!p)return; const assigned=(p.splits||[]).reduce((a,x)=>a+(parseFloat(x.amount)||0),0); const rem=(parseFloat(p.amount)||0)-assigned; const el=document.getElementById('brrem_'+i); if(el){el.textContent=rem.toFixed(3); el.style.color=Math.abs(rem)<0.005?'var(--accent2)':'var(--danger)';} }
+function addSplit(i){ const p=_brProposals[i]; const assigned=(p.splits||[]).reduce((a,x)=>a+(parseFloat(x.amount)||0),0); const remaining=Math.max(0,(parseFloat(p.amount)||0)-assigned); p.splits.push({accountCode:'',amount:_r3c(remaining),desc:''}); refreshSplit(i); }
 function removeSplit(i,r){ const p=_brProposals[i]; p.splits.splice(r,1); if(!p.splits.length)p.splits.push({accountCode:'',amount:p.amount,desc:p.bankDesc||''}); refreshSplit(i); }
 function refreshSplit(i){ const el=document.getElementById('needEditor_'+i); if(el) el.innerHTML=renderSplitEditor(i); }
 
