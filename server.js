@@ -5528,9 +5528,34 @@ app.delete('/api/journal/:id', (req, res) => {
   }
 
   db.journalEntries = db.journalEntries.filter(e => e.id !== req.params.id);
+
   // إن كان قيد سند: احذف السند المرتبط أيضاً حتى لا يبقى معلّقاً
   const v = (db.vouchers || []).find(x => entry.ref === x.number || entry.id === 'JE-' + x.number);
   if (v) db.vouchers = db.vouchers.filter(x => x.id !== v.id);
+
+  // إن كان قيد مصروف (عادي أو متكرر): احذف سجل المصروف المرتبط أيضاً — وُجدا معاً ويُحذفان معاً
+  const linkedExpense = (db.expenses || []).find(x => x.journalId === entry.id);
+  if (linkedExpense) db.expenses = (db.expenses || []).filter(x => x.id !== linkedExpense.id);
+
+  // إن كان قيد أصل الاستحقاق لمصروف مستحق: احذف كامل سجل المصروف المستحق مع كل قيود دفعاته
+  const linkedAccrual = (db.accruedExpenses || []).find(a => a.jeId === entry.id);
+  if (linkedAccrual) {
+    const payJeIds = new Set((linkedAccrual.payments || []).map(p => p.jeId).filter(Boolean));
+    db.journalEntries = db.journalEntries.filter(e => !payJeIds.has(e.id));
+    db.accruedExpenses = db.accruedExpenses.filter(a => a.id !== linkedAccrual.id);
+  } else {
+    // إن كان قيد دفعة (قسط) على مصروف مستحق: احذف تلك الدفعة فقط وأعد احتساب المتبقي
+    const owner = (db.accruedExpenses || []).find(a => (a.payments || []).some(p => p.jeId === entry.id));
+    if (owner) {
+      const removedPay = owner.payments.find(p => p.jeId === entry.id);
+      owner.payments = owner.payments.filter(p => p.jeId !== entry.id);
+      owner.paidAmount = r3((owner.paidAmount || 0) - (removedPay?.amount || 0));
+      owner.remaining  = r3((parseFloat(owner.amount) || 0) - owner.paidAmount);
+      owner.status = owner.remaining <= 0.001 ? 'paid' : (owner.paidAmount > 0 ? 'partial' : 'pending');
+      if (owner.status !== 'paid') delete owner.paidDate;
+    }
+  }
+
   saveDB(db);
   res.json({ success: true });
 });

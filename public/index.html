@@ -7578,10 +7578,12 @@ async function deleteJournal(id) {
   const e = entries.find(x => x.id === id);
   if (!confirm('حذف القيد: ' + (e?.desc||id) + '؟')) return;
   try {
-    await fetch(`${API}/journal/` + id, { method:'DELETE' });
+    const r = await fetch(`${API}/journal/` + id, { method:'DELETE' });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok || d.success === false) { showToast(d.message || 'تعذّر حذف القيد', 'error'); return; }
     await loadAll(); loadJournal();
     showToast('تم حذف القيد', 'success');
-  } catch(ex) { showToast('خطأ في حذف القيد', 'error'); }
+  } catch(ex) { showToast('خطأ في حذف القيد: ' + ex.message, 'error'); }
 }
 
 function exportJournal() { exportExcel('journal'); }
@@ -8399,6 +8401,17 @@ function lemEditCurrent() {
   _lemReturnId = _lemCurrentId;   // remember to reopen after save
   closeLedgerModal();
   setTimeout(() => editJournal(_lemReturnId), 200);
+}
+
+// حذف القيد من نافذة التفاصيل — يعمل من أي شاشة فُتحت منها (كشف الحساب، شجرة الحسابات، القيود اليومية)
+async function lemDeleteCurrent() {
+  if (!_lemCurrentId) return;
+  const id = _lemCurrentId;
+  await deleteJournal(id); // يعرض تأكيداً خاصاً به، ويحذف من الخادم مع كل السجلات المرتبطة (مصروف/مستحق/سند)
+  if ((DB.journalEntries||[]).some(x => x.id === id)) return; // المستخدم ألغى التأكيد أو فشل الحذف
+  closeLedgerModal();
+  if (document.getElementById('tab-ledger')?.classList.contains('active')) loadLedger();
+  if (document.getElementById('tab-coa')?.classList.contains('active'))    renderCoa();
 }
 
 function _lemEscHandler(e) { if (e.key === 'Escape') closeLedgerModal(); }
@@ -13514,6 +13527,10 @@ showTab = function(id, el) {
       <button class="lem-btn primary" id="lemEditBtn" onclick="lemEditCurrent()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         تعديل القيد
+      </button>
+      <button class="lem-btn" id="lemDeleteBtn" onclick="lemDeleteCurrent()" style="background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.25)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        حذف القيد
       </button>
       <span class="lem-spacer"></span>
       <button class="lem-btn secondary" onclick="closeLedgerModal()">إغلاق</button>
