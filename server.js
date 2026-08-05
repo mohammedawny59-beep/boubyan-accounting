@@ -4733,6 +4733,54 @@ function runAutoRepairSuite(db) {
     applied.push({ area: 'شجرة الحسابات', action: 'account-added', name: 'حساب معلّق — تسوية مؤقتة', to: '1900' });
   }
 
+  // 2ج. توحيد قيود إيرادات البطاقات القديمة (auto-income) على نموذج «مستحقات الشبكة» الموحّد.
+  //    قبل هذا التوحيد كانت الفترة قبل «حسابي» تُرحَّل صافياً للبنك مباشرة (1110+5750)،
+  //    وفترة «حسابي» تُرحَّل بالإجمالي على 1125 بدون فصل عمولة. كلاهما يُعاد بناؤه هنا:
+  //    مدين 1125 (صافي بعد العمولة الحالية بالإعدادات) + مدين 5750 (العمولة) — بنفس إجمالي
+  //    الإيراد الدائن (4110/4120/4130/4140) الذي يبقى كما هو (المصدر الموثوق). idempotent.
+  {
+    const cfgFee = loadConfig();
+    const feeKnetR  = typeof cfgFee.feeKnet === 'number' ? cfgFee.feeKnet : 0.0065;
+    const feeCardR  = typeof cfgFee.feeCard === 'number' ? cfgFee.feeCard : 0.0265;
+    const acc1125 = coa.find(a => a.code === '1125') || ensureAccount(db, '1125', 'مستحقات الشبكة — Visa/Master/KNET/Link', 'asset', '1000');
+    const acc5750 = coa.find(a => a.code === '5750') || ensureAccount(db, '5750', 'مصاريف بنكية وعمولات', 'expense', '5700');
+    const cardKeywordRe = /كي-نت|كي نت|فيزا|ماستر|لينك|knet|visa|master|link/i;
+    const postCard2 = (out, gross, rate, remarks) => {
+      if (gross <= 0) return;
+      const fee = r3(gross * rate), net = r3(gross - fee);
+      out.push({ accountId: acc1125.id, accountCode: '1125', accountName: acc1125.name, debit: net, credit: 0, remarks: `${remarks} (صافي بعد عمولة ${(rate*100).toFixed(2)}% — يُصفّى عبر البنك)` });
+      if (fee > 0) out.push({ accountId: acc5750.id, accountCode: '5750', accountName: acc5750.name, debit: fee, credit: 0, remarks: `عمولة الشبكة ${(rate*100).toFixed(2)}% — ${remarks}` });
+    };
+    let unifiedCount = 0;
+    for (const je of db.journalEntries || []) {
+      if (je.type !== 'auto-income' || je._receivableModelFixed) continue;
+      const lines = je.lines || [];
+      const grossOf = code => r3(lines.filter(l => l.accountCode === code).reduce((s, l) => s + (parseFloat(l.credit) || 0), 0));
+      const gKnet = grossOf('4110'), gVisa = grossOf('4120'), gMaster = grossOf('4130'), gLink = grossOf('4140');
+      if (!gKnet && !gVisa && !gMaster && !gLink) { je._receivableModelFixed = true; continue; } // لا إيراد بطاقات بهذا القيد
+      const keep = lines.filter(l => {
+        const isCardDebit = (parseFloat(l.debit) || 0) > 0 && (
+          l.accountCode === '1125' ||
+          ((l.accountCode === '1110' || l.accountCode === '5750') && cardKeywordRe.test(l.remarks || ''))
+        );
+        return !isCardDebit;
+      });
+      const fresh = [];
+      postCard2(fresh, gKnet, feeKnetR, `كي-نت: ${gKnet} د.ك`);
+      if (gVisa + gMaster > 0) {
+        const parts = []; if (gVisa > 0) parts.push(`فيزا: ${gVisa} د.ك`); if (gMaster > 0) parts.push(`ماستر: ${gMaster} د.ك`);
+        postCard2(fresh, r3(gVisa + gMaster), feeCardR, parts.join(' | '));
+      }
+      postCard2(fresh, gLink, feeCardR, `لينك: ${gLink} د.ك`);
+      je.lines = [...keep, ...fresh];
+      je.totalDebit  = r3(je.lines.reduce((s, l) => s + (parseFloat(l.debit)  || 0), 0));
+      je.totalCredit = r3(je.lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0));
+      je._receivableModelFixed = true;
+      unifiedCount++;
+    }
+    if (unifiedCount) applied.push({ area: 'الإيرادات', action: 'card-revenue-unified-to-receivable', name: unifiedCount + ' قيد إيراد', to: 'مُوحَّد على مستحقات الشبكة 1125 بالصافي + عمولة 5750' });
+  }
+
   // 3. قيود إجماليّها المخزّن لا يطابق بنودها → إعادة احتساب (تظهر بصفر في الشاشة)
   let recomputed = 0;
   for (const e of db.journalEntries || []) {
@@ -9216,30 +9264,32 @@ ${coa}
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// BANK SETTLEMENT RECONCILIATION — مطابقة كشف البنك (عمولات الشبكة + التوقيت + وسيط حسابي)
-//   الفكرة: مبيعات الشبكة (كي-نت/فيزا/ماستر) تُرحَّل مديناً لحساب مستحقات (1125 حسابي مثلاً)،
-//   ثم تصل للبنك لاحقاً ناقصاً عمولة. هذا المحرّك يطابق كل إيداع في كشف البنك مع
-//   مستحق مفتوح، ويحسب العمولة = (الإجمالي المستحق − الصافي الواصل)، وأي مبلغ غير معروف
-//   يُعرض ليُسنده المستخدم لحساب ووصف. عام لأي منشأة (الحسابات كلها قابلة للاختيار).
+// BANK SETTLEMENT RECONCILIATION — مطابقة كشف البنك (مستحقات الشبكة + التوقيت + وسيط حسابي)
+//   الفكرة: مبيعات الشبكة (كي-نت / فيزا-ماستر-لينك) تُرحَّل مديناً بالصافي (بعد العمولة) على
+//   حساب مستحقات (1125) وقت الاعتراف بالإيراد، والعمولة تُصرَف فوراً. لاحقاً تصل دفعات البنك
+//   — غالباً عدّة دفعات صغيرة يومية تُصفّي مستحقاً شهرياً واحداً كبيراً — فهذا المحرّك يحسب
+//   «رصيداً جارياً» مفتوحاً لكل قناة (كي-نت / بطاقات) = كل ما اعتُرف به إيراداً حتى الآن
+//   ناقص كل ما صُفِّي مسبقاً عبر تسويات سابقة، ثم يستهلك من هذا الرصيد تدريجياً مع كل دفعة
+//   بنكية تصل — تصفية كاملة أو جزئية حسب المتوفر. عام لأي منشأة (الحسابات قابلة للاختيار).
 // ══════════════════════════════════════════════════════════════════════════
 app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
   const db = loadDB();
-  const {
-    lines = [], settleAccount = '1125', bankAccount = '1110',
-    feeAccount = '5750', windowDays = 4, feeMaxPct = 0.2
-  } = req.body;
-  const matched = new Set(db.bankMatchedLineIds || []);
-  // المستحقات المفتوحة = بنود مدينة على حساب التسوية لم تُطابَق بعد
-  const outstanding = [];
+  const { lines = [], settleAccount = '1125', bankAccount = '1110' } = req.body;
+  const r3f = v => Math.round((Number(v) || 0) * 1000) / 1000;
+
+  // الرصيد الجاري لكل قناة: كي-نت مقابل بطاقات (فيزا/ماستر/لينك) — مستمَدّ من ملاحظات
+  // بنود مستحقات الشبكة (settleAccount) في قيود الإيرادات، لا يعتمد على تواريخ التطابق.
+  const bucketOf = remarks => /كي-نت|كي نت|knet/i.test(remarks || '') ? 'knet' : 'card';
+  let recognized = { knet: 0, card: 0 };
   (db.journalEntries || []).forEach(je => {
-    (je.lines || []).forEach((l, i) => {
+    (je.lines || []).forEach(l => {
       if (String(l.accountCode) === String(settleAccount) && (parseFloat(l.debit) || 0) > 0) {
-        const key = `${je.id}#${i}`;
-        if (!matched.has(key)) outstanding.push({ key, date: je.date, gross: parseFloat(l.debit) || 0, desc: je.desc || je.description || '' });
+        recognized[bucketOf(l.remarks)] += parseFloat(l.debit) || 0;
       }
     });
   });
-  outstanding.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const cleared = db.networkReceivableCleared || { knet: 0, card: 0 };
+  const remaining = { knet: r3f(recognized.knet - (cleared.knet || 0)), card: r3f(recognized.card - (cleared.card || 0)) };
 
   // دفتر البنك المُسجَّل مسبقاً — لاكتشاف الحركات المُدخَلة سابقاً (إيرادات/رواتب/مدفوعات)
   // كي لا تُنشأ قيوداً مكرّرة لحركةٍ موجودة أصلاً في الدفاتر.
@@ -9254,12 +9304,22 @@ app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
   });
 
   const dayDiff = (a, b) => Math.abs((new Date(a) - new Date(b)) / 864e5);
-  const usedKeys = new Set();
+  const detectSettleBucket = desc => {
+    if (/knet|كي-نت|كي نت/i.test(desc || '')) return 'knet';
+    if (/pos|settlement|تسوية|\bcc\b|visa|فيزا|master|ماستر|link|لينك|\bmid\b/i.test(desc || '')) return 'card';
+    return null;
+  };
+  // مفتاح ثابت لكل حركة كشف بنك (تاريخ+بيان+مبلغ) — يمنع ترحيل نفس الحركة مرتين لو أُعيد رفع نفس الكشف
+  const srcKeyOf = bl => `${bl.date}|${(bl.desc||'').trim()}|${(parseFloat(bl.amount)||0).toFixed(3)}`;
+  const committedKeys = new Set(db.bankCommittedLineKeys || []);
+  let alreadyPosted = 0;
   const usedBookKeys = new Set();
   const proposals = [];
   lines.forEach((bl, idx) => {
     const amt = parseFloat(bl.amount) || 0;
     if (Math.abs(amt) < 0.0005) return;
+    const srcKey = srcKeyOf(bl);
+    if (committedKeys.has(srcKey)) { alreadyPosted++; return; } // رُحّلت هذه الحركة مسبقاً — تجاهلها لمنع الازدواج
     // (0) مطابقة مع دفتر البنك: هل الحركة مُسجَّلة مسبقاً؟ → لا حاجة لقيد جديد
     let bookMatch = null, bookScore = Infinity;
     for (const bk of bankLedger) {
@@ -9276,47 +9336,33 @@ app.post('/api/bank/reconcile-match', requireAuth, (req, res) => {
       return;
     }
     if (amt > 0) {
-      // إيداع — طابقه مع مستحق إجماليه ≥ الصافي، والعمولة (الفرق) ضمن السقف
-      let best = null, bestScore = Infinity;
-      for (const o of outstanding) {
-        if (usedKeys.has(o.key)) continue;
-        const fee = o.gross - amt;
-        if (fee < -0.001) continue;
-        if (fee > o.gross * feeMaxPct + 0.001) continue;
-        const dd = dayDiff(bl.date, o.date);
-        if (dd > windowDays + 35) continue; // تسويات الشبكة قد تصل الشهر التالي (فرق توقيت عبر الشهور)
-        const score = Math.abs(fee) + dd * 0.05;
-        if (score < bestScore) { bestScore = score; best = o; }
-      }
-      if (best) {
-        usedKeys.add(best.key);
-        proposals.push({
-          id: 'P' + idx, kind: 'settlement', bankDate: bl.date, bankDesc: bl.desc,
-          net: parseFloat(amt.toFixed(3)), gross: parseFloat(best.gross.toFixed(3)),
-          fee: parseFloat((best.gross - amt).toFixed(3)),
-          bookKey: best.key, bookDate: best.date, bookDesc: best.desc,
-          settleAccount, bankAccount, feeAccount,
-        });
+      const bucket = detectSettleBucket(bl.desc || '');
+      if (bucket && remaining[bucket] > 0.001) {
+        const consume = r3f(Math.min(amt, remaining[bucket]));
+        remaining[bucket] = r3f(remaining[bucket] - consume);
+        proposals.push({ id: 'P' + idx, srcKey, kind: 'settlement', bucket, bankDate: bl.date, bankDesc: bl.desc, net: consume, settleAccount, bankAccount });
+        const leftover = r3f(amt - consume);
+        if (leftover > 0.001) {
+          proposals.push({ id: 'P' + idx + 'x', srcKey: srcKey + '#x', kind: 'deposit-unmatched', bankDate: bl.date, bankDesc: (bl.desc || '') + ' (زيادة عن المستحق المفتوح)', amount: leftover, bankAccount, splits: [{ accountCode: '', amount: leftover, desc: bl.desc || '' }] });
+        }
       } else {
-        proposals.push({ id: 'P' + idx, kind: 'deposit-unmatched', bankDate: bl.date, bankDesc: bl.desc, amount: parseFloat(amt.toFixed(3)), bankAccount, assignAccount: '', assignDesc: bl.desc || '' });
+        proposals.push({ id: 'P' + idx, srcKey, kind: 'deposit-unmatched', bankDate: bl.date, bankDesc: bl.desc, amount: r3f(amt), bankAccount, splits: [{ accountCode: '', amount: r3f(amt), desc: bl.desc || '' }] });
       }
-    } else if (amt < 0) {
-      proposals.push({ id: 'P' + idx, kind: 'withdrawal', bankDate: bl.date, bankDesc: bl.desc, amount: parseFloat(Math.abs(amt).toFixed(3)), bankAccount, assignAccount: '', assignDesc: bl.desc || '' });
+    } else {
+      proposals.push({ id: 'P' + idx, srcKey, kind: 'withdrawal', bankDate: bl.date, bankDesc: bl.desc, amount: r3f(Math.abs(amt)), bankAccount, splits: [{ accountCode: '', amount: r3f(Math.abs(amt)), desc: bl.desc || '' }] });
     }
   });
-  const inTransit = outstanding.filter(o => !usedKeys.has(o.key))
-    .map(o => ({ date: o.date, gross: parseFloat(o.gross.toFixed(3)), desc: o.desc }));
 
   res.json({
-    success: true, proposals, inTransit,
+    success: true, proposals, remaining, alreadyPosted,
     summary: {
       deposits: lines.filter(l => (parseFloat(l.amount) || 0) > 0).length,
       withdrawals: lines.filter(l => (parseFloat(l.amount) || 0) < 0).length,
       settlements: proposals.filter(p => p.kind === 'settlement').length,
       matchedBook: proposals.filter(p => p.kind === 'matched-book').length,
       needsInput: proposals.filter(p => p.kind === 'deposit-unmatched' || p.kind === 'withdrawal').length,
-      inTransit: inTransit.length,
-      totalFees: parseFloat(proposals.filter(p => p.kind === 'settlement').reduce((s, p) => s + (p.fee || 0), 0).toFixed(3)),
+      remainingKnet: remaining.knet, remainingCard: remaining.card,
+      alreadyPosted,
     }
   });
 });
@@ -9328,20 +9374,28 @@ app.post('/api/bank/reconcile-commit', requireAuth, (req, res) => {
   const findAcc = c => coa.find(a => String(a.code) === String(c) || String(a.id) === String(c)) || { id: c, code: c, name: String(c) };
   db.journalEntries = db.journalEntries || [];
   db.bankMatchedLineIds = db.bankMatchedLineIds || [];
+  const committedKeys = new Set(db.bankCommittedLineKeys || []);
   const batchId = 'BRECON-' + Date.now();
-  let posted = 0, skipped = 0;
+  let posted = 0, skipped = 0, duplicate = 0;
   proposals.forEach((p, i) => {
+    // منع ترحيل نفس حركة كشف البنك مرتين (لو أُعيد رفع/ترحيل نفس الكشف بالخطأ)
+    if (p.srcKey && committedKeys.has(p.srcKey)) { duplicate++; return; }
     const bankAcc = findAcc(p.bankAccount || '1110');
     const jeBase = { id: 'JE-BRC-' + Date.now() + '-' + i, ref: 'BRECON', reference: 'BRECON', _batchId: batchId, createdAt: new Date().toISOString() };
     if (p.kind === 'settlement') {
-      const net = r3(p.net), fee = r3(p.fee || 0), gross = r3(p.gross);
+      // العمولة اتّخذت وقت الاعتراف بالإيراد (postCard) — التسوية هنا تصفية صافية بلا عمولة إضافية:
+      // مدين البنك / دائن مستحقات الشبكة، بنفس المبلغ المُستهلَك من الرصيد المفتوح لتلك القناة.
+      const net = r3(p.net);
       const settleAcc = findAcc(p.settleAccount || '1125');
-      const feeAcc = findAcc(p.feeAccount || '5750');
-      const lines = [{ accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: net, credit: 0 }];
-      if (fee > 0.001) lines.push({ accountId: feeAcc.id, accountCode: feeAcc.code, accountName: feeAcc.name, debit: fee, credit: 0 });
-      lines.push({ accountId: settleAcc.id, accountCode: settleAcc.code, accountName: settleAcc.name, debit: 0, credit: gross });
-      db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: `تسوية إيداع بنكي — ${p.bankDesc || ''}${fee > 0 ? ` (عمولة ${fee})` : ''}`, type: 'bank-settlement', totalDebit: r3(net + fee), totalCredit: gross, lines });
-      if (p.bookKey) db.bankMatchedLineIds.push(p.bookKey);
+      const bucketLabel = p.bucket === 'knet' ? 'كي-نت' : 'فيزا/ماستر/لينك';
+      const lines = [
+        { accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name, debit: net, credit: 0 },
+        { accountId: settleAcc.id, accountCode: settleAcc.code, accountName: settleAcc.name, debit: 0, credit: net },
+      ];
+      db.journalEntries.push({ ...jeBase, date: p.bankDate, desc: `تسوية إيداع شبكة (${bucketLabel}) — ${p.bankDesc || ''}`, type: 'bank-settlement', totalDebit: net, totalCredit: net, lines });
+      db.networkReceivableCleared = db.networkReceivableCleared || { knet: 0, card: 0 };
+      db.networkReceivableCleared[p.bucket] = r3((db.networkReceivableCleared[p.bucket] || 0) + net);
+      if (p.srcKey) committedKeys.add(p.srcKey);
       posted++;
     } else if (p.kind === 'deposit-unmatched' || p.kind === 'withdrawal') {
       const isDeposit = p.kind === 'deposit-unmatched';
@@ -9368,11 +9422,13 @@ app.post('/api/bank/reconcile-commit', requireAuth, (req, res) => {
         desc: p.assignDesc || p.bankDesc || (isDeposit ? 'إيداع بنكي' : 'سحب بنكي'),
         type: isDeposit ? 'bank-deposit' : 'bank-withdrawal', totalDebit: amt, totalCredit: amt,
         lines: isDeposit ? [bankLine, ...otherLines] : [...otherLines, bankLine] });
+      if (p.srcKey) committedKeys.add(p.srcKey);
       posted++;
     }
   });
+  db.bankCommittedLineKeys = Array.from(committedKeys);
   saveDB(db);
-  res.json({ success: true, posted, skipped, batchId });
+  res.json({ success: true, posted, skipped, duplicate, batchId });
 });
 
 // حذف كل القيود الناتجة عن استيراد/تسوية كشف البنك (تنظيف) — لا يمسّ القيود اليدوية
@@ -9390,6 +9446,8 @@ app.post('/api/bank/reconcile-undo-all', requireAuth, (req, res) => {
   const removedList = all.filter(isReconEntry);
   db.journalEntries = all.filter(je => !isReconEntry(je));
   db.bankMatchedLineIds = [];   // إعادة ضبط المطابقات كي يمكن إعادة التسوية من جديد
+  db.networkReceivableCleared = { knet: 0, card: 0 };  // إعادة ضبط رصيد مستحقات الشبكة المُصفّى
+  db.bankCommittedLineKeys = [];  // إعادة ضبط حركات الكشف المُرحَّلة كي يمكن ترحيلها من جديد
   const removedTotal = r3(removedList.reduce((s, je) =>
     s + (je.lines || []).reduce((x, l) => x + (parseFloat(l.debit) || 0), 0), 0));
   saveDB(db);

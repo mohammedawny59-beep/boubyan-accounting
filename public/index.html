@@ -4285,17 +4285,15 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       </div>
       <input type="file" id="bciFile" accept=".csv,.xlsx,.xls" aria-hidden="true" style="display:none" onchange="uploadBankCsv(this.files[0])">
       <div id="bciStatus" style="display:none;text-align:center;padding:12px;font-size:12px;color:var(--text2);"></div>
-      <!-- Smart settlement matching (fees + timing + Hesabi middleman) -->
+      <!-- Smart settlement matching (running receivable balance per channel) -->
       <div id="bciSmartBar" style="display:none;margin-top:12px;padding:12px;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.18);border-radius:10px;">
-        <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--accent)">🔁 مطابقة ذكية — تسوية إيداعات الشبكة (عمولة + توقيت)</div>
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--accent)">🔁 مطابقة ذكية — تصفية مستحقات الشبكة</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
           <div class="fr" style="margin:0;min-width:180px"><label class="flbl">حساب المستحقات (يُصفّى منه)</label><div id="brSettleWrap"></div></div>
           <div class="fr" style="margin:0;min-width:180px"><label class="flbl">الحساب البنكي (يصل إليه)</label><div id="brBankWrap"></div></div>
-          <div class="fr" style="margin:0;min-width:180px"><label class="flbl">حساب العمولة (الفرق المخصوم)</label><div id="brFeeWrap"></div></div>
-          <div class="fr" style="margin:0;width:110px"><label class="flbl">مهلة الأيام</label><input type="number" class="finp" id="brWindow" value="7" min="0" step="1"></div>
           <button class="btn bp bsm" onclick="runBankReconMatch()">🔁 طابق تلقائياً</button>
         </div>
-        <div style="font-size:10px;color:var(--text3)">يتعرّف على الحركات المسجّلة مسبقاً في دفاترك (لا يكرّرها)، يطابق إيداعات الشبكة مع مستحقاتها ويحسب العمولة، ويحتمل فروقات التوقيت عبر الشهور (إيراد آخر الشهر يصل الشهر التالي). لا يُطلب منك تصنيف إلا الحركات غير المسجّلة — باختيار الحساب بالاسم.</div>
+        <div style="font-size:10px;color:var(--text3)">يتعرّف على الحركات المسجّلة مسبقاً في دفاترك (لا يكرّرها). لمستحقات الشبكة: كل دفعة بنكية (كي-نت/فيزا/ماستر/لينك) تُصفّي تدريجياً من الرصيد المفتوح لقناتها — دفعة كبيرة اعتُرف بها إيراداً يمكن أن تُصفّى بعدّة دفعات بنكية صغيرة على أيام مختلفة. العمولة اتُّخذت مسبقاً وقت الاعتراف بالإيراد. لا يُطلب منك تصنيف إلا الحركات غير المرتبطة بمستحق مفتوح.</div>
       </div>
       <div id="brResults" style="display:none;margin-top:12px"></div>
 
@@ -15843,23 +15841,19 @@ function initBankReconBar() {
   const has = c => getCoaAccounts().some(a => String(a.code) === c);
   document.getElementById('brSettleWrap').innerHTML = accPickerHTML('brSettleTxt','brSettle','brSettleDrop','asset','حساب المستحقات...');
   document.getElementById('brBankWrap').innerHTML   = accPickerHTML('brBankTxt','brBank','brBankDrop','cash','الحساب البنكي...');
-  document.getElementById('brFeeWrap').innerHTML    = accPickerHTML('brFeeTxt','brFee','brFeeDrop','expense','حساب العمولة...');
   const pre = (txt,val,code,label) => { const c=getCoaAccounts().find(a=>String(a.code)===code); if(c){ document.getElementById(val).value=c.id||c.code; document.getElementById(txt).value=`${c.code} — ${c.name}`; } };
-  pre('brSettleTxt','brSettle','1125'); pre('brBankTxt','brBank','1110'); pre('brFeeTxt','brFee','5750');
+  pre('brSettleTxt','brSettle','1125'); pre('brBankTxt','brBank','1110');
 }
 
 async function runBankReconMatch() {
   if (!_bciLines.length) { toast('ارفع كشف البنك أولاً', 'warning'); return; }
   const settleAccount = document.getElementById('brSettle').value;
   const bankAccount   = document.getElementById('brBank').value;
-  const feeAccount    = document.getElementById('brFee').value;
-  const windowDays    = parseInt(document.getElementById('brWindow').value) || 4;
   if (!settleAccount || !bankAccount) { toast('اختر حساب المستحقات والحساب البنكي', 'warning'); return; }
   const settleCode = getCoaAccounts().find(a => String(a.id)===String(settleAccount)||String(a.code)===String(settleAccount))?.code || settleAccount;
   const bankCode   = getCoaAccounts().find(a => String(a.id)===String(bankAccount)||String(a.code)===String(bankAccount))?.code || bankAccount;
-  const feeCode    = getCoaAccounts().find(a => String(a.id)===String(feeAccount)||String(a.code)===String(feeAccount))?.code || feeAccount;
   try {
-    const d = await apiFetch('bank/reconcile-match', { method:'POST', body: JSON.stringify({ lines: _bciLines.map(l=>({date:l.date,desc:l.desc,amount:l.amount})), settleAccount:settleCode, bankAccount:bankCode, feeAccount:feeCode, windowDays }) });
+    const d = await apiFetch('bank/reconcile-match', { method:'POST', body: JSON.stringify({ lines: _bciLines.map(l=>({date:l.date,desc:l.desc,amount:l.amount})), settleAccount:settleCode, bankAccount:bankCode }) });
     _brProposals = d.proposals || [];
     renderBankReconProposals(d);
   } catch(e) { toast('خطأ في المطابقة: '+e.message, 'error'); }
@@ -15941,18 +15935,18 @@ function renderBankReconProposals(d) {
       <div style="padding:0 12px 10px">${matched.map(p=>`<div style="font-size:11px;color:var(--text2);padding:3px 0;border-bottom:1px solid var(--border)">${p.bankDate} — ${(p.amount||0).fmt()} د.ك — ${escHtml(p.bankDesc||'')} <span style="color:var(--text3)">↔ ${escHtml(p.bookDesc||'')} (${p.bookDate||''})</span></div>`).join('')}</div>
     </details>` : '';
 
+  const bucketLabel = b => b==='knet' ? 'كي-نت' : 'فيزا/ماستر/لينك';
   const settleHtml = settle.length ? `
-    <div style="font-size:12px;font-weight:700;margin:6px 0;color:var(--accent)">🔁 تسويات الشبكة (عمولة + توقيت)</div>
+    <div style="font-size:12px;font-weight:700;margin:6px 0;color:var(--accent)">🔁 تصفية مستحقات الشبكة (بلا عمولة إضافية — أُخذت وقت الإيراد)</div>
     <div style="max-height:30vh;overflow:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead style="position:sticky;top:0;background:var(--surface2)"><tr><th>التاريخ</th><th style="text-align:right">البيان</th><th>الصافي</th><th>الإجمالي</th><th>العمولة</th><th>الحالة</th></tr></thead>
-        <tbody>${settle.map(p=>{const i=_brProposals.indexOf(p);return `<tr style="border-bottom:1px solid var(--border)">
+        <thead style="position:sticky;top:0;background:var(--surface2)"><tr><th>التاريخ</th><th style="text-align:right">البيان</th><th>القناة</th><th>المبلغ المُصفّى</th><th>الحالة</th></tr></thead>
+        <tbody>${settle.map(p=>`<tr style="border-bottom:1px solid var(--border)">
           <td>${p.bankDate}</td>
-          <td style="font-size:11px">${escHtml(p.bankDesc||'')}<div style="color:var(--text3);font-size:10px">مقابل: ${escHtml(p.bookDesc||'')} (${p.bookDate})</div></td>
+          <td style="font-size:11px">${escHtml(p.bankDesc||'')}</td>
+          <td><span class="badge bb" style="font-size:9px">${bucketLabel(p.bucket)}</span></td>
           <td class="num pos">${(p.net||0).fmt()}</td>
-          <td class="num">${(p.gross||0).fmt()}</td>
-          <td><input type="number" class="finp" style="width:80px" value="${(p.fee||0).toFixed(3)}" step="0.001" onchange="_brProposals[${i}].fee=parseFloat(this.value)||0"></td>
-          <td><span class="badge bg" style="font-size:9px">تسوية ✓</span></td></tr>`;}).join('')}</tbody>
+          <td><span class="badge bg" style="font-size:9px">تصفية ✓</span></td></tr>`).join('')}</tbody>
       </table>
     </div>` : '';
 
@@ -15970,18 +15964,21 @@ function renderBankReconProposals(d) {
         <div id="needEditor_${i}">${renderSplitEditor(i)}</div>
       </div>`;}).join('')}` : '';
 
-  const inTransit = (d.inTransit||[]).map(o=>`<div style="font-size:11px;color:var(--text2)">• ${o.date} — ${(o.gross||0).fmt()} د.ك — ${escHtml(o.desc||'')}</div>`).join('');
+  const rKnet = s.remainingKnet||0, rCard = s.remainingCard||0;
   box.style.display = 'block';
   box.innerHTML = `
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">
       <span>✅ مسجّلة مسبقاً: <b style="color:var(--accent2)">${s.matchedBook||0}</b></span>
-      <span>🔁 تسويات: <b style="color:var(--accent)">${s.settlements||0}</b></span>
+      <span>🔁 تصفيات: <b style="color:var(--accent)">${s.settlements||0}</b></span>
       <span>❓ تحتاج إسناد: <b style="color:var(--danger)">${s.needsInput||0}</b></span>
-      <span>⏳ لم تصل بعد: <b>${s.inTransit||0}</b></span>
-      <span>عمولات: <b style="color:var(--warning)">${(s.totalFees||0).fmt()} د.ك</b></span>
+      ${s.alreadyPosted ? `<span>↩️ مُرحَّلة سابقاً (تم تجاهلها): <b>${s.alreadyPosted}</b></span>` : ''}
     </div>
     ${matchedHtml}${settleHtml}${needHtml}
-    ${inTransit ? `<div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;margin-bottom:4px">⏳ مستحقات لم تصل البنك بعد (فروقات توقيت):</div>${inTransit}</div>` : ''}
+    <div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:8px;display:flex;gap:18px;flex-wrap:wrap;font-size:11px">
+      <span>⏳ رصيد مفتوح — كي-نت: <b style="color:${rKnet>0.005?'var(--warning)':'var(--accent2)'}">${rKnet.toFixed(3)}</b> د.ك</span>
+      <span>⏳ رصيد مفتوح — فيزا/ماستر/لينك: <b style="color:${rCard>0.005?'var(--warning)':'var(--accent2)'}">${rCard.toFixed(3)}</b> د.ك</span>
+      <span style="color:var(--text3)">(إيرادات اعترفنا بها ولسه ما وصلت البنك — طبيعي أن ينزل تدريجياً نحو الصفر)</span>
+    </div>
     ${(settle.length||need.length) ? `<div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
       <button class="btn bp" onclick="commitBankRecon()">✅ ترحيل القيود المختارة</button>
     </div>` : (matched.length ? '<div style="margin-top:10px;font-size:12px;color:var(--accent2)">✅ كل الحركات مسجّلة مسبقاً — لا حاجة لترحيل قيود جديدة.</div>' : '')}`;
@@ -16019,7 +16016,7 @@ async function commitBankRecon() {
   if (noAcc.length && !confirm(`${noAcc.length} حركة بدون حساب مُسنَد وسيتم تخطّيها. المتابعة؟`)) return;
   try {
     const d = await apiFetch('bank/reconcile-commit', { method:'POST', body: JSON.stringify({ proposals: _brProposals }) });
-    toast(`✅ رُحّل ${d.posted} قيد${d.skipped?` (${d.skipped} تخطّي)`:''}`, 'success');
+    toast(`✅ رُحّل ${d.posted} قيد${d.skipped?` (${d.skipped} تخطّي)`:''}${d.duplicate?` (${d.duplicate} مُرحَّل مسبقاً — تم تجاهله)`:''}`, 'success');
     document.getElementById('brResults').style.display = 'none';
     _brProposals = [];
     await loadAll();
