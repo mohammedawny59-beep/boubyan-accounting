@@ -3237,6 +3237,13 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
       <select class="fi" id="ledgerMonth" style="align-self:flex-start" onchange="loadLedger()">
         <option value="all">كل الفترات</option>
       </select>
+      <label style="display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--text3)">من
+        <input type="date" class="fi" id="ledgerFrom" style="align-self:flex-start" onchange="loadLedger()">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--text3)">إلى
+        <input type="date" class="fi" id="ledgerTo" style="align-self:flex-start" onchange="loadLedger()">
+      </label>
+      <button class="btn bw bsm" style="align-self:flex-start" onclick="document.getElementById('ledgerFrom').value='';document.getElementById('ledgerTo').value='';loadLedger()" title="إلغاء نطاق التاريخ والعودة لاختيار الشهر">✕ مسح النطاق</button>
       <button class="btn bp bsm" style="align-self:flex-start" onclick="loadLedger()">عرض</button>
       <button class="btn bw bsm" style="align-self:flex-start" onclick="exportLedger()">⬇ تصدير الكل</button>
     </div>
@@ -8215,6 +8222,29 @@ function _ledgerSelectedAccounts(accounts) {
   const vals = Array.from(document.querySelectorAll('#ledgerAccPickers [id^=ledAccVal]')).map(i=>i.value).filter(Boolean);
   return vals.map(id => accounts.find(a=>String(a.id)===String(id)||String(a.code)===String(id))).filter(Boolean);
 }
+// نطاق "من-إلى" يتقدّم على اختيار الشهر إن كان أحدهما مُعبَّأً. يُرجع أيضاً openingFrom
+// (أول تاريخ خارج المدى) لحساب الرصيد الافتتاحي المرحَّل من قبل الفترة المعروضة.
+function _ledgerFilterEntries(allEntries) {
+  const from = document.getElementById('ledgerFrom')?.value || '';
+  const to   = document.getElementById('ledgerTo')?.value || '';
+  if (from || to) {
+    const entries = allEntries.filter(e => Array.isArray(e.lines) && (!from || e.date >= from) && (!to || e.date <= to));
+    return { entries, openingFrom: from || null };
+  }
+  const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
+  const entries = allEntries.filter(e => Array.isArray(e.lines) && (filterMonth === 'all' || e.date?.startsWith(filterMonth)));
+  return { entries, openingFrom: filterMonth === 'all' ? null : (filterMonth + '-01') };
+}
+// الرصيد الافتتاحي = صافي حركة الحساب في كل القيود قبل openingFrom (رصيد مرحَّل من الفترات السابقة)
+function _ledgerOpeningBalance(allEntries, matchLine, openingFrom) {
+  if (!openingFrom) return 0;
+  let bal = 0;
+  allEntries.forEach(e => {
+    if (!Array.isArray(e.lines) || !(e.date < openingFrom)) return;
+    e.lines.filter(matchLine).forEach(l => { bal += (l.debit||0) - (l.credit||0); });
+  });
+  return bal;
+}
 
 async function loadLedger() {
   await loadAll();
@@ -8234,12 +8264,12 @@ async function loadLedger() {
       <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">اختر حساباً واحداً أو أكثر لعرض كشف كل حساب على حدة</div></div>`;
     return;
   }
-  const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
-  const entries = (DB.journalEntries||[]).filter(e => Array.isArray(e.lines) && (filterMonth==='all'||e.date?.startsWith(filterMonth)));
+  const { entries, openingFrom } = _ledgerFilterEntries(DB.journalEntries||[]);
   container.innerHTML = selAccs.map(acc => {
     const keys = new Set([String(acc.id), String(acc.code)]);
     const matchLine = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
-    let balance = 0;
+    const openingBal = _ledgerOpeningBalance(DB.journalEntries||[], matchLine, openingFrom);
+    let balance = openingBal;
     const rows = [];
     entries.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).forEach(e=>{
       (e.lines||[]).filter(matchLine).forEach(l=>{
@@ -8253,6 +8283,10 @@ async function loadLedger() {
     });
     const totalDebit = rows.reduce((s,r)=>s+r.debit,0);
     const totalCredit= rows.reduce((s,r)=>s+r.credit,0);
+    const openingRow = openingFrom ? `<tr style="background:var(--bg2);font-weight:600;">
+        <td colspan="5" style="padding:8px 12px;">الرصيد الافتتاحي (قبل ${openingFrom})</td>
+        <td class="num ${openingBal>=0?'pos':'neg'}">${openingBal.fmt()}</td>
+      </tr>` : '';
     const bodyRows = rows.length ? rows.map(r=>`<tr style="cursor:pointer;" onclick="showLedgerEntry('${r.entryId}')" title="اضغط لعرض تفاصيل القيد">
         <td>${r.date}</td>
         <td style="font-family:monospace;font-size:10px;color:var(--accent);">${escHtml(r.ref)}</td>
@@ -8261,19 +8295,19 @@ async function loadLedger() {
         <td class="num neg">${r.credit>0?r.credit.fmt():''}</td>
         <td class="num ${r.balance>=0?'pos':'neg'}" style="font-weight:600;">${r.balance.fmt()}</td>
       </tr>`).join('') :
-      '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا الحساب</td></tr>';
+      '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا الحساب في هذه الفترة</td></tr>';
     return `<div class="tw">
       <div class="th2" style="flex-wrap:wrap;gap:8px">
         <div class="tt">📒 ${escHtml(acc.code)} — ${escHtml(acc.name)}</div>
         <div style="display:flex;gap:14px;font-size:11px;color:var(--text2)">
           <span>مدين: <b class="pos">${totalDebit.fmt()}</b></span>
           <span>دائن: <b class="neg">${totalCredit.fmt()}</b></span>
-          <span>الرصيد: <b style="color:${balance>=0?'var(--accent2)':'var(--danger)'}">${balance.fmt()}</b></span>
+          <span>الرصيد الختامي: <b style="color:${balance>=0?'var(--accent2)':'var(--danger)'}">${balance.fmt()}</b></span>
         </div>
       </div>
       <table>
         <thead><tr><th>التاريخ</th><th>القيد</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
-        <tbody>${bodyRows}</tbody>
+        <tbody>${openingRow}${bodyRows}</tbody>
       </table>
     </div>`;
   }).join('');
@@ -8429,8 +8463,7 @@ function exportLedger() {
   const accounts = getCoaAccounts();
   const selAccs = _ledgerSelectedAccounts(accounts);
   if (!selAccs.length) return;
-  const filterMonth = document.getElementById('ledgerMonth')?.value || 'all';
-  const entries = (DB.journalEntries||[]).filter(e => Array.isArray(e.lines) && (filterMonth==='all'||e.date?.startsWith(filterMonth)));
+  const { entries, openingFrom } = _ledgerFilterEntries(DB.journalEntries||[]);
   const rows=[];
   selAccs.forEach((acc,idx)=>{
     if(idx>0) rows.push([]); // فاصل بين كشوف الحسابات
@@ -8438,7 +8471,8 @@ function exportLedger() {
     rows.push(['التاريخ','المرجع','البيان','مدين','دائن','الرصيد']);
     const keys = new Set([String(acc.id), String(acc.code)]);
     const match = l => keys.has(String(l.accountId)) || keys.has(String(l.accountCode));
-    let balance=0;
+    let balance = _ledgerOpeningBalance(DB.journalEntries||[], match, openingFrom);
+    if (openingFrom) rows.push([`رصيد افتتاحي (قبل ${openingFrom})`,'','','','',balance.fmt()]);
     entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
       (e.lines||[]).filter(match).forEach(l=>{
         balance+=(l.debit||0)-(l.credit||0);
