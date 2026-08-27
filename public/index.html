@@ -2248,6 +2248,14 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
   <!-- Glow -->
   <div style="position:absolute;top:-150px;left:50%;transform:translateX(-50%);width:500px;height:500px;background:radial-gradient(ellipse,rgba(79,142,247,.12) 0%,transparent 70%);pointer-events:none;"></div>
 
+  <!-- P3 — DEMO ENVIRONMENT banner: hidden by default, shown only when
+       GET /api/demo-status (public, unauthenticated) reports demoMode:true.
+       Production shows nothing here — this entire block stays display:none
+       unless the running instance is genuinely a demo instance. -->
+  <div id="demoBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:10000;background:linear-gradient(90deg,#f97316,#ea580c);color:#fff;text-align:center;padding:8px 16px;font-size:12.5px;font-weight:700;box-shadow:0 2px 12px rgba(0,0,0,.25);">
+    🎭 بيئة تجريبية — DEMO ENVIRONMENT — كل البيانات وهمية وقد تُعاد تهيئتها دورياً / all data is fictional and may reset periodically
+  </div>
+
   <div style="position:relative;width:100%;max-width:420px;padding:16px;">
     <!-- Card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;box-shadow:0 24px 64px rgba(0,0,0,.6);">
@@ -2256,6 +2264,21 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
         <div id="loginLogo" style="width:64px;height:64px;background:linear-gradient(135deg,#1e3578,var(--accent));border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 16px;box-shadow:0 4px 24px rgba(79,142,247,.35);">📒</div>
         <h2 id="loginCompanyName" style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;">نظام المحاسبة الذكي</h2>
         <p style="font-size:12px;color:var(--text3);">تسجيل الدخول</p>
+      </div>
+
+      <!-- P3 — Try Demo: hidden by default, shown only in DEMO_MODE. Fills
+           and submits the login form with the demo role's own, deliberately
+           PUBLIC credentials — never the admin account. -->
+      <div id="tryDemoBlock" style="display:none;margin-bottom:20px;">
+        <button type="button" id="tryDemoBtn" onclick="tryDemoLogin()" style="width:100%;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(249,115,22,.35);">
+          🎭 تجربة النظام مباشرة — Try Demo
+        </button>
+        <p id="tryDemoCreds" style="font-size:10.5px;color:var(--text3);text-align:center;margin-top:6px;"></p>
+        <div style="display:flex;align-items:center;gap:10px;margin:18px 0;">
+          <div style="flex:1;height:1px;background:var(--border);"></div>
+          <span style="font-size:10.5px;color:var(--text3);">أو سجّل دخول عادي</span>
+          <div style="flex:1;height:1px;background:var(--border);"></div>
+        </div>
       </div>
 
       <!-- Error msg -->
@@ -5823,6 +5846,31 @@ async function doLogin(e) {
   }
 }
 
+// P3 — checked once on page load, before any login attempt. Public,
+// unauthenticated endpoint; safe to call unconditionally on every load.
+let _demoStatus = null;
+async function checkDemoStatus() {
+  try {
+    const r = await _origFetch('/api/demo-status');
+    _demoStatus = await r.json();
+  } catch { _demoStatus = { demoMode: false }; return; }
+  if (!_demoStatus.demoMode) return;
+  const banner = document.getElementById('demoBanner');
+  const block = document.getElementById('tryDemoBlock');
+  const creds = document.getElementById('tryDemoCreds');
+  if (banner) banner.style.display = 'block';
+  if (block) block.style.display = 'block';
+  if (creds) creds.textContent = `${_demoStatus.demoUsername} / ${_demoStatus.demoPassword}`;
+}
+document.addEventListener('DOMContentLoaded', checkDemoStatus);
+
+function tryDemoLogin() {
+  if (!_demoStatus || !_demoStatus.demoMode) return;
+  document.getElementById('loginUser').value = _demoStatus.demoUsername;
+  document.getElementById('loginPass').value = _demoStatus.demoPassword;
+  document.getElementById('loginForm').requestSubmit();
+}
+
 function doLogout() {
   clearToken();
   AUTH = { token: null, user: null, permissions: { tabs: [], actions: {} } };
@@ -7342,15 +7390,23 @@ function applyConfig(cfg) {
   });
 
   // 2. Apply modules — hide/show nav items and tabs
+  // P3-fix: this module-enabled toggle used to set display unconditionally,
+  // overriding applyPermissions()'s role-based hiding for any tab present in
+  // cfg.modules (it runs after applyPermissions() in onLoginSuccess()) — a
+  // restricted role (demo, receptionist, inventory, ...) could see a nav
+  // button for a tab its own role.tabs never granted, landing on a 403 when
+  // clicked. Server-side RBAC was never affected — this is a display-only
+  // fix: a module still needs BOTH "tenant has it enabled" AND "this role
+  // can see it" to show.
   const modules = cfg.modules || {};
   Object.keys(modules).forEach(mod => {
     // Hide/show nav buttons
     document.querySelectorAll(`[onclick*="showTab('${mod}'"]`).forEach(btn => {
-      btn.style.display = modules[mod] ? '' : 'none';
+      btn.style.display = (modules[mod] && canSee(mod)) ? '' : 'none';
     });
     // Hide/show tab panels
     const panel = document.getElementById(`tab-${mod}`);
-    if (panel) panel.style.display = modules[mod] ? '' : 'none';
+    if (panel) panel.style.display = (modules[mod] && canSee(mod)) ? '' : 'none';
   });
 
   // 3. Apply brand name

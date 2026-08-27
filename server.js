@@ -89,6 +89,14 @@ fs.ensureDirSync(UPLOADS_DIR);
 
 // ===== MONGODB =====
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/boubyan_accounting';
+
+// P3 — DEMO_MODE: off unless the env var is exactly the string 'true'.
+// Gates: tenant self-registration, the demo-only reset endpoint, the
+// scheduled reset job, and the demo role's read access to assets. Every
+// gate below checks this constant directly (never a request-supplied
+// value), so a running process's DEMO_MODE is fixed for its entire
+// lifetime — there is no way for a request to turn it on or off.
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 // P0.11 (Part P — no credential exposure): a MONGO_URI following the
 // standard mongodb://user:pass@host/db or mongodb+srv://user:pass@host/db
 // form embeds real credentials in the connection string itself. Startup
@@ -572,6 +580,23 @@ function requireAdminAction(actionLabel) {
   };
 }
 
+// P3 — the handful of admin-gated READ routes (fixed assets) the public
+// demo's restricted 'demo' role also needs to browse. Deliberately narrow:
+// only actionLabel values ending in '.view' qualify, and only role==='demo'
+// (a role no production user is ever assigned — it only exists on a demo
+// instance's own seeded roles) gets the extra path. Every mutating
+// requireAdminAction call site (users, roles, backup, reset-data,
+// asset create/update/delete/depreciate/dispose, bank-recon, settings,
+// etc.) is untouched and still admin-only, in demo or in production.
+function requireAdminOrDemoView(actionLabel) {
+  return (req, res, next) => {
+    if (req.user && req.user.role === 'admin') return next();
+    if (req.user && req.user.role === 'demo' && actionLabel.endsWith('.view')) return next();
+    auditDenied(req, actionLabel, 'admin');
+    return res.status(403).json({ error: 'غير مصرح — المدير فقط' });
+  };
+}
+
 // Bounded security audit event for a 403 — never logs the request body
 // (attacker-controlled, unbounded) to avoid turning this into a DoS/log-
 // injection vector (P0.4 Step 12).
@@ -596,6 +621,7 @@ function buildInitialDB() {
       receptionist:{ ...DEFAULT_ROLES.receptionist,id: 'receptionist' },
       inventory:   { ...DEFAULT_ROLES.inventory,   id: 'inventory' },
       viewer:      { ...DEFAULT_ROLES.viewer,       id: 'viewer' },
+      demo:        { ...DEFAULT_ROLES.demo,         id: 'demo' },
     },
     doctors: [],
     dailyData: [],
@@ -932,6 +958,120 @@ setInterval(() => { const now = Date.now();
 // An optional `tenantId` in the request body lets a SaaS login screen target
 // a specific company workspace. Omitting it (or sending 'default') preserves
 // the original single-clinic install's exact prior behavior byte-for-byte.
+
+// P3 — public, unauthenticated, read-only: exposes ONLY the boolean flag so
+// the login page can render the "DEMO ENVIRONMENT" banner and a Try Demo
+// button before anyone has a token. Never exposes the demo credentials
+// themselves — the frontend already knows the fixed demo username, and
+// nothing here reveals the password server-side.
+app.get('/api/demo-status', (req, res) => {
+  if (!DEMO_MODE) return res.json({ demoMode: false });
+  // The demo user's own credentials are intentionally public — that's the
+  // entire point of a self-serve demo (Part 9: "visible demo credentials on
+  // login page"). Never the admin account's credentials, which this route
+  // never touches.
+  const { DEMO_USERNAME, DEMO_PASSWORD } = require('./lib/demoSeed');
+  res.json({ demoMode: true, demoUsername: DEMO_USERNAME, demoPassword: DEMO_PASSWORD });
+});
+
+// P3 — fail-closed database-identity guard for the demo reset. Reads the
+// ACTUAL connected Mongo database name from the driver itself (never from
+// any request input — there is none to read), so no request body/query
+// string can influence what gets targeted. Two independent checks: an
+// explicit blocklist for the known production name, AND a positive
+// allowlist requiring "demo" to appear in the name — either one alone
+// would be enough, both together means a typo in one doesn't silently
+// remove the other's protection. Throws (never returns a "maybe safe"
+// value) on anything ambiguous, including file-fallback mode, where there
+// is no separate Mongo database identity to check at all.
+function assertSafeDemoDatabaseIdentity() {
+  if (!DEMO_MODE) throw new Error('DEMO_MODE غير مفعّل على هذا الخادم');
+  if (isFileFallbackMode()) throw new Error('لا يمكن التحقق من هوية قاعدة بيانات Mongo — الخادم يعمل بوضع الملف المحلي');
+  const conn = require('mongoose').connection;
+  if (conn.readyState !== 1) throw new Error('لا يوجد اتصال Mongo نشط — رُفض إعادة التعيين');
+  const dbName = String((conn.db && conn.db.databaseName) || conn.name || '');
+  if (!dbName) throw new Error('تعذّر تحديد اسم قاعدة البيانات الفعلي — رفض آمن');
+  const lower = dbName.toLowerCase();
+  if (lower === 'boubyan_accounting' || lower === 'boubyan-accounting') {
+    throw new Error('رُفض: "' + dbName + '" هو اسم قاعدة بيانات الإنتاج المعروف — لن يُنفَّذ أي إعادة تعيين مهما كانت الظروف');
+  }
+  if (!lower.includes('demo')) {
+    throw new Error('رُفض: اسم قاعدة البيانات "' + dbName + '" لا يحتوي على "demo" — الهوية غامضة، رفض آمن (fail closed)');
+  }
+  return dbName;
+}
+
+// P3 — the app has two independent branding sources that were never kept
+// in sync (GET /api/public/branding reads db.companyInfo; the post-login
+// header reads config.brand.name) — set both after every demo seed/reset
+// so the demo shows its own fictional name everywhere, never the app's
+// generic "بوبيان" default.
+function applyDemoBrand() {
+  const { DEMO_BRAND_NAME } = require('./lib/demoSeed');
+  const cfg = loadConfig();
+  saveConfig({ ...cfg, brand: { ...(cfg.brand || {}), name: DEMO_BRAND_NAME } });
+}
+
+// P3 — demo-only reset: restores the exact canonical Pearl Dental Center
+// seed (lib/demoSeed.js), discarding any changes a visitor made. Reachable
+// only by the 'demo' role itself or an admin (for manual verification) —
+// requirePermission/requireAdminAction are irrelevant here since this
+// exists on no production role at all. assertSafeDemoDatabaseIdentity()
+// runs FIRST and throws before any data is touched if this process is not
+// unambiguously a demo database.
+app.post('/api/demo/reset', requireAuth, async (req, res) => {
+  if (!DEMO_MODE) return res.status(404).json({ error: 'غير متاح' });
+  if (req.user.role !== 'demo' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'غير مصرح' });
+  }
+  let dbName;
+  try {
+    dbName = assertSafeDemoDatabaseIdentity();
+  } catch (e) {
+    return res.status(403).json({ error: e.message });
+  }
+  try {
+    const currentDb = loadDB();
+    const existingAdmins = (currentDb.users || []).filter(u => u.role === 'admin');
+    const { buildDemoDatabase } = require('./lib/demoSeed');
+    const { db: seed, independentControls } = buildDemoDatabase(new Date().toISOString());
+    // Preserve the real admin account(s) — see the matching comment at the
+    // first-boot seed call site above. Everything else (business data,
+    // the 'demo' visitor account) comes fully from the canonical seed.
+    seed.users = [...existingAdmins, ...seed.users];
+    await saveDB(seed, { durable: true });
+    applyDemoBrand();
+    res.json({ success: true, dbName, journalEntryCount: independentControls.journalEntryCount, balanced: independentControls.balanced, resetAt: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ error: 'فشل إعادة التعيين: ' + e.message });
+  }
+});
+
+// P3 — scheduled demo reset: every 6 hours, only when DEMO_MODE is on.
+// Same assertSafeDemoDatabaseIdentity() guard as the manual route — a
+// misconfigured DEMO_MODE=true against a non-demo database still refuses
+// to run, it does not silently skip the safety check because no HTTP
+// request triggered it.
+if (DEMO_MODE) {
+  const DEMO_RESET_INTERVAL_MS = 6 * 60 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      assertSafeDemoDatabaseIdentity();
+      const currentDb = loadDB();
+      const existingAdmins = (currentDb.users || []).filter(u => u.role === 'admin');
+      const { buildDemoDatabase } = require('./lib/demoSeed');
+      const { db: seed, independentControls } = buildDemoDatabase(new Date().toISOString());
+      seed.users = [...existingAdmins, ...seed.users];
+      await saveDB(seed, { durable: true });
+      applyDemoBrand();
+      console.log('🔄 Demo scheduled reset complete — ' + independentControls.journalEntryCount + ' journal entries, balanced=' + independentControls.balanced);
+    } catch (e) {
+      console.warn('⚠️ Demo scheduled reset skipped:', e.message);
+    }
+  }, DEMO_RESET_INTERVAL_MS);
+  console.log('🎭 DEMO_MODE active — scheduled reset every 6h, tenant registration blocked, demo role restricted to read-only + assets.view');
+}
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -1244,6 +1384,11 @@ app.post('/api/auth/reset', rateLimit(10), (req, res) => {
 // rateLimit(...) pattern already used on the other public auth routes
 // (/api/auth/forgot -> 5/min, /api/auth/reset -> 10/min) above.
 app.post('/api/tenants/register', rateLimit(10), async (req, res) => {
+  // P3 — self-service tenant creation is meaningless (and a pure abuse
+  // surface) on a public demo instance: there is exactly one demo tenant,
+  // seeded once, reset on a schedule. Checked server-side only — no request
+  // field can override it.
+  if (DEMO_MODE) return res.status(403).json({ error: 'التسجيل غير متاح في البيئة التجريبية' });
   const { name, email, password, slug, timezone, currency, language } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'name, email, password مطلوبة' });
   if (password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' });
@@ -5238,6 +5383,33 @@ if (require.main === module) {
           console.log(`🔧 Auto-repair (startup): ${changes.length} إصلاح —`, changes.map(c => `${c.action}:${c.from || ''}→${c.to || ''}`).join(', '));
         }
       } catch (e) { console.warn('⚠️ Auto-repair skipped:', e.message); }
+      // P3 — first-boot demo seed: only when DEMO_MODE is on AND the
+      // database is genuinely empty (zero journal entries) — a restart
+      // against an already-seeded demo database must NOT reseed on every
+      // boot (that would fight the scheduled reset's own cadence and could
+      // mask a visitor's mid-session state loss on an unrelated restart).
+      // Same assertSafeDemoDatabaseIdentity() guard as the reset endpoint —
+      // this can never fire against anything that isn't unambiguously a
+      // demo database.
+      if (DEMO_MODE) {
+        try {
+          const db = loadDB();
+          if (!(db.journalEntries || []).length) {
+            assertSafeDemoDatabaseIdentity();
+            const { buildDemoDatabase } = require('./lib/demoSeed');
+            const { db: seed, independentControls } = buildDemoDatabase(new Date().toISOString());
+            // Preserve the real admin account ensureAdminUser() already
+            // created (correct bcrypt hash of the actual ADMIN_DEFAULT_*
+            // env vars) — the seed's own `users` array only ever contains
+            // the fixed-credential 'demo' visitor account, never an admin.
+            const existingAdmins = (db.users || []).filter(u => u.role === 'admin');
+            seed.users = [...existingAdmins, ...seed.users];
+            saveDB(seed);
+            applyDemoBrand();
+            console.log('🎭 Demo first-boot seed complete — ' + independentControls.journalEntryCount + ' journal entries, balanced=' + independentControls.balanced);
+          }
+        } catch (e) { console.warn('⚠️ Demo first-boot seed skipped:', e.message); }
+      }
       app.listen(PORT, () => {
         console.log(`\n✅ بوبيان للمحاسبة - يعمل على http://localhost:${PORT}`);
         console.log(`📂 البيانات محفوظة في: MongoDB (${redactMongoUri(MONGO_URI)})`);
@@ -11685,7 +11857,7 @@ function buildAndPostAssetDisposal(db, asset, data, actorReq) {
   return je;
 }
 
-app.get('/api/assets', requireAuth, requireAdminAction('assets.view'), (req, res) => {
+app.get('/api/assets', requireAuth, requireAdminOrDemoView('assets.view'), (req, res) => {
   const db = loadDB();
   res.json(db.fixedAssets || []);
 });
@@ -11995,7 +12167,7 @@ app.post('/api/assets/:id/dispose', requireAuth, requireAdminAction('assets.disp
 
 // Part E/Step 15: honest asset-register-vs-GL reconciliation — never plugs
 // a difference, same pattern as AP/AR/COA reconciliation elsewhere.
-app.get('/api/assets/reconciliation', requireAuth, requireAdminAction('assets.view'), (req, res) => {
+app.get('/api/assets/reconciliation', requireAuth, requireAdminOrDemoView('assets.view'), (req, res) => {
   const db = loadDB();
   const assets = db.fixedAssets || [];
   const active = assets.filter(a => a.status !== 'disposed');
@@ -12074,7 +12246,7 @@ app.get('/api/assets/reconciliation', requireAuth, requireAdminAction('assets.vi
 // "reconciliation"; registering this first previously shadowed and broke
 // GET /api/assets/reconciliation entirely (caught by the existing Recon A/B/C
 // regression tests).
-app.get('/api/assets/:id', requireAuth, requireAdminAction('assets.view'), (req, res) => {
+app.get('/api/assets/:id', requireAuth, requireAdminOrDemoView('assets.view'), (req, res) => {
   const db = loadDB();
   const asset = (db.fixedAssets || []).find(a => a.id === req.params.id);
   if (!asset) return res.status(404).json({ success: false, error: 'الأصل غير موجود' });
