@@ -6461,17 +6461,69 @@ app.get('/api/vendors/:id/statement', requireAuth, requirePermission('vendors', 
   if ((parseFloat(vendor.openingBalance) || 0) > 0) {
     rows.push({ date: vendor.openingDate || '', type: 'opening', reference: 'OB-' + vendor.accountId, description: 'رصيد افتتاحي', amount: parseFloat(vendor.openingBalance), direction: 'credit', sourceId: vendor.id });
   }
+  const vendorBillIds = new Set();
   (db.vendorBills || []).filter(b => b.vendorId === vendor.id).forEach(b => {
+    vendorBillIds.add(b.id);
     rows.push({ date: b.billDate, type: 'bill', reference: b.billNumber || b.number, description: b.description || `فاتورة مورد ${b.number}`, amount: b.grossAmount, direction: 'credit', sourceId: b.id });
     (b.credits || []).forEach(c => rows.push({ date: c.date, type: 'credit', reference: c.id, description: `إشعار دائن — ${c.reason || b.number}`, amount: c.amount, direction: 'debit', sourceId: b.id }));
     (b.payments || []).filter(p => !p.reversed).forEach(p => rows.push({ date: p.date, type: 'payment', reference: p.id, description: `دفعة — ${b.number}`, amount: p.amount, direction: 'debit', sourceId: b.id }));
   });
-  rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  // P3-HOTFIX — legacy direct-journal activity: any journalEntries[] line
+  // posted directly against this vendor's payable account, bypassing the
+  // vendorBills subledger entirely (raw manual/expense-type entries from
+  // before vendorBills existed — see docs/P3 vendor-statement investigation).
+  // Matched on accountCode/accountId/account (string-normalized — legacy
+  // lines aren't guaranteed to use one field consistently), then EXCLUDED
+  // whenever the owning entry is already represented as the opening-balance
+  // row (source==='vendor-opening', or the fixed 'JE-VND-OPEN-'+vendor.id
+  // id as a fallback for any pre-P0.3 opening JE missing that field) or as
+  // a vendorBills row (source==='vendor-bill' && sourceId is one of THIS
+  // vendor's own bill ids — the same source/sourceId every bill/payment/
+  // credit JE already carries, from buildAndPostVendorBill and the
+  // pay/credit routes). Never matched on description text.
+  const vendorAccountKey = String(vendor.accountId);
+  const legacyOpeningJeId = 'JE-VND-OPEN-' + vendor.id;
+  (db.journalEntries || []).forEach(je => {
+    if (je.id === legacyOpeningJeId || je.source === 'vendor-opening') return;
+    if (je.source === 'vendor-bill' && vendorBillIds.has(je.sourceId)) return;
+    (je.lines || []).forEach(l => {
+      const matches = String(l.accountCode ?? '') === vendorAccountKey ||
+                       String(l.accountId ?? '')   === vendorAccountKey ||
+                       String(l.account ?? '')     === vendorAccountKey;
+      if (!matches) return;
+      const debit = parseFloat(l.debit) || 0, credit = parseFloat(l.credit) || 0;
+      if (debit <= 0.0005 && credit <= 0.0005) return;
+      rows.push({
+        date: je.date, type: 'legacy-journal', reference: je.ref || je.reference || je.id,
+        description: je.desc || je.description || 'قيد تاريخي',
+        amount: credit > 0 ? credit : debit, direction: credit > 0 ? 'credit' : 'debit',
+        sourceId: je.id, source: je.source || je.type || null, journalEntryId: je.id,
+      });
+    });
+  });
+
+  // Deterministic chronological sort — date, then a stable id tie-break
+  // (never insertion order, so a reset/reload always produces the same
+  // running balance sequence for same-day entries).
+  rows.sort((a, b) => (a.date || '').localeCompare(b.date || '') || String(a.sourceId || '').localeCompare(String(b.sourceId || '')));
 
   let running = 0;
   rows.forEach(r => { running = parseFloat((running + (r.direction === 'credit' ? r.amount : -r.amount)).toFixed(3)); r.runningBalance = running; });
 
-  res.json({ vendor: { id: vendor.id, name: vendor.name }, rows, endingBalance: running });
+  // Reconciliation — reuses buildBalanceMap(), the SAME canonical per-
+  // account balance helper already used by /api/trial-balance and
+  // /api/reports/balance-sheet, rather than a second independent sum.
+  const balMap = buildBalanceMap(db, null, null);
+  const glRow = balMap[vendorAccountKey] || { debit: 0, credit: 0 };
+  const glBalance = parseFloat((glRow.credit - glRow.debit).toFixed(3));
+  const statementBalance = running;
+  const difference = parseFloat((statementBalance - glBalance).toFixed(3));
+
+  res.json({
+    vendor: { id: vendor.id, name: vendor.name }, rows, endingBalance: running,
+    reconciliation: { statementBalance, glBalance, difference, reconciled: Math.abs(difference) < 0.005 },
+  });
 });
 
 // P0.7 — Step 20: the vendor's outstanding AP balance is ALWAYS derived

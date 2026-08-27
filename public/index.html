@@ -9761,22 +9761,27 @@ async function loadVendorStatement() {
     d = await r.json().catch(()=>({}));
   } catch { showToast('خطأ في الاتصال — تعذّر تحميل كشف الحساب', 'error'); }
   const rows = (d && d.rows) || [];
-  const typeLabels = { opening:'رصيد افتتاحي', bill:'فاتورة', credit:'إشعار دائن', payment:'دفعة' };
+  // P3-HOTFIX: 'legacy-journal' — a direct journalEntries[] posting against
+  // this vendor's account predating (or bypassing) the vendorBills
+  // subledger. Labeled distinctly so it's never mistaken for a real bill.
+  const typeLabels = { opening:'رصيد افتتاحي', bill:'فاتورة', credit:'إشعار دائن', payment:'دفعة', 'legacy-journal':'قيد تاريخي' };
   const totalBills = rows.filter(x=>x.direction==='credit').reduce((s,x)=>s+(x.amount||0),0);
   const totalPaid  = rows.filter(x=>x.direction==='debit').reduce((s,x)=>s+(x.amount||0),0);
   const balance = d.endingBalance || 0;
+  const rec = d.reconciliation || null;
 
   document.getElementById('vndStmtKpis').innerHTML = `
     <div class="kc re"><div class="kl">الرصيد المستحق</div><div class="kv" style="color:${balance>0?'var(--danger)':'var(--accent2)'};">${balance.fmt()}</div><div class="ks">د.ك</div></div>
     <div class="kc bl"><div class="kl">إجمالي الفواتير</div><div class="kv">${totalBills.fmt()}</div><div class="ks">د.ك</div></div>
     <div class="kc gr"><div class="kl">إجمالي المدفوع/المخصوم</div><div class="kv">${totalPaid.fmt()}</div><div class="ks">د.ك</div></div>
-    <div class="kc ye"><div class="kl">عدد الحركات</div><div class="kv">${rows.length}</div><div class="ks">حركة</div></div>`;
+    <div class="kc ye"><div class="kl">عدد الحركات</div><div class="kv">${rows.length}</div><div class="ks">حركة</div></div>`
+    + (rec && !rec.reconciled ? `<div style="grid-column:1/-1;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:8px 12px;font-size:11px;color:var(--danger);margin-top:8px;">⚠️ الكشف لا يطابق رصيد دفتر الأستاذ (فرق ${rec.difference.toFixed(3)} د.ك) — راجع الحسابات المحاسبية.</div>` : '');
 
   document.getElementById('vndStmtBody').innerHTML = rows.length ?
-    rows.map(x=>`<tr>
+    rows.map(x=>`<tr${x.type==='legacy-journal'?' style="background:rgba(148,163,184,.06);"':''}>
       <td>${x.date}</td>
       <td style="font-family:monospace;font-size:10px;">${x.reference||'-'}</td>
-      <td>${typeLabels[x.type]||x.type} — ${escHtml(x.description||'')}</td>
+      <td>${x.type==='legacy-journal'?'<span style="color:var(--text3);">🕘 ':''}${typeLabels[x.type]||x.type}${x.type==='legacy-journal'?'</span>':''} — ${escHtml(x.description||'')}</td>
       <td class="num neg">${x.direction==='debit'?(x.amount||0).fmt():''}</td>
       <td class="num pos">${x.direction==='credit'?(x.amount||0).fmt():''}</td>
       <td class="num ${x.runningBalance>0?'neg':'pos'}" style="font-weight:600;">${(x.runningBalance||0).fmt()}</td>
