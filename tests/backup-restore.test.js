@@ -39,7 +39,9 @@ describe('النسخ الاحتياطي والاستعادة — دورة كام
 
     // 2) نسخ احتياطي
     execSync('node scripts/backup.js', { cwd: ROOT, env, stdio: 'pipe' });
-    const backups = fs.readdirSync(backupDir).filter(f => f.startsWith('backup-'));
+    // P0.5: backup.js now also writes a "<file>.sha256" checksum sidecar
+    // next to every backup — filter to the actual backup JSON files only.
+    const backups = fs.readdirSync(backupDir).filter(f => f.startsWith('backup-') && f.endsWith('.json'));
     expect(backups.length).toBe(1);
 
     // النسخة تحتوي البيانات فعلاً
@@ -51,8 +53,8 @@ describe('النسخ الاحتياطي والاستعادة — دورة كام
     fs.writeJsonSync(dataFile, { journalEntries: [], chartOfAccounts: [], users: [] });
     expect(fs.readJsonSync(dataFile).journalEntries.length).toBe(0);
 
-    // 4) استعادة
-    execSync(`node scripts/restore.js "${path.join(backupDir, backups[0])}"`, { cwd: ROOT, env, stdio: 'pipe' });
+    // 4) استعادة (P0.5: --target صار مطلوباً صراحة)
+    execSync(`node scripts/restore.js "${path.join(backupDir, backups[0])}" --target=test-restore`, { cwd: ROOT, env, stdio: 'pipe' });
 
     // 5) البيانات عادت بالحرف
     const restored = fs.readJsonSync(dataFile);
@@ -66,7 +68,7 @@ describe('النسخ الاحتياطي والاستعادة — دورة كام
       execSync('node scripts/backup.js', { cwd: ROOT, env, stdio: 'pipe' });
       const now = Date.now(); while (Date.now() - now < 1100) { /* انتظار ثانية */ }
     }
-    const backups = fs.readdirSync(backupDir).filter(f => f.startsWith('backup-'));
+    const backups = fs.readdirSync(backupDir).filter(f => f.startsWith('backup-') && f.endsWith('.json'));
     expect(backups.length).toBeLessThanOrEqual(5);
   });
 });

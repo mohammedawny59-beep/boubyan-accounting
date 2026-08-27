@@ -18,6 +18,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
+const { computeChecksum, extractTenantIds } = require('../lib/backupValidation');
 
 const ROOT      = path.join(__dirname, '..');
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, 'backups'); // قابل للتحديد (للاختبار الدوري)
@@ -65,20 +66,39 @@ async function run() {
     payload = fromFiles(); console.log('   ↳ المصدر: ملفات محلية');
   }
 
-  const meta = { createdAt: new Date().toISOString(), version: 1, ...payload };
+  // P0.5 — Step 6/9: version 2 adds a tenant-identity manifest field (which
+  // tenants this backup actually covers, at a glance) — version stays
+  // readable by verify-backup/restore either way since both only require
+  // createdAt/version/source/collections|database, never a specific version
+  // number.
+  const tenantIds = extractTenantIds(payload);
+  const meta = { createdAt: new Date().toISOString(), version: 2, tenantIds, ...payload };
+  const json = JSON.stringify(meta, null, 2);
   const file = path.join(BACKUP_DIR, `backup-${stamp()}.json`);
-  fs.writeFileSync(file, JSON.stringify(meta, null, 2), 'utf8');
+  fs.writeFileSync(file, json, 'utf8');
+
+  // P0.5 — Step 9: checksum sidecar — a backup that can't be verified isn't
+  // really a backup. verify-backup.js / restore.js both check this file
+  // hashes to the same value before trusting its contents.
+  const checksum = computeChecksum(json);
+  fs.writeFileSync(file + '.sha256', `${checksum}  ${path.basename(file)}\n`, 'utf8');
 
   const sizeMB = (fs.statSync(file).size / 1048576).toFixed(2);
   console.log(`✅ تم — ${path.basename(file)} (${sizeMB} MB)`);
+  console.log(`   ↳ tenants: ${tenantIds.length ? tenantIds.join(', ') : '(none found)'}`);
+  console.log(`   ↳ sha256:  ${checksum}`);
 
-  // تدوير: احتفظ بآخر KEEP نسخة فقط
+  // تدوير: احتفظ بآخر KEEP نسخة فقط (والملف .sha256 المرافق لكل نسخة قديمة)
   const backups = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('backup-') && f.endsWith('.json')).sort();
   const excess = backups.slice(0, Math.max(0, backups.length - KEEP));
-  for (const old of excess) { try { fs.unlinkSync(path.join(BACKUP_DIR, old)); } catch {} }
+  for (const old of excess) {
+    try { fs.unlinkSync(path.join(BACKUP_DIR, old)); } catch {}
+    try { fs.unlinkSync(path.join(BACKUP_DIR, old + '.sha256')); } catch {}
+  }
   if (excess.length) console.log(`🧹 حُذفت ${excess.length} نسخة قديمة (نحتفظ بآخر ${KEEP})`);
 
   console.log(`\n📁 كل النسخ في: ${BACKUP_DIR}`);
+  console.log(`🔎 للتحقق: node scripts/verify-backup.js ${file}`);
 }
 
 run().catch(e => { console.error('❌ فشل النسخ الاحتياطي:', e.message); process.exit(1); });

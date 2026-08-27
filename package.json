@@ -12,12 +12,12 @@
   },
   "devDependencies": {
     "jest": "^29.7.0",
+    "mongodb-memory-server": "^11.2.0",
     "supertest": "^7.2.2"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
     "bcryptjs": "^3.0.3",
-    "stripe": "^17.0.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -30,6 +30,7 @@
     "nodemailer": "^9.0.1",
     "pdf-parse": "^2.4.5",
     "pptxgenjs": "^4.0.1",
+    "stripe": "^17.0.0",
     "xlsx": "^0.18.5"
   }
 }
