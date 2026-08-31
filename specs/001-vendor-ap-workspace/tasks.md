@@ -1,0 +1,308 @@
+---
+
+description: "Task list for the Vendor / Accounts Payable Workspace Upgrade"
+---
+
+# Tasks: Vendor / Accounts Payable Workspace Upgrade
+
+**Input**: Design documents from `specs/001-vendor-ap-workspace/`
+**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/, quickstart.md (all present)
+**Tests**: Explicitly requested — included throughout, TDD-ordered within each phase.
+
+**Revision note (twelfth remediation pass — final)**: This is the thirteenth version of tasks.md. Task count grows to **35** (T001-T035), up from 34 — the eleventh round's own three fixes were adversarially re-verified and are all confirmed sound, but the required comprehensive final review surfaced one new, significant finding in a part of the plan none of the prior eleven rounds had examined, plus one small residual documentation gap:
+
+- **`STMT-FETCH-FAILURE-FABRICATES-ZERO` (HIGH)**: the pre-existing `GET /api/vendors/:id/statement` fetch — the source of the workspace's own headline GL balance, statement balance, and reconciliation badge (T009/T010, this feature's own new UI) — had no equivalent no-fabricate-zero protection to the one already built for the sibling vendor-bills fetch (FR-023/Decision 12/T008). Any non-404 failure (network error, 500, malformed body) silently fell through to `balance = 0`/`rec = null`, which the reconciliation badge renders identically to "genuinely reconciled." **New task, T011**, mirroring T008's already-proven pattern exactly, closes this — anchored to a new requirement, FR-024, and a new Decision, research.md Decision 13.
+- **`STALE-TOAST-1-DOC-GAP-RESIDUAL` (MEDIUM)**: the eleventh round's fix for the "three vs. four guarded outcomes" miscounting touched T007's own task text and three other documents, but missed a second, separate mention of the same count in this file's own "Dependencies & Execution Order" section. Fixed in the same pass as this revision.
+- **`DANGLING-COMPLETION-REPORT-CITATION` (LOW)**: `plan.md` and `quickstart.md` both cited a "Completion Report" that does not exist anywhere in this repository or its Spec Kit templates. Both corrected to point to `plan.md`'s own Project Structure section instead, where the substance always lived.
+
+`quickstart.md` grows from **23 to 24** scenarios — one new scenario (24) verifies the statement-fetch-failure fix, reusing the same recency-guard verification already established by Scenarios 17/22. Every task from the eleventh round's T011 onward shifts down by exactly 1 to make room for the new T011. **No settled design area is reopened**: the simplified navigation, no nested modals, no `_vbDetailFromWorkspace`, both request-generation counters on the deep-link path, explicit `await` sequencing, and the eleventh round's `populateVbVendorSelects()`/product-decision fixes are all preserved completely unchanged.
+
+**Revision note (thirteenth remediation pass — control-flow correction)**: This is the fourteenth version of tasks.md. Task count stays at **35** (T001-T035) — no renumbering. The required final gate check on the twelfth round's own T011 fix (run per explicit instruction, specifically to verify the fix rather than just accept it) found it did **not** actually work, on two independent, adversarially-confirmed grounds (all three findings below individually put through a "try to refute this" pass and none were refuted):
+
+- **`T011-CATCH-FALLTHROUGH-OVERWRITES-ERROR-STATE` (CRITICAL)**: the twelfth round's fix rendered an error state inside `loadVendorStatement()`'s `catch` block but never stopped the pre-existing, unconditional success-path render code below it from running immediately afterward and silently overwriting that error state with a fabricated `balance=0`/`rec=null` — implementing T011 exactly as documented would not have closed FR-024.
+- **`T011-404-CHECK-INSERTION-POINT-FICTIONAL` (HIGH)** / **`T011-WRONG-404-TASK-REFERENCE` (MEDIUM)**: T011's text claimed its new `!r.ok` check should go "after the existing, pre-existing 404 check (T012, unaffected)." No such check exists anywhere in the live code, and the citation named the wrong task besides (T012 is verification-only; the task that was actually going to add 404 handling, T013, was sequenced to run *after* T011 — there was nothing to insert "after").
+
+T011 (below) is rewritten to fix both: it gates all statement-dependent rendering behind an explicit `outcome` flag (never a bare `return`, which would also have wrongly blocked T007's independent vendor-bills fetch), and it now builds the 404 branch itself rather than citing a check that didn't exist. T013 is retargeted from "add 404 handling" to "verify T011's 404 branch," mirroring T012's own already-verification-only pattern — no renumbering needed, since T013's position and dependency (on T012) were never wrong, only its described content. A third, LOW documentation gap (`DATAMODEL-RECENCY-GUARD-ENUM-INCOMPLETE` — `data-model.md`'s own recency-guard enumeration still listed only three checkpoints, omitting T008's failure write as a fourth) is fixed alongside. **No settled design area beyond this statement-fetch-failure mechanism is reopened**: the deep-link flow, filter synchronization, `loadVendorBills()`'s own recency guard, the deep-link reentrancy guard, Open Bills rules, AP-aging logic, search, legacy compatibility, and RBAC are all unchanged from the twelfth round.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Genuinely parallelizable — different file AND no dependency on an incomplete task.
+- **[Story]**: US1–US5, mapping to spec.md's five prioritized user stories.
+
+## Deviation from Spec Kit's default ordering
+
+Unchanged: the product owner's explicit Phase A–G backend-first sequence is followed as the primary phase order; every task carries its correct `[USn]` story label for traceability.
+
+---
+
+## Phase 1: Setup
+
+- [ ] T001 Run the existing full test suite once, unmodified, as a pre-implementation baseline (`npm test`); record the pass count for comparison after Phase 8. File: `tests/` (whole suite, no changes made). No dependencies.
+
+---
+
+## Phase 2: Backend — AP Aging Vendor Filter *(Phase A)* — [US4]
+
+- [ ] T002 [P] [US4] Write test (expected to **fail** before T003): `GET /api/ap-aging?vendorId=<id>` returns a single row matching that vendor, equal to the corresponding row in today's unfiltered response. Include the finding-F6 case: a fixture vendor with outstanding AP but zero overdue bills — assert `current` bucket == vendor's full outstanding total, all overdue buckets == 0. Also assert (finding H3): for the same `asOf` date, `grandTotal` and `reconciliation` in the `?vendorId=`-filtered response are identical to those same fields in the unfiltered response — they must stay firm-wide. File: `tests/p0-7-ap-lifecycle.test.js`. Depends on: T001.
+- [ ] T003 [US4] Add optional `vendorId` query filter to `GET /api/ap-aging` in `server.js` (route at ~line 8728). Null-guarded resolution (finding H2) — never chain `.find(...).name` directly:
+  ```
+  const matchedVendor = db.vendors.find(v => v.id === vendorId);
+  const vendorName = matchedVendor ? matchedVendor.name : null;
+  ```
+  Explicit filter placement (finding H3): `rows`, `subledgerTotal` (→ `grandTotal`), and `reconciliation` are computed exactly as today, from the full unfiltered `rows`, in the same order as today. The filter is applied only to a separate response-only variable, built immediately before `res.json(...)`:
+  ```
+  const responseRows = vendorId ? rows.filter(r => r.vendor === vendorName) : rows;
+  res.json({ asOf: asOfStr, rows: responseRows, grandTotal: subledgerTotal, reconciliation });
+  ```
+  Not the same mechanism as `GET /api/vendor-bills`'s `?vendorId=`. Leave bucket boundaries and `requirePermission('financials','view')` unchanged; omitting the parameter reproduces today's response byte-for-byte. Known, accepted limitation: `accruedExpenses[]` items carry no `vendorId`, only a name — a same-named-vendor collision there is inherited, unfixed, fail-safe behavior (see research.md Decision 2). File: `server.js`. Depends on: T002.
+- [ ] T004 [US4] Write regression test: unfiltered `GET /api/ap-aging` behavior is byte-for-byte unchanged after T003. File: `tests/p0-7-ap-lifecycle.test.js`. Depends on: T003, T002 (same file).
+- [ ] T005 [US4] Write test: `GET /api/ap-aging?vendorId=<unknown-or-no-activity-id>` returns a safe, empty, non-erroring result (HTTP 200, empty `rows`). File: `tests/p0-7-ap-lifecycle.test.js`. Depends on: T004 (same file).
+
+**Checkpoint**: The AP-aging vendor filter is complete, tested, and independently verifiable before any UI work begins.
+
+---
+
+## Phase 3: Vendor Workspace Summary *(Phase B)* — [US1] 🎯 MVP
+
+- [ ] T006 [P] [US1] Write test: the workspace summary's reconciliation values equal the full statement's own reconciliation values for the same vendor, proving a single shared source. File: `tests/p3-vendor-statement-hotfix.test.js`. Depends on: T001.
+- [ ] T007 [US1] **(corrected, finding I1 — see research.md Decision 4/11; simplified, ninth round — see research.md Decision 3/4's revision history)** Extend `loadVendorStatement()` in `public/index.html` (~line 9753) to perform a **second, genuinely new, additive fetch** — `GET /api/vendor-bills?vendorId=<currentVendorId>` — in addition to its existing statement fetch. This reuses the existing, unmodified route (server.js:6113, already used unchanged by the AP tab's `loadVendorBills()`) with zero backend change; it is a new *caller*, not a new *route*. From this new fetch's response, derive **"Open Bills"** total and overdue amount, using **the identical filter T014 uses** (`status !== 'CANCELLED' && status !== 'PAID' && outstandingAmount > 0.001`, finding F1) — do not write a second, independently-maintained filter condition here; this total and T014's open-items list must always agree by construction (the same principle Decision 1 applies to reconciliation). Store the fetched bills in a **new, workspace-local variable**, `_vndWorkspaceBills` (module-scoped, declared alongside `currentVendorId`, ~line 9588) — **not** the AP tab's `_vbBills`.
+
+  **Ninth-round simplification — no more cross-array sync**: earlier rounds required this task to also assign into the AP tab's own `_vbBills` (finding J1), because the workspace used to open `openVbDetail(id)` directly, which reads exclusively from `_vbBills`. That is no longer true: T017 (below) no longer opens `#vbDetailModal` from the workspace at all — it navigates to the AP tab and lets that tab's own, completely unmodified `loadVendorBills()` populate `_vbBills` itself. `_vndWorkspaceBills` and `_vbBills` are now two fully independent arrays, each serving exactly one context, with nothing to keep synchronized between them. Do not modify `openVbDetail(id)` itself; this task does not call it and does not need to.
+
+  **Async request-recency guard (finding AUDIT-VBWS-2, redesigned as a generation counter, not a vendor-id comparison)**: declare `let _vndStmtReqSeq = 0;` alongside `_vndWorkspaceBills`. At the very top of `loadVendorStatement()`, capture `const seq = ++_vndStmtReqSeq;` — incrementing on *every* call, whether triggered by a vendor switch or by reopening the same vendor's workspace a second time before an earlier call finished. Immediately before each of the function's write points — (a) the pre-existing statement/reconciliation DOM write, (b) this task's own vendor-bills-derived write (`_vndWorkspaceBills = data;` plus the Open Bills/overdue figures), (c) T008's failure-state write, and (d) T011's new statement-fetch-failure state (below) — re-check `if (seq !== _vndStmtReqSeq) return;`, discarding that response without mutating any shared UI/state if a newer call has since started. One counter, checked identically at every outcome (success or failure), covers both a cross-vendor switch and a same-vendor double-open — no separate reasoning needed per branch, and no request-generation-token *registry* (just one integer). This guard applies to workspace *reads* only; there is no write-triggered refresh anymore (see Decision 4), so there is nothing else to guard.
+
+  **The guard must also cover the pre-existing statement fetch's own error path (finding STALE-TOAST-1, tenth round)**: the pre-existing `catch { showToast('خطأ في الاتصال — تعذّر تحميل كشف الحساب', 'error'); }` block around the statement fetch (the first of the function's two `try`/`catch` pairs) was not one of the write points named above, and ran unconditionally before this fix. Add the identical `if (seq !== _vndStmtReqSeq) return;` check as the first line of this `catch` block too, before the `showToast(...)` call — so a request that has already been superseded by a newer call (e.g. vendor A's request errors out after the user has already switched to, and successfully loaded, vendor B) never surfaces a stale, misattributed "connection error" toast over the vendor now actually on screen. **Correction, eleventh round (finding STALE-TOAST-1-COUNT-MISWORDING)**: this brings the total to **four** user-visible outcomes consistently gated by the same single check — no branch is exempt: (a) the pre-existing statement/reconciliation success write, (b) the vendor-bills-derived success write, (c) T008's vendor-bills failure write, and (d) this statement-fetch catch block's error toast (now, per T011 below, also the target of T011's own error-state render — the same `catch` block, extended). **Verification**: manual, via `quickstart.md` Scenario 17 (cross-vendor/same-vendor read-recency, data paths) and Scenario 22 (finding STALE-TOAST-1 — a superseded request's own error must never surface over the vendor now active). File: `public/index.html`. Depends on: T006.
+- [ ] T008 [US1] **(new task, finding I1; anchored to spec.md FR-023, finding J2; simplified, ninth round)** Handle the T007 vendor-bills fetch's failure safely, per FR-023: if it fails, the bill-level section (Open Bills total, overdue amount, T015's open-items list, T018's next-open-item preview) shows a clear load/error state, reusing the real inline empty-message convention (finding H5, Decision 7) — **never** a fabricated `0`/empty result presented as confirmed, and no automatic retry or write. This failure-state write is gated by the same `if (seq !== _vndStmtReqSeq) return;` recency check T007 already applies to its success-path writes — not a separately-reasoned-about, uncovered branch (closing findings AUDIT-VBWS-2-GAP-1/TRACE-3, which found the prior round's guard never explicitly named this branch). The statement/reconciliation section (T006-T007's other half, from the separate `GET /api/vendors/:id/statement` fetch) is unaffected and still renders normally if its own fetch succeeded, **and now degrades safely on its own terms if it did not (T011, below)** — one section's fetch failing does not make the whole workspace unusable, and no section's failure is ever presented as confirmed data. **Verification**: manual, via `quickstart.md` Scenario 15 (frontend fetch-error-handling is not reachable by the project's HTTP-only Jest harness). File: `public/index.html`. Depends on: T007 (same file).
+- [ ] T009 [US1] Add summary-card markup to `#vendorStmtModal` (~lines 5564-5591): vendor name, account code, contact fields, current GL balance, statement balance, reconciliation status/difference badge (`.lem-badge` pattern), and label T007's figure **"Open Bills"** (finding G6 — see research.md Decision 8) — not "Total Outstanding AP", since the broader "Total AP Exposure" figure (T026) is distinct and separately labeled; do not invent a calculation to make the two agree. File: `public/index.html`. Depends on: T008 (same file).
+- [ ] T010 [US1] Wire the summary card's reconciliation badge to read from the exact same `reconciliation` object the existing mismatch-warning banner already uses (~lines 9771-9778) — zero new fetch, zero new calculation. File: `public/index.html`. Depends on: T009 (same file).
+- [ ] T011 [US1] **(rewritten, thirteenth remediation round, findings `T011-CATCH-FALLTHROUGH-OVERWRITES-ERROR-STATE` [CRITICAL], `T011-404-CHECK-INSERTION-POINT-FICTIONAL` [HIGH], `T011-WRONG-404-TASK-REFERENCE` [MEDIUM])** The twelfth round's version of this task was itself found broken by the required final gate check, on two independent, adversarially-confirmed grounds — both fixed here. **This task now owns the entire response-branching structure of `loadVendorStatement()`'s statement fetch** (success, vendor-not-found, and general failure) — not just the general-failure branch — see the retargeted T013 below for why.
+
+  **Ground 1 — the CRITICAL fall-through (`T011-CATCH-FALLTHROUGH-OVERWRITES-ERROR-STATE`)**: the twelfth round's fix rendered an error state inside the `catch` block but never stopped the pre-existing, unconditional success-path render code (`vndStmtKpis`/`vndStmtBody`, computed from `d`) from running immediately afterward — since `d` stays `{}` after a throw, that fall-through recomputes `balance=0`/`rec=null`/`rows=[]` and silently overwrites the just-rendered error state with exactly the fabricated-zero content FR-024 forbids, in the same execution turn, before any repaint. **Fix**: do not use a bare function-level `return` to prevent this — that would also wrongly abort T007's vendor-bills fetch later in the same function (the Open Bills/overdue/open-items section, which FR-023/FR-024 both require to keep rendering independently even when the statement fetch fails). Instead, track the statement fetch's own outcome explicitly and gate all statement-dependent rendering behind it:
+
+  ```
+  let d = {};
+  let outcome = 'error'; // 'success' | 'notfound' | 'error' — starts pessimistic
+  try {
+    const r = await fetch(`/api/vendors/${v.id}/statement`);
+    if (r.status === 404) {
+      outcome = 'notfound';
+    } else if (!r.ok) {
+      throw new Error('statement fetch failed: ' + r.status);
+    } else {
+      const parsed = await r.json().catch(() => null);
+      if (!parsed || !Array.isArray(parsed.rows) || typeof parsed.endingBalance !== 'number') {
+        throw new Error('statement response malformed');
+      }
+      d = parsed;
+      outcome = 'success';
+    }
+  } catch {
+    outcome = 'error';
+  }
+  if (seq !== _vndStmtReqSeq) return;
+  if (outcome === 'notfound') {
+    // T013 verifies this branch: render the vendor-not-found state (finding G4) —
+    // same real inline empty-message convention as every other no-data state
+    // (Decision 7) — into both vndStmtKpis and vndStmtBody. No fabricated data.
+  } else if (outcome === 'error') {
+    // render a genuine load/error state (Decision 7) into both vndStmtKpis
+    // and vndStmtBody — not `0`, not an absent-therefore-reconciled badge,
+    // not an empty-but-confirmed activity table.
+    showToast('خطأ في الاتصال — تعذّر تحميل كشف الحساب', 'error');
+  } else {
+    // outcome === 'success' — the existing, unmodified T009/T010 success-path
+    // rendering (rows/totalBills/totalPaid/balance/rec computed from `d`,
+    // written to vndStmtKpis/vndStmtBody) moves here UNCHANGED in content,
+    // just gated behind this branch instead of running unconditionally.
+  }
+  // T007's vendor-bills fetch continues immediately after this block,
+  // UNCONDITIONALLY — regardless of `outcome` — preserving independence.
+  ```
+
+  Because the three render branches are mutually exclusive by construction (a single `outcome` value) and nothing asynchronous happens between the recency check and any of the three renders, **one `if (seq !== _vndStmtReqSeq) return;` immediately before the three-way branch covers all of it** — the success write, the not-found write, the error write, and the error toast — rather than repeating the check three times as the pre-thirteenth-round design implied. This still satisfies finding STALE-TOAST-1's original requirement (a superseded request's error/toast must never surface) and Decision 4's four-outcome enumeration; it just expresses the same guarantee more simply, since all outcomes now share one control-flow point instead of being scattered across separate `try`/`catch`/post-block writes.
+
+  **Ground 2 — the fictional 404 anchor (`T011-404-CHECK-INSERTION-POINT-FICTIONAL`, `T011-WRONG-404-TASK-REFERENCE`)**: the twelfth round's text claimed the new `if (!r.ok) throw` line should go "immediately after the existing, pre-existing 404 check (T012, unaffected)." No such check exists anywhere in the live code — a full-file grep for any `status`/`.ok`/`404` pattern inside `loadVendorStatement()` returns zero matches — and the citation named the wrong task besides (T012 is verification-only, brand-new-vendor zero-activity; the task that was actually going to add 404 handling, T013, was sequenced in the twelfth round's own dependency chain to run *after* T011, meaning there was no real 404 check to insert "after" at the time T011 gets implemented, and a literal implementation risked making T013's later 404 branch unreachable behind T011's own blanket `!r.ok` throw). **Fix**: T011 itself now builds the 404 branch, checked *before* the general `!r.ok` check (`if (r.status === 404) { outcome = 'notfound'; } else if (!r.ok) { throw ... }`, per the code above) — there is no "existing" check to reference because there never was one; this task creates it. T013, below, is retargeted from "add 404 handling" to "verify the 404 path T011 just built," mirroring T012's own already-verification-only pattern — this removes the false "pre-existing" framing entirely rather than merely correcting a task number.
+
+  **Ground 3 — malformed-payload validity (new this round; a direct consequence of fixing Ground 1 correctly, not a re-opened finding)**: a response that returns `200` but an unusable body (not valid JSON, or missing/wrong-typed `rows`/`endingBalance`) must **not** be treated as a successful load just because `r.ok` was true. The minimum usable shape is the one already documented in `contracts/vendor-ap-workspace-api.md`'s existing statement contract (`{ vendor, rows: [...], endingBalance: number, reconciliation: {...} }`, matching the live route at server.js:6523-6526) — `outcome` only becomes `'success'` if `Array.isArray(parsed.rows)` and `typeof parsed.endingBalance === 'number'` both hold; otherwise it falls to the same `'error'` outcome as a non-2xx status, via an explicit throw, never inventing a `0` balance or a `null`-therefore-unreconciled badge for a response that technically parsed but isn't actually usable. `reconciliation` itself is **not** part of this minimum check — it was already null-safe (`d.reconciliation || null`) before this feature and stays that way; a statement genuinely missing a reconciliation opinion is a legitimate, already-handled state, not a validity failure.
+
+  **Independence preserved (unchanged from the twelfth round's intent)**: T007's separate vendor-bills fetch and T026's separate AP-aging fetch are untouched by this task and continue to run and render normally on their own, independent outcomes, regardless of which of the three `outcome` branches above fires — there is no `return` anywhere in this task's own code except the single recency-guard check, so execution always reaches the vendor-bills fetch afterward.
+
+  **Spec anchor**: spec.md's FR-024 and its matching Edge Case bullet (line 115) already describe this behavior generically enough ("a network error, a server error, or an unusable response") to cover the malformed-payload case without requiring any wording change. research.md's Decision 13 (rewritten alongside this task) carries the corrected mechanism and the corrected 404 attribution.
+
+  **Verification**: manual, via `quickstart.md` Scenario 24 (rewritten this round: Part A — general failure, unchanged in substance, now with an explicit note on exactly why the twelfth round's fix would have failed it; Part B — new, malformed/unusable `200` response; Part C — recency, extended to explicitly re-run against all three outcomes — failure, not-found, and malformed — not just the original general-failure case) and Scenario 12 (vendor-not-found, now exercising this task's own 404 branch). File: `public/index.html`. Depends on: T010 (same file).
+- [ ] T012 [US1] Verify the brand-new-vendor edge case: all summary figures render as zero with no error (the `outcome === 'success'` branch, T011). File: `public/index.html` (verification only). Depends on: T011.
+- [ ] T013 [US1] **(retargeted, thirteenth remediation round, finding `T011-WRONG-404-TASK-REFERENCE`)** No longer adds the 404-handling code itself — T011 (above) now owns building that branch directly, since sequencing a separate, later task to add a 404 check that must run *before* an earlier task's own general-failure check is exactly what created the citation/ordering hazard the finding caught. This task is now **verification-only**, mirroring T012's own already-verification-only pattern: confirm that `GET /api/vendors/:id/statement`'s pre-existing, unmodified backend `404 { error: 'المورد غير موجود' }` response (server.js:6457-6458 — this part genuinely is pre-existing and unaffected) is correctly caught by T011's `outcome === 'notfound'` branch and renders the vendor-not-found message (finding G4) using the real inline empty-message convention (finding H5) — no crash, no fabricated data, and the general-failure branch's wording is never shown for this specific case. **Verification**: manual, via `quickstart.md` Scenario 12. File: `public/index.html` (verification only). Depends on: T012 (same file).
+
+**Checkpoint**: User Story 1 (P1 / MVP) is fully functional, independently testable, and safe against four failure/edge modes: zero-activity vendor, nonexistent vendor, a failed vendor-bills fetch, and a failed statement fetch — none of which fabricate incorrect data.
+
+---
+
+## Phase 4: Open Items *(Phase C)* — [US2]
+
+- [ ] T014 [P] [US2] Write test: open-items derivation uses **`status !== 'CANCELLED' && status !== 'PAID' && outstandingAmount > 0.001`** together — not `status` alone (finding F1). Explicitly include a case where a posted bill is credited all the way to zero via the real `/credit` path (`postVendorBillCredit()`) and must **not** appear as open. Also cover: fully paid, cancelled, and partial (payments + credits combined) remaining-balance cases. File: `tests/p3-vendor-ap-workspace.test.js` **(new file)**. Depends on: T001.
+- [ ] T015 [US2] Add open-items list rendering to `#vendorStmtModal`, deriving the list client-side from **`_vndWorkspaceBills`** — the workspace-local data T007 fetched (finding I1; **not** `_vbBills`, per the ninth-round simplification — see research.md Decision 4), filtered by **`status !== 'CANCELLED' && status !== 'PAID' && outstandingAmount > 0.001`** (finding F1). Each row shows reference, bill date, due date, original amount, paid/credited amount, remaining/outstanding balance, and overdue state (FR-006). Empty result: reuse the real inline empty-message convention (finding H5). File: `public/index.html`. Depends on: T014, T013 (same file).
+- [ ] T016 [US2] **(new task, tenth round, finding T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD)** Add a minimal request-generation-counter guard to the **pre-existing** `loadVendorBills()` function (public/index.html:13466-13477) itself — the AP tab's own function, reused unchanged by this feature until now. Today it unconditionally assigns `_vbBills = await r.json()...` on whichever of its own overlapping calls resolves last, with no ordering check. This is a real, exploitable hazard once T017 (below) introduces a second, deliberate caller of `loadVendorBills()` in quick succession with `showTab('vendorbills', ...)`'s own existing, internal call (public/index.html:6149, `if (id === 'vendorbills') loadVendorBills();`) — two overlapping fetches, and no guarantee the later-*started* one resolves last.
+
+  ```
+  let _vbBillsReqSeq = 0;
+  async function loadVendorBills() {
+    const seq = ++_vbBillsReqSeq;
+    populateVbVendorSelects();
+    const vendorId = document.getElementById('vbVendorFilt')?.value || '';
+    const status = document.getElementById('vbStatusFilt')?.value || '';
+    const qs = new URLSearchParams(); if (vendorId) qs.set('vendorId', vendorId); if (status) qs.set('status', status);
+    try {
+      const r = await fetch(`/api/vendor-bills${qs.toString()?'?'+qs.toString():''}`);
+      const data = await r.json().catch(()=>[]);
+      if (seq !== _vbBillsReqSeq) return;
+      _vbBills = Array.isArray(data) ? data : [];
+    } catch {
+      if (seq !== _vbBillsReqSeq) return;
+      showToast('خطأ في الاتصال — تعذّر تحميل فواتير الموردين', 'error'); _vbBills = [];
+    }
+    if (seq !== _vbBillsReqSeq) return;
+    renderVendorBills();
+  }
+  ```
+
+  This is the exact same monotonic-counter pattern T007 already established for `loadVendorStatement()` (finding AUDIT-VBWS-2), applied here to a different, sibling function for the same reason — not a general request framework, one integer, three checks. **Whichever of two overlapping `loadVendorBills()` calls was started *later* always wins**, regardless of which one's network response happens to arrive first — this is what makes T017's explicit, deliberate call safe even though `showTab()`'s own internal call cannot be prevented or awaited by T017 (T017 does not control `showTab()`'s internals). This also incidentally hardens the AP tab's own pre-existing behavior (e.g. rapidly changing the vendor/status filter dropdowns today) — a genuine, harmless side benefit, not a new requirement. **Verification**: manual, via `quickstart.md` Scenario 20 (finding T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD — out-of-order resolution between `showTab`'s internal call and T017's own explicit call). File: `public/index.html`. Depends on: T015 (same file).
+- [ ] T017 [US2] **(corrected, tenth round, findings T015-STATUS-FILTER-NOT-SYNCED and T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD; corrected again, eleventh round, findings T016-VENDOR-FILTER-SYNC-RACE and T016-FILTER-RESET-UNDOCUMENTED-UX-SIDEEFFECT — replaces the ninth round's `setTimeout`-based version; still replaces the sixth-through-eighth rounds' in-workspace nested-modal design entirely; see research.md Decision 3/4)** Add one new, small function, `openVendorBillFromWorkspace(id)`, and wire each open-item row's click handler (T015) to call it with that row's bill id:
+
+  ```
+  let _vndDeepLinkSeq = 0;
+  async function openVendorBillFromWorkspace(id) {
+    const seq = ++_vndDeepLinkSeq;
+    closeModal('vendorStmtModal');
+    populateVbVendorSelects();
+    const filt = document.getElementById('vbVendorFilt');
+    if (filt) filt.value = currentVendorId;
+    const stFilt = document.getElementById('vbStatusFilt');
+    if (stFilt) stFilt.value = '';
+    showTab('vendorbills', document.querySelector('[onclick*="showTab(\'vendorbills\'"]'));
+    await loadVendorBills();
+    if (seq !== _vndDeepLinkSeq) return;
+    openVbDetail(id);
+  }
+  ```
+
+  Corrections from the ninth round's draft, each closing a specific adversarially-verified finding, in the order the function now performs them:
+  0. **Populate the vendor filter's real options first (finding T016-VENDOR-FILTER-SYNC-RACE, HIGH, eleventh round)**: `#vbVendorFilt` (public/index.html:3119) is declared in static markup with only a single, hardcoded empty `<option>` — every real vendor `<option>` is injected exclusively by the existing, unmodified `populateVbVendorSelects()` (public/index.html:13458-13464), which is itself called only from inside `loadVendorBills()` or `openVendorBillModal()`, never from the Vendors-tab code path a workspace is normally opened from. Under this feature's own primary use case — opening a vendor's workspace *directly*, no prior "Vendor Bills (AP)" tab visit in the session — `#vbVendorFilt` would still hold only its single empty option at the moment step 1 (below) runs, and assigning `.value` to a `<select>` with no matching option silently no-ops (verified: `selectedIndex` stays `-1`). **Fix**: call the existing, unmodified `populateVbVendorSelects()` explicitly, once, as this function's very first step (after closing the workspace) — the exact same function `loadVendorBills()` already calls as its own first line, just invoked one step earlier. It reads from `DB.vendors`, already guaranteed loaded (the workspace could not have resolved `currentVendorId` to open at all otherwise). No manual `<option>` construction, no new function — reuse only.
+  1. **Vendor filter sync (finding K1's original precedent, unaffected by the corrections above/below)**: `document.getElementById('vbVendorFilt').value = currentVendorId;` — now succeeds reliably because step 0 has already ensured a matching `<option>` exists.
+  2. **Status filter reset (finding T015-STATUS-FILTER-NOT-SYNCED, HIGH)**: `#vbStatusFilt` (public/index.html:3121, an existing "الحالة" select applied by `loadVendorBills()` as an AND-filter alongside the vendor, ~line 13469-13470) is reset to its neutral/"all statuses" empty-string value. Without this, any status the user last left selected on the AP tab (e.g. "مسددة بالكامل"/PAID) would silently exclude the deep-linked bill from every fetch this function triggers, since an open item is by definition never PAID or CANCELLED (Decision 4) — `openVbDetail(id)`'s bare `const b = _vbBills.find(...); if (!b) return;` would then no-op with zero user-facing feedback, under entirely ordinary, non-adversarial usage.
+  3. **Filters set *before* `showTab(...)`, not after (finding T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD, HIGH)**: `showTab('vendorbills', ...)` itself unconditionally triggers its own internal `loadVendorBills()` call (public/index.html:6149) the moment it runs — in the ninth round's draft, the vendor-filter sync happened *after* this call, so that internal fetch always read the *stale*, pre-sync filter value. Both filter assignments now happen first (and, per correction 0, are now guaranteed to actually take effect), so `showTab`'s own internal call and this function's own explicit call always target the *same*, correct filters — whichever of the two resolves last (now safely arbitrated by T016's recency counter on `loadVendorBills()` itself) still produces the correct result.
+  4. **Explicit `await`, no arbitrary `setTimeout` (same finding)**: the ninth round's `setTimeout(..., 150)` was a timing guess with no correctness guarantee. With correction 3 in place and T016's recency guard in place, this function `await`s its own `loadVendorBills()` call directly and calls `openVbDetail(id)` only once that promise resolves — deterministic, not timing-dependent.
+  5. **Reentrancy guard (finding T015-NO-REENTRANCY-GUARD, MEDIUM)**: `_vndDeepLinkSeq`, a minimal, module-scoped counter — independent of T016's own `_vbBillsReqSeq`, since it guards a different concern (*this function's* decision to call `openVbDetail`, not `loadVendorBills()`'s own DOM/state writes) — is captured at entry and re-checked immediately before `openVbDetail(id)` is called. If a second, newer click starts (and thus increments `_vndDeepLinkSeq`) before the first click's own `await loadVendorBills()` resolves, the first call's stale check fails and it returns without ever opening its bill — only the *latest* click's bill ever opens, with no visible flash of an older one.
+
+  **Product decision, eleventh round (finding T016-FILTER-RESET-UNDOCUMENTED-UX-SIDEEFFECT) — the filter change is intentional, not an accidental side effect**: `#vbVendorFilt` and `#vbStatusFilt` are the AP tab's own real, persistent, shared controls, not local copies — steps 1-2 above visibly change them every time this function runs. This is an **explicit product-owner decision, not a defect to mitigate**: when a user deep-links from vendor A's workspace into one of vendor A's open bills, landing on an AP tab scoped to vendor A and to all statuses is the *expected* result of that navigation — the user has just indicated, by clicking, that vendor A's AP context is what they want next. **No capture/restore logic for the AP tab's prior filter state is added, and none should be** — the "cost" (an independently-set AP-tab filter being replaced on next use of this deep link) is accepted as the simpler, correct trade-off. See spec.md's Assumptions section and research.md Decision 4 for the full rationale, and `quickstart.md` Scenario 23 for the corresponding acceptance behavior.
+
+  **Product decision (ninth round, unaffected by these corrections)**: the vendor workspace remains a read/analysis surface (FR-008's "navigate to that existing view" is satisfied by a real navigation, not a nested overlay). Clicking an open bill closes the workspace, switches to the existing "Vendor Bills (AP)" tab, sets that tab's own vendor and status filters, lets the AP tab's own, now-guarded `loadVendorBills()` populate `_vbBills` for this vendor, and only then calls the existing, unmodified `openVbDetail(id)` — which opens in its normal, single-context home, never stacked over another modal. `openVbDetail(id)` itself, `#vbDetailModal`, and all four of its write-action handlers (`submitVbPay`/`submitVbCredit`/`submitVbCancel`/`reverseVbPayment`) remain reused completely unchanged, with zero new CSS and zero new write-trigger logic anywhere in this feature — no new edit/write path, no new modal behavior, no new permissions. **None of this reintroduces `_vbDetailFromWorkspace`, workspace-refresh-after-write, parent/child modal state, or any z-index change** — the counters (`_vbBillsReqSeq` in T016, `_vndDeepLinkSeq` here) and the `populateVbVendorSelects()` call exist solely to make this navigation-based flow itself reliably correct, not to restore any removed mechanism.
+
+  This removes an entire prior surface, still not reintroduced: `_vbDetailFromWorkspace` and its set/reset call sites, the `#vbDetailModal{z-index:3000}` override, the write-triggered workspace refresh (the old T016), the capture-before-write pattern, the three/five-site close-affordance reset, and the same-vendor write-race handling. See research.md Decision 4's revision history for why each was removed rather than patched a fourth time.
+
+  The two pre-existing AP-tab call sites for `openVbDetail(id)` in `renderVendorBills()` (public/index.html:~13491, ~13497) are **untouched by this feature** — they were always the normal way to reach this modal, and remain exactly that.
+
+  **Verification**: manual, via `quickstart.md` Scenario 10 (finding F5, updated for the new flow), Scenario 18 (the required end-to-end check: correct vendor, correct bill, no leftover workspace modal), Scenario 19 (finding T015-STATUS-FILTER-NOT-SYNCED — a leftover PAID status filter must not block the deep link), Scenario 20 (finding T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD — out-of-order resolution), Scenario 21 (finding T015-NO-REENTRANCY-GUARD — rapid clicks on two different bills, only the latest opens), and Scenario 23 (finding T016-VENDOR-FILTER-SYNC-RACE — a completely fresh session, AP tab never opened, proves the vendor filter itself ends up correctly scoped, not just that the bill opens). File: `public/index.html`. Depends on: T016 (same file).
+- [ ] T018 [US2] Add the workspace summary's "next/current open item(s)" preview (FR-005), reusing T015's already-derived (F1-corrected) list from `_vndWorkspaceBills`, sorted most-overdue-first, showing the top 1-3. File: `public/index.html`. Depends on: T017 (same file).
+
+**Checkpoint**: User Stories 1 AND 2 both work independently; the deep link is a plain, now-robust navigation to the application's existing, unmodified bill-detail experience, with no nested-modal state to reason about and no filter/timing hazards left unguarded.
+
+---
+
+## Phase 5: Statement UX *(Phase D)* — [US3]
+
+- [ ] T019 [US3] Write test: date-range filter narrows visible statement rows but leaves the statement's reconciliation summary unchanged (clarification Q2). File: `tests/p3-vendor-ap-workspace.test.js`. Depends on: T014 (same file).
+- [ ] T020 [US3] Add clearer activity-type labels to the existing statement row rendering (~line 9767, `typeLabels`) — purely presentational. File: `public/index.html`. Depends on: T018 (same file).
+- [ ] T021 [US3] **(finding G1 — corrected target function; finding H4 — corrected "read-only" wording)** Wire each legacy-journal statement row's click handler to the existing **`showLedgerEntry(id)` / `#ledgerEntryModal`** pattern (public/index.html:9329-9407 / 15589). **Do NOT use `viewJournal(id)` / `#journalModal`** — a different, editable-form modal. `#ledgerEntryModal` is **not read-only**: it has its own pre-existing, already-gated Edit/Delete actions (`requirePermission('journal','edit'/'delete')`), unaffected by this feature. This task's contribution is view/navigation only. `showLedgerEntry(id)` makes no new server request. Unaffected by this round's simplification — this deep link never involved a nested modal. **Verification**: manual, via `quickstart.md` Scenario 11. File: `public/index.html`. Depends on: T020 (same file).
+- [ ] T022 [US3] Add a date-range filter control to the statement table; filters only the visible `rows` client-side, never re-fetches or recomputes `reconciliation`. Empty result: reuse the real inline empty-message convention (finding H5). **Implementation note (finding J3, informational)**: `#vndStmtPeriod` (~lines 5577-5582) is an existing, vestigial "الفترة" (period) select in this same modal header — it has exactly one option and its value is never read anywhere in `loadVendorStatement()`; it only re-triggers a reload via `onchange`. Before adding the new date-range control, inspect and either repurpose or remove `#vndStmtPeriod` so this modal does not end up with two visually adjacent, similarly-labeled period controls, one real and one dead. Do not redesign the modal beyond this; do not add a second date-filter UI. File: `public/index.html`. Depends on: T019 (test), T021 (same file).
+- [ ] T023 [US3] Add an activity-type filter control (opening/bill/credit/payment/legacy-journal) to the same table, same client-side-only approach as T022. File: `public/index.html`. Depends on: T022 (same file).
+- [ ] T024 [US3] Re-run the existing legacy-compatibility Cases A-E to confirm zero regression from the T020-T023 changes. File: `tests/p3-vendor-statement-hotfix.test.js` (run only). Depends on: T023, T006 (same file).
+
+**Checkpoint**: User Stories 1, 2, AND 3 all work independently; legacy-journal rows are display-correct and correctly clickable through to their real source-record detail view.
+
+---
+
+## Phase 6: AP Aging UX *(Phase E)* — [US4]
+
+- [ ] T025 [US4] Write test (expected to **fail** before T026): vendor-level aging totals shown in the workspace equal that vendor's row in the firm-wide `/api/ap-aging` report. File: `tests/p0-7-ap-lifecycle.test.js`. Depends on: T005 (same file).
+- [ ] T026 [US4] Add an aging-breakdown section to `#vendorStmtModal`, fetching `GET /api/ap-aging?vendorId=<id>` (T003) and rendering its `buckets`/`total` as-is — zero client-side bucket math. Label this figure **"Total AP Exposure"** (finding G6), distinct from T009's "Open Bills". Includes the reconciliation-badge styling (finding F7): reuse the existing `.kc.gr`/`.kc.re` badge pattern (~line 13278) for visual consistency only — the reconciliation value shown remains the one wired in T010. File: `public/index.html`. Depends on: T025 (test-first), T023 (same file).
+
+**Checkpoint**: User Stories 1-4 all work independently, and the two AP figures on screen are accurately, distinctly labeled and independently sourced (research.md Decision 11).
+
+---
+
+## Phase 7: Search / Filters *(Phase F)* — [US5]
+
+- [ ] T027 [US5] Write test: "outstanding only" and "overdue only" filters narrow results correctly, can be cleared, and show the real inline empty-message convention on no matches (finding H5). File: `tests/p3-vendor-ap-workspace.test.js`. Depends on: T019 (same file).
+- [ ] T028 [US5] Extend the existing `#vndBalFilt` select (~lines 3093-3106) / `renderVendors()` (~line 9613) with an explicit "outstanding only" option if not already covered. File: `public/index.html`. Depends on: T027 (test), T026 (same file).
+- [ ] T029 [US5] Add an "overdue only" toggle to the open-items list built in T015, filtering the already-derived array client-side. File: `public/index.html`. Depends on: T028 (same file).
+- [ ] T030 [US5] **(reverted per finding H1 — no shared module)** Extend the existing `#vndSearch` box (~line 9613-9668) *in place* to also match vendor **account code**, not just name — the existing inline predicate stays inline; the account-code check is a small, genuinely additive addition to the same condition, not a pure relocation (finding H7). No new module, no new search framework. **Verification**: manual, via `quickstart.md` Scenario 13. File: `public/index.html`. Depends on: T029 (same file).
+
+**Checkpoint**: All 5 user stories are independently functional.
+
+---
+
+## Phase 8: Regression / Safety *(Phase G)*
+
+- [ ] T031 [P] Write test: no vendorBill/payment/legacy-journal row is ever duplicated across the statement, open-items, and aging views for the same vendor. File: `tests/p3-vendor-ap-workspace.test.js`. Depends on: T027 (same file) and functionally on T015-T026 being complete.
+- [ ] T032 Write test: the reconciliation-mismatch warning (both summary card and statement) renders correctly against an isolated-DB fixture with a deliberate GL/statement difference, and confirm zero data mutation results from merely viewing it. File: `tests/p3-vendor-statement-hotfix.test.js`. Depends on: T024 (same file).
+- [ ] T033 [P] Write test: RBAC is unchanged for every reused/modified endpoint, including the new `?vendorId=` aging filter — a role without vendor/AP access (e.g. `receptionist`) is still denied exactly as before. File: `tests/rbac-and-audit.test.js`. Depends on: T003 (functional prerequisite only).
+- [ ] T034 Run the full regression suite (`npm test`) after every task above is complete; compare the pass count against the T001 baseline. File: `tests/` (whole suite). Depends on: all of T002-T033.
+- [ ] T035 Manually walk through `specs/001-vendor-ap-workspace/quickstart.md`'s **24** validation scenarios (10 = open-bill navigation/F5, 11 = legacy-JE deep link/G1+H4, 12 = vendor-not-found/G4, 13 = vendor search/H1, 14 = direct-open independence/I1, 15 = vendor-bills fetch-failure degradation/I1/FR-023, 16 = cross-vendor-workspace no stale bill data/J1, 17 = async request-recency guard, cross-vendor and same-vendor/AUDIT-VBWS-2, 18 = "Open Bill from Vendor Workspace" reaches the correct bill with no leftover modal, 19 = a leftover AP-tab status filter never blocks the deep link/T015-STATUS-FILTER-NOT-SYNCED, 20 = out-of-order `loadVendorBills()` resolution never wins with stale data/T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD, 21 = rapid clicks on two different bills — only the latest opens/T015-NO-REENTRANCY-GUARD, 22 = a superseded workspace request's own error never surfaces over the vendor now active/STALE-TOAST-1, 23 = a completely fresh session proves the deep link's vendor filter ends up correctly scoped without any prior AP-tab initialization/T016-VENDOR-FILTER-SYNC-RACE, 24 = the statement fetch's own failure never fabricates a zero balance or a reconciled status/STMT-FETCH-FAILURE-FABRICATES-ZERO, required this round) against isolated test data (never production or demo) and confirm each Success Criterion (SC-001 through SC-009) holds. File: `specs/001-vendor-ap-workspace/quickstart.md` (reference only). Depends on: T034.
+
+**Note on "no source/accounting mutation"**: enforced structurally — every test task uses the project's existing `DB_FILE_ONLY` + per-file temp-directory isolation pattern.
+
+---
+
+## Dependencies & Execution Order
+
+### Phase Dependencies
+
+- **Setup (Phase 1)**: No dependencies.
+- **Phase 2 (Backend/US4)**: Depends on Phase 1. Blocks Phase 6 (T026 needs T003). Test-first: T002 → T003 → T004 → T005.
+- **Phase 3 (US1)**: Depends on Phase 1 only. Includes the new vendor-bills fetch (T007, now with a generation-counter recency guard covering all **four** of its write/error branches), its failure handling (T008), and the statement fetch's own equivalent failure handling — originally added twelfth round, corrected thirteenth round to actually work and to own its 404/not-found branch directly (T011) — sitting between the reconciliation-badge wiring (T010) and two now-uniformly verification-only edge-case tasks: T012 (brand-new vendor) and T013 (vendor-not-found — retargeted thirteenth round from a code-adding task to a verification-only one, since T011 now builds that branch itself; see finding `T011-WRONG-404-TASK-REFERENCE`).
+- **Phase 4 (US2)**: Depends on Phase 3 for same-file sequencing. A 5-task phase (T014-T018): T016 adds a recency guard to the pre-existing `loadVendorBills()`, T017 is the corrected navigation-based deep link that depends on it, T018 is the next-item preview.
+- **Phase 5 (US3)**: Depends on Phase 4 for same-file sequencing; T021 correctly targets `showLedgerEntry` (finding G1), accurately described (finding H4).
+- **Phase 6 (US4 UI)**: Depends on Phase 2 (functional) and Phase 5 (same-file sequencing). Test-first: T025 → T026.
+- **Phase 7 (US5)**: Depends on Phase 6 (same-file sequencing). Single inline-enhancement task for search (T030, finding H1).
+- **Phase 8 (Regression)**: Depends on everything.
+
+### User Story Independence
+
+Unchanged in substance — each of US1-US5 remains independently implementable and testable. US1's independent test now also needs to demonstrate the statement fetch's own failure degrades safely (T011), symmetric with US1's existing vendor-bills-failure guarantee (T008). US2's independent test needs to demonstrate the navigation-based deep link is robust against a stale AP-tab filter, an out-of-order fetch, and rapid repeat clicks — no in-workspace write-refresh or nested-modal-lifecycle property is needed, but the navigation itself must be provably reliable.
+
+### Parallel Opportunities
+
+- **T002** (test, Phase 2), **T006** (test, Phase 3), and **T014** (test, Phase 4) remain mutually parallel — three different files, no dependency on any incomplete task.
+- **T031** and **T033** are both `[P]` in Phase 8 (different files).
+- No other task pair is genuinely parallel. `public/index.html` is touched by **19** sequential tasks: T007, T008, T009, T010, T011, T012, T013, T015, T016, T017, T018, T020, T021, T022, T023, T026, T028, T029, T030 (7 + 4 + 4 + 1 + 3 = 19 — one more than the prior revision's 18, since Phase 3 grew by one `public/index.html` task, T011).
+
+---
+
+## Parallel Example: Early Phase (if staffed with 2-3 people)
+
+```bash
+# Can start simultaneously — different files, no cross-dependency:
+Task: "T002 — Write failing test for the new vendorId filter (+ F6 zero-overdue case + H3 firm-wide-aggregate assertion) in tests/p0-7-ap-lifecycle.test.js"
+Task: "T006 — Write reconciliation-agreement test in tests/p3-vendor-statement-hotfix.test.js"
+Task: "T014 — Write open-items-derivation test (incl. the F1 credited-to-zero case) in tests/p3-vendor-ap-workspace.test.js"
+
+# T003 (server.js) must wait for T002. Everything in public/index.html (T007 onward) is one sequential chain.
+```
+
+---
+
+## Implementation Strategy
+
+Unchanged in substance: MVP-first via Phase 3 (US1, now including symmetric no-fabricate-zero protection for both of its fetches), then incremental delivery through Phases 4-7 (US2 a robust, navigation-based deep link with no nested-modal or write-refresh state to maintain, hardened against filter/timing/reentrancy hazards), then Phase 8's regression/safety gate, then — separately, later, and only with explicit owner approval per constitution Principle III/XII — a controlled deploy.
+
+---
+
+## Notes
+
+- **35 tasks total (T001-T035)** — unchanged since the twelfth round; the thirteenth round corrects T011/T013's content without renumbering anything.
+- Twelfth round: this revision closed findings `STMT-FETCH-FAILURE-FABRICATES-ZERO` (HIGH — a new task, T011, mirrors T008's already-proven no-fabricate-zero pattern for the statement fetch's own failure, anchored to new requirement FR-024 and new research.md Decision 13) and `STALE-TOAST-1-DOC-GAP-RESIDUAL` (MEDIUM — this file's own "Dependencies & Execution Order" section corrected from "three" to "four" guarded outcomes, matching T007's own task text and every other document). `DANGLING-COMPLETION-REPORT-CITATION` (LOW) was fixed in `plan.md`/`quickstart.md`, not in this file.
+- **Thirteenth round (control-flow correction)**: the required final gate check found the twelfth round's own T011 fix did not actually work — see the revision note near the top of this file for the full detail on `T011-CATCH-FALLTHROUGH-OVERWRITES-ERROR-STATE` (CRITICAL), `T011-404-CHECK-INSERTION-POINT-FICTIONAL` (HIGH), and `T011-WRONG-404-TASK-REFERENCE` (MEDIUM). T011 is rewritten to gate all statement-dependent rendering behind an explicit `outcome` flag and to build the 404 branch itself; T013 is retargeted to verification-only. `DATAMODEL-RECENCY-GUARD-ENUM-INCOMPLETE` (LOW) is fixed in `data-model.md`, not in this file. **No settled design area is reopened**: the simplified navigation, no nested modals, no `_vbDetailFromWorkspace`, both deep-link request-generation counters, explicit `await` sequencing, and the eleventh round's `populateVbVendorSelects()`/product-decision fixes are preserved completely unchanged — this round's only functional change is to T011/T013's statement-fetch-failure control flow, a part of `loadVendorStatement()` no other round's findings were about.
+- `VBWS-LIVE-1`/`VBWS-LIVE-2` (raised during the ninth round's fresh-perspective check) remain correctly unaddressed — they observed that no Phase 3/4 code exists yet in `public/index.html`, the correct, expected state of this artifact-only process across all twelve rounds, not a defect in the plan.
+- Every implementation task in `public/index.html` remains sequential by design.
+- Commit after each task or logical group.
+- This task list implements exactly spec.md's FRs and plan.md's architecture — no scope beyond what was approved.

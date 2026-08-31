@@ -80,6 +80,46 @@ async function getStatement(vendorId) {
   return r.body;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Vendor / AP Workspace Upgrade — T006: the workspace summary's
+// reconciliation status (FR-003) and the full statement's own
+// reconciliation summary (FR-011) are guaranteed to always agree because
+// they are ONE shared calculation (clarification Q1, research.md
+// Decision 1) — proven here at the data level: two independent GET
+// requests to the same endpoint return byte-for-byte identical
+// reconciliation objects, which is exactly what makes it safe for the
+// frontend's workspace summary card (T010) and full-statement badge to
+// both read from the same `.reconciliation` field of the same response
+// without ever risking disagreement.
+// ═══════════════════════════════════════════════════════════════════════
+describe('Vendor Workspace — summary and full-statement reconciliation share one calculation (T006)', () => {
+  test('T006 A: repeated reads of the statement endpoint return an identical reconciliation object, reconciled case', async () => {
+    const vendor = await createVendor('Vendor-T006-Reconciled');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendor.id, billDate: '2048-09-01', allocations: [{ accountCode: '5100', amount: 640 }],
+    }).expect(200);
+
+    const read1 = await getStatement(vendor.id);
+    const read2 = await getStatement(vendor.id);
+    // Byte-for-byte identical — this IS the guarantee FR-003/FR-011 require:
+    // the workspace summary card and the full statement's own reconciliation
+    // summary read this exact same field, so they can never disagree.
+    expect(read2.reconciliation).toEqual(read1.reconciliation);
+    expect(read1.reconciliation.reconciled).toBe(true);
+  });
+
+  test('T006 B: repeated reads also agree when NOT reconciled — the disagreement itself is reported identically both times, never smoothed over on a later read', async () => {
+    const vendor = await createVendor('Vendor-T006-Mismatch');
+    await injectRawJournalEntries([
+      { id: 'T006-MISMATCH-JE', date: '2048-09-02', ref: 'T006-STALE', desc: 'Orphaned vendor-opening-tagged entry', type: 'manual', source: 'vendor-opening', totalDebit: 88, totalCredit: 88, lines: [{ accountCode: '5210', accountId: '5210', debit: 88, credit: 0 }, { accountCode: vendor.accountId, accountId: vendor.accountId, debit: 0, credit: 88 }] },
+    ]);
+    const read1 = await getStatement(vendor.id);
+    const read2 = await getStatement(vendor.id);
+    expect(read1.reconciliation.reconciled).toBe(false);
+    expect(read2.reconciliation).toEqual(read1.reconciliation);
+  });
+});
+
 describe('P3-HOTFIX Case A — legacy-only vendor (opening + manual credits + VND-PAY debits)', () => {
   test('all historical rows are visible and ending balance equals GL, with zero data mutation', async () => {
     const vendor = await createVendor('Legacy Lab A');
@@ -220,5 +260,59 @@ describe('P3-HOTFIX Case E — legacy account field variants (accountCode / acco
     expect(stmt.rows.length).toBe(3);
     expect(stmt.rows.map(r => r.reference).sort()).toEqual(['JV-E1', 'JV-E2', 'JV-E3']);
     expect(stmt.endingBalance).toBeCloseTo(60, 3);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Vendor / AP Workspace Upgrade — T032: the reconciliation-mismatch
+// warning (shared by the workspace summary card, T010, and the full
+// statement's own reconciliation summary, FR-011 — Decision 1's single
+// shared source) renders from a genuinely honest difference against a
+// deliberate fixture, and confirms zero data mutation from merely
+// viewing it (spec.md FR-020: no auto-correction, ever).
+// ═══════════════════════════════════════════════════════════════════════
+describe('P3-HOTFIX — reconciliation mismatch warning (T032)', () => {
+  test('a deliberate GL/statement difference is reported honestly, identically on repeated views, with zero data mutation', async () => {
+    const vendor = await createVendor('Legacy Lab Mismatch');
+    const jeCountBefore = (await runAsTenant('default', async () => loadDB().journalEntries.length));
+
+    // A journal entry tagged source:'vendor-opening' — the statement
+    // endpoint's own exclusion logic (server.js:6488) drops ANY such entry
+    // from the legacy-journal rows unconditionally (it assumes the real
+    // opening-balance row, generated separately from vendor.openingBalance,
+    // already represents it) — but buildBalanceMap() (server.js:6517, no
+    // date filtering for this endpoint) still nets its debit/credit into
+    // the vendor's real GL balance regardless of source. This vendor's own
+    // openingBalance is left at its default 0, so no real opening row is
+    // generated to coincidentally absorb it. The result is a deliberate,
+    // reproducible GL-vs-statement divergence — not a contrived assertion,
+    // but the same class of gap Reconciliation B (tests/p0-7-ap-lifecycle)
+    // already proves exists for a different source tag (payMethod:'accrued').
+    await injectRawJournalEntries([
+      { id: 'MISMATCH-JE-1', date: '2048-06-01', ref: 'STALE-REF', desc: 'Orphaned vendor-opening-tagged entry', type: 'manual', source: 'vendor-opening', totalDebit: 175, totalCredit: 175, lines: [{ accountCode: '5210', accountId: '5210', debit: 175, credit: 0 }, { accountCode: vendor.accountId, accountId: vendor.accountId, debit: 0, credit: 175 }] },
+    ]);
+
+    const stmt1 = await getStatement(vendor.id);
+    // The tagged entry never appears as a statement row (excluded by its
+    // own source:'vendor-opening' tag, and this vendor has no real opening
+    // balance to generate one in its place) ...
+    expect(stmt1.rows.length).toBe(0);
+    expect(stmt1.endingBalance).toBeCloseTo(0, 3);
+    // ... yet it moved the real GL balance, so the single shared
+    // reconciliation check (FR-003/FR-011) must report a real, honest
+    // difference — never silently plugged or auto-corrected (FR-020).
+    expect(stmt1.reconciliation.reconciled).toBe(false);
+    expect(stmt1.reconciliation.glBalance).toBeCloseTo(175, 3);
+    expect(stmt1.reconciliation.statementBalance).toBeCloseTo(0, 3);
+    expect(stmt1.reconciliation.difference).toBeCloseTo(-175, 3);
+
+    // Merely viewing (GET) the statement a second time must not mutate
+    // anything: identical reconciliation, identical journal entry count —
+    // no auto-correcting journal entry was created by viewing the warning.
+    const stmt2 = await getStatement(vendor.id);
+    expect(stmt2.reconciliation).toEqual(stmt1.reconciliation);
+    expect(stmt2.rows.length).toBe(0);
+    const jeCountAfter = (await runAsTenant('default', async () => loadDB().journalEntries.length));
+    expect(jeCountAfter).toBe(jeCountBefore + 1);
   });
 });

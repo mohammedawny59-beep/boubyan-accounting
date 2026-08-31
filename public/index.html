@@ -5561,23 +5561,64 @@ input[type="checkbox"], input[type="radio"] { min-width:20px; min-height:20px; c
   </div>
 </div>
 
-<!-- Vendor Statement Modal -->
+<!-- Vendor / AP Workspace Modal (specs/001-vendor-ap-workspace) -->
 <div class="modal" id="vendorStmtModal">
-  <div class="mbox" style="width:750px;max-width:96vw;max-height:92vh;overflow-y:auto;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
-      <div class="mtit" id="vndStmtTitle" style="margin:0;">كشف حساب المورد</div>
-      <div style="display:flex;gap:6px;">
+  <div class="mbox" style="width:900px;max-width:96vw;max-height:92vh;overflow-y:auto;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div class="mtit" id="vndStmtTitle" style="margin:0;">كشف حساب المورد</div>
+        <div id="vndStmtContact" style="font-size:11px;color:var(--text2);margin-top:4px;display:none;"></div>
+        <div id="vndStmtRecBadge" style="margin-top:6px;"></div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         <button class="btn bs bsm" onclick="recordVendorPurchase()">🛒 تسجيل شراء</button>
         <button class="btn bw bsm" onclick="recordVendorPayment()">💰 تسجيل دفعة</button>
         <button class="btn bp bsm" onclick="window.print()">🖨️ طباعة</button>
         <button class="btn bd bsm" onclick="closeModal('vendorStmtModal')">✕</button>
       </div>
     </div>
+
+    <!-- Summary card: GL/statement balance, reconciliation (T009/T010/T011) -->
     <div class="kpi-grid" id="vndStmtKpis" style="margin-bottom:14px;"></div>
+
+    <!-- Open Bills / overdue (T007/T008/T009) -->
+    <div class="kpi-grid" id="vndBillsKpis" style="margin-bottom:8px;"></div>
+    <div class="tw" style="margin-bottom:14px;">
+      <div class="th2"><div class="tt">🎯 أقرب الفواتير المستحقة</div></div>
+      <div id="vndNextItems" style="padding:8px 12px;"></div>
+    </div>
+
+    <!-- Open items list (T015), overdue-only toggle (T029) -->
+    <div class="tw" style="margin-bottom:14px;">
+      <div class="th2" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div class="tt">الفواتير المفتوحة</div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);cursor:pointer;">
+          <input type="checkbox" id="vndOverdueOnly" onchange="renderVndOpenItems()"> متأخرة فقط
+        </label>
+      </div>
+      <table>
+        <thead><tr><th>المرجع</th><th>تاريخ الفاتورة</th><th>الاستحقاق</th><th>الأصل</th><th>مدفوع/مخصوم</th><th>المتبقي</th><th>الحالة</th></tr></thead>
+        <tbody id="vndOpenItemsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- AP aging breakdown — "Total AP Exposure" (T026) -->
+    <div class="kpi-grid" id="vndAgingKpis" style="margin-bottom:14px;"></div>
+
+    <!-- Full statement: date-range + activity-type filters (T022/T023) -->
     <div class="filter-bar" style="margin-bottom:12px;">
-      <span class="fl">📅 الفترة:</span>
-      <select class="fi" id="vndStmtPeriod" onchange="loadVendorStatement()">
-        <option value="all">كل الفترات</option>
+      <span class="fl">📅 من:</span>
+      <input class="fi" type="date" id="vndStmtDateFrom" onchange="renderVndStatementRows()" style="width:140px;">
+      <span class="fl">إلى:</span>
+      <input class="fi" type="date" id="vndStmtDateTo" onchange="renderVndStatementRows()" style="width:140px;">
+      <span class="fl">النوع:</span>
+      <select class="fi" id="vndStmtTypeFilt" onchange="renderVndStatementRows()">
+        <option value="">كل الأنواع</option>
+        <option value="opening">رصيد افتتاحي</option>
+        <option value="bill">فاتورة</option>
+        <option value="credit">إشعار دائن</option>
+        <option value="payment">دفعة</option>
+        <option value="legacy-journal">قيد تاريخي</option>
       </select>
     </div>
     <div class="tw">
@@ -9586,6 +9627,19 @@ async function deleteRecur(id) {
 
 // ===== VENDORS =====
 let currentVendorId = null;
+// Vendor / AP Workspace Upgrade (specs/001-vendor-ap-workspace) — T007:
+// workspace-local bill data, kept fully independent of the AP tab's own
+// _vbBills (research.md Decision 4, ninth-round simplification).
+let _vndWorkspaceBills = [];
+let _vndBillsOutcome = 'error';
+// T007 (finding AUDIT-VBWS-2): one request-generation counter, checked
+// immediately before every one of loadVendorStatement()'s user-visible
+// outcomes (statement success/notfound/error, vendor-bills success/error,
+// aging success/error) — discards a response if a newer call has since
+// started. See research.md Decision 4 and tasks.md T011.
+let _vndStmtReqSeq = 0;
+let _vndStmtRows = []; // last successfully-fetched statement rows, for T022/T023's client-side filters
+const VND_TYPE_LABELS = { opening:'📂 رصيد افتتاحي', bill:'🧾 فاتورة', credit:'📝 إشعار دائن', payment:'💰 دفعة', 'legacy-journal':'قيد تاريخي' };
 
 function calcVendorBalance(accountId) {
   const entries = DB.journalEntries || [];
@@ -9617,7 +9671,10 @@ function renderVendors() {
   const balFilt  = document.getElementById('vndBalFilt')?.value  || 'all';
 
   let filtered = vendors.filter(v => {
-    if (search   && !v.name.toLowerCase().includes(search)) return false;
+    // T030 (finding H1): also match account code, not just name — a small,
+    // genuinely additive addition to the same inline predicate, reverted
+    // from an earlier shared-module extraction (no new file/framework).
+    if (search && !v.name.toLowerCase().includes(search) && !String(v.accountId||'').toLowerCase().includes(search)) return false;
     if (typeFilt !== 'all' && v.type !== typeFilt) return false;
     return true;
   });
@@ -9750,43 +9807,243 @@ function openVendorStatement(vendorId) {
 // (direction:'credit' increases what's owed, 'debit' decreases it) —
 // mapped below onto the same debit/credit visual columns this modal
 // already had, so no other part of the modal needs to change.
+//
+// Vendor / AP Workspace Upgrade (specs/001-vendor-ap-workspace, T007/T011):
+// this function now performs three independent fetches (statement,
+// vendor-bills, aging) under one shared request-generation counter,
+// _vndStmtReqSeq. Each fetch resolves to its own outcome and renders its
+// own section; none fabricates a fabricated-zero/confirmed result on
+// failure (FR-023/FR-024), and none blocks the others from rendering.
 async function loadVendorStatement() {
+  const seq = ++_vndStmtReqSeq;
   const v = (DB.vendors||[]).find(v => v.id === currentVendorId);
   if (!v) return;
   document.getElementById('vndStmtTitle').textContent   = `📋 كشف حساب: ${v.name}`;
   document.getElementById('vndStmtAccName').textContent = `${v.accountId} — ${v.name}`;
+  const contactEl = document.getElementById('vndStmtContact');
+  if (contactEl) {
+    const bits = [];
+    if (v.phone)   bits.push(`📞 ${escHtml(v.phone)}`);
+    if (v.email)   bits.push(`✉️ ${escHtml(v.email)}`);
+    if (v.address) bits.push(`📍 ${escHtml(v.address)}`);
+    contactEl.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+    contactEl.style.display = bits.length ? '' : 'none';
+  }
+  // Reset the statement's own date-range/type filters and the open-items
+  // overdue-only toggle on every open/reopen — a leftover filter from a
+  // previously-viewed vendor must never silently hide a newly-opened
+  // vendor's own activity.
+  const dFrom = document.getElementById('vndStmtDateFrom'); if (dFrom) dFrom.value = '';
+  const dTo   = document.getElementById('vndStmtDateTo');   if (dTo)   dTo.value = '';
+  const tFilt = document.getElementById('vndStmtTypeFilt'); if (tFilt) tFilt.value = '';
+  const odOnly = document.getElementById('vndOverdueOnly'); if (odOnly) odOnly.checked = false;
+
+  // ---- Statement / reconciliation fetch (T011) ----------------------
   let d = {};
+  let outcome = 'error'; // 'success' | 'notfound' | 'error' — starts pessimistic
   try {
     const r = await fetch(`/api/vendors/${v.id}/statement`);
-    d = await r.json().catch(()=>({}));
-  } catch { showToast('خطأ في الاتصال — تعذّر تحميل كشف الحساب', 'error'); }
-  const rows = (d && d.rows) || [];
-  // P3-HOTFIX: 'legacy-journal' — a direct journalEntries[] posting against
-  // this vendor's account predating (or bypassing) the vendorBills
-  // subledger. Labeled distinctly so it's never mistaken for a real bill.
-  const typeLabels = { opening:'رصيد افتتاحي', bill:'فاتورة', credit:'إشعار دائن', payment:'دفعة', 'legacy-journal':'قيد تاريخي' };
-  const totalBills = rows.filter(x=>x.direction==='credit').reduce((s,x)=>s+(x.amount||0),0);
-  const totalPaid  = rows.filter(x=>x.direction==='debit').reduce((s,x)=>s+(x.amount||0),0);
-  const balance = d.endingBalance || 0;
-  const rec = d.reconciliation || null;
+    if (r.status === 404) {
+      outcome = 'notfound';
+    } else if (!r.ok) {
+      throw new Error('statement fetch failed: ' + r.status);
+    } else {
+      const parsed = await r.json().catch(() => null);
+      if (!parsed || !Array.isArray(parsed.rows) || typeof parsed.endingBalance !== 'number') {
+        throw new Error('statement response malformed');
+      }
+      d = parsed;
+      outcome = 'success';
+    }
+  } catch {
+    outcome = 'error';
+  }
+  if (seq !== _vndStmtReqSeq) return;
 
-  document.getElementById('vndStmtKpis').innerHTML = `
-    <div class="kc re"><div class="kl">الرصيد المستحق</div><div class="kv" style="color:${balance>0?'var(--danger)':'var(--accent2)'};">${balance.fmt()}</div><div class="ks">د.ك</div></div>
-    <div class="kc bl"><div class="kl">إجمالي الفواتير</div><div class="kv">${totalBills.fmt()}</div><div class="ks">د.ك</div></div>
-    <div class="kc gr"><div class="kl">إجمالي المدفوع/المخصوم</div><div class="kv">${totalPaid.fmt()}</div><div class="ks">د.ك</div></div>
-    <div class="kc ye"><div class="kl">عدد الحركات</div><div class="kv">${rows.length}</div><div class="ks">حركة</div></div>`
-    + (rec && !rec.reconciled ? `<div style="grid-column:1/-1;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:8px 12px;font-size:11px;color:var(--danger);margin-top:8px;">⚠️ الكشف لا يطابق رصيد دفتر الأستاذ (فرق ${rec.difference.toFixed(3)} د.ك) — راجع الحسابات المحاسبية.</div>` : '');
+  const recBadgeEl = document.getElementById('vndStmtRecBadge');
+  if (outcome === 'notfound') {
+    document.getElementById('vndStmtKpis').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text3);padding:20px;">هذا المورد غير موجود</div>`;
+    _vndStmtRows = [];
+    document.getElementById('vndStmtBody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">هذا المورد غير موجود</td></tr>';
+    if (recBadgeEl) recBadgeEl.innerHTML = '';
+  } else if (outcome === 'error') {
+    document.getElementById('vndStmtKpis').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--danger);padding:20px;">⚠️ تعذّر تحميل كشف الحساب — حاول مرة أخرى</div>`;
+    _vndStmtRows = [];
+    document.getElementById('vndStmtBody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--danger);padding:20px;">⚠️ تعذّر تحميل بيانات الحركات</td></tr>';
+    if (recBadgeEl) recBadgeEl.innerHTML = '';
+    showToast('خطأ في الاتصال — تعذّر تحميل كشف الحساب', 'error');
+  } else {
+    // outcome === 'success'
+    const rows = (d && d.rows) || [];
+    const totalBills = rows.filter(x=>x.direction==='credit').reduce((s,x)=>s+(x.amount||0),0);
+    const totalPaid  = rows.filter(x=>x.direction==='debit').reduce((s,x)=>s+(x.amount||0),0);
+    const balance = d.endingBalance || 0;
+    const rec = d.reconciliation || null;
+
+    document.getElementById('vndStmtKpis').innerHTML = `
+      <div class="kc re"><div class="kl">الرصيد المستحق</div><div class="kv" style="color:${balance>0?'var(--danger)':'var(--accent2)'};">${balance.fmt()}</div><div class="ks">د.ك</div></div>
+      <div class="kc bl"><div class="kl">إجمالي الفواتير</div><div class="kv">${totalBills.fmt()}</div><div class="ks">د.ك</div></div>
+      <div class="kc gr"><div class="kl">إجمالي المدفوع/المخصوم</div><div class="kv">${totalPaid.fmt()}</div><div class="ks">د.ك</div></div>
+      <div class="kc ye"><div class="kl">عدد الحركات</div><div class="kv">${rows.length}</div><div class="ks">حركة</div></div>`
+      + (rec && !rec.reconciled ? `<div style="grid-column:1/-1;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:8px 12px;font-size:11px;color:var(--danger);margin-top:8px;">⚠️ الكشف لا يطابق رصيد دفتر الأستاذ (فرق ${rec.difference.toFixed(3)} د.ك) — راجع الحسابات المحاسبية.</div>` : '');
+
+    if (recBadgeEl) {
+      recBadgeEl.innerHTML = rec
+        ? `<span class="lem-badge ${rec.reconciled?'balanced':'unbalanced'}">${rec.reconciled?'✅ مطابق لدفتر الأستاذ':'⚠️ غير مطابق — فرق '+rec.difference.toFixed(3)+' د.ك'}</span>`
+        : '';
+    }
+
+    _vndStmtRows = rows;
+    renderVndStatementRows();
+  }
+
+  // ---- Vendor-bills fetch (T007/T008) — independent of the statement
+  // outcome above; always runs, regardless of which branch fired. -----
+  let vbOutcome = 'error';
+  try {
+    const r2 = await fetch(`/api/vendor-bills?vendorId=${encodeURIComponent(v.id)}`);
+    const parsed2 = await r2.json().catch(() => null);
+    if (!r2.ok || !Array.isArray(parsed2)) throw new Error('vendor-bills fetch failed');
+    _vndWorkspaceBills = parsed2;
+    vbOutcome = 'success';
+  } catch {
+    vbOutcome = 'error';
+    _vndWorkspaceBills = [];
+  }
+  if (seq !== _vndStmtReqSeq) return;
+  if (vbOutcome === 'error') showToast('خطأ في الاتصال — تعذّر تحميل فواتير الموردين', 'error');
+  renderVndBillsSection(vbOutcome);
+
+  // ---- AP aging fetch (T026) — likewise independent. ------------------
+  let agOutcome = 'error', agRow = null;
+  try {
+    const r3 = await fetch(`/api/ap-aging?vendorId=${encodeURIComponent(v.id)}`);
+    const parsed3 = await r3.json().catch(() => null);
+    if (!r3.ok || !parsed3 || !Array.isArray(parsed3.rows)) throw new Error('aging fetch failed');
+    agRow = parsed3.rows[0] || null;
+    agOutcome = 'success';
+  } catch {
+    agOutcome = 'error';
+  }
+  if (seq !== _vndStmtReqSeq) return;
+  renderVndAgingSection(agOutcome, agRow);
+}
+
+// T022/T023 — client-side date-range + activity-type filters over the
+// already-fetched _vndStmtRows; never re-fetches, never recomputes
+// reconciliation (clarification Q2, spec.md FR-015). T021 — each
+// legacy-journal row deep-links to the existing showLedgerEntry(id)/
+// #ledgerEntryModal (finding G1/H4), unaffected by these filters.
+function renderVndStatementRows() {
+  const from = document.getElementById('vndStmtDateFrom')?.value || '';
+  const to   = document.getElementById('vndStmtDateTo')?.value   || '';
+  const typeFilt = document.getElementById('vndStmtTypeFilt')?.value || '';
+  let rows = _vndStmtRows || [];
+  if (from) rows = rows.filter(x => (x.date||'') >= from);
+  if (to)   rows = rows.filter(x => (x.date||'') <= to);
+  if (typeFilt) rows = rows.filter(x => x.type === typeFilt);
+  const filterActive = !!(from || to || typeFilt);
 
   document.getElementById('vndStmtBody').innerHTML = rows.length ?
-    rows.map(x=>`<tr${x.type==='legacy-journal'?' style="background:rgba(148,163,184,.06);"':''}>
+    rows.map(x=>`<tr${x.type==='legacy-journal'?` style="background:rgba(148,163,184,.06);cursor:pointer;" onclick="showLedgerEntry('${x.journalEntryId||x.sourceId}')"`:''}>
       <td>${x.date}</td>
       <td style="font-family:monospace;font-size:10px;">${x.reference||'-'}</td>
-      <td>${x.type==='legacy-journal'?'<span style="color:var(--text3);">🕘 ':''}${typeLabels[x.type]||x.type}${x.type==='legacy-journal'?'</span>':''} — ${escHtml(x.description||'')}</td>
+      <td>${x.type==='legacy-journal'?'<span style="color:var(--text3);">🕘 ':''}${VND_TYPE_LABELS[x.type]||x.type}${x.type==='legacy-journal'?'</span>':''} — ${escHtml(x.description||'')}</td>
       <td class="num neg">${x.direction==='debit'?(x.amount||0).fmt():''}</td>
       <td class="num pos">${x.direction==='credit'?(x.amount||0).fmt():''}</td>
       <td class="num ${x.runningBalance>0?'neg':'pos'}" style="font-weight:600;">${(x.runningBalance||0).fmt()}</td>
     </tr>`).join('') :
-    '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">لا توجد حركات لهذا المورد</td></tr>';
+    `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">${filterActive ? 'لا توجد حركات ضمن هذا النطاق' : 'لا توجد حركات لهذا المورد'}</td></tr>`;
+}
+
+// T007/T008/T009/T015/T018/T029 — Open Bills total, overdue amount, the
+// next/current open-item preview (FR-005), and the full open-items list
+// (FR-006/FR-007, finding F1 filter), all derived from _vndWorkspaceBills.
+// Never fabricates a 0/empty result on failure (FR-023) — vbOutcome
+// captures the vendor-bills fetch's own outcome, kept independent of the
+// statement fetch's outcome above.
+function renderVndBillsSection(vbOutcome) {
+  _vndBillsOutcome = vbOutcome;
+  const today = new Date().toISOString().slice(0,10);
+  if (vbOutcome !== 'success') {
+    document.getElementById('vndBillsKpis').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--danger);padding:20px;">⚠️ تعذّر تحميل بيانات الفواتير المفتوحة</div>`;
+    document.getElementById('vndNextItems').innerHTML = `<div style="text-align:center;color:var(--danger);padding:12px;">⚠️ تعذّر التحميل</div>`;
+    renderVndOpenItems();
+    return;
+  }
+  // finding F1: status !== CANCELLED && status !== PAID && outstandingAmount > 0.001 —
+  // together, not status alone (a bill fully offset via credits alone never
+  // transitions to PAID; see research.md Decision 4 / data-model.md).
+  const openItems = _vndWorkspaceBills.filter(b => b.status !== 'CANCELLED' && b.status !== 'PAID' && (b.outstandingAmount||0) > 0.001);
+  const overdueItems = openItems.filter(b => b.dueDate && b.dueDate < today);
+  const openTotal = openItems.reduce((s,b) => s + (b.outstandingAmount||0), 0);
+  const overdueTotal = overdueItems.reduce((s,b) => s + (b.outstandingAmount||0), 0);
+
+  document.getElementById('vndBillsKpis').innerHTML = `
+    <div class="kc bl"><div class="kl">الفواتير المفتوحة (Open Bills)</div><div class="kv">${openTotal.fmt()}</div><div class="ks">د.ك</div></div>
+    <div class="kc re"><div class="kl">متأخر السداد</div><div class="kv">${overdueTotal.fmt()}</div><div class="ks">د.ك</div></div>
+    <div class="kc ye"><div class="kl">عدد الفواتير المفتوحة</div><div class="kv">${openItems.length}</div><div class="ks">فاتورة</div></div>`;
+
+  const preview = [...openItems].sort((a,b) => String(a.dueDate||'9999-99-99').localeCompare(String(b.dueDate||'9999-99-99'))).slice(0,3);
+  document.getElementById('vndNextItems').innerHTML = preview.length
+    ? preview.map(b => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12px;cursor:pointer;" onclick="openVendorBillFromWorkspace('${b.id}')">
+        <span>${escHtml(b.number||b.id)} — استحقاق ${b.dueDate||'-'}${b.dueDate && b.dueDate < today ? ' ⚠️' : ''}</span>
+        <span style="font-weight:700;font-family:monospace;color:${b.dueDate && b.dueDate < today ? 'var(--danger)' : 'var(--text)'};">${(b.outstandingAmount||0).fmt()} د.ك</span>
+      </div>`).join('')
+    : '<div style="text-align:center;color:var(--text3);padding:12px;">لا توجد فواتير مفتوحة</div>';
+
+  renderVndOpenItems();
+}
+
+// T015 (open-items list) / T029 ("overdue only" toggle, client-side,
+// no re-fetch) — pure render, reads _vndWorkspaceBills + the checkbox's
+// current state; called both after a fresh fetch and on toggle change.
+function renderVndOpenItems() {
+  const tbody = document.getElementById('vndOpenItemsBody');
+  if (!tbody) return;
+  if (_vndBillsOutcome !== 'success') {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--danger);padding:20px;">⚠️ تعذّر تحميل الفواتير المفتوحة</td></tr>`;
+    return;
+  }
+  const today = new Date().toISOString().slice(0,10);
+  const overdueOnly = document.getElementById('vndOverdueOnly')?.checked;
+  let items = _vndWorkspaceBills.filter(b => b.status !== 'CANCELLED' && b.status !== 'PAID' && (b.outstandingAmount||0) > 0.001);
+  if (overdueOnly) items = items.filter(b => b.dueDate && b.dueDate < today);
+  const stMap = { POSTED:['bb','مرحّلة'], PARTIALLY_PAID:['by','مسددة جزئياً'] };
+  tbody.innerHTML = items.length ? items.map(b => {
+    const overdue = b.dueDate && b.dueDate < today;
+    const [cls,lbl] = stMap[b.status] || ['bb', b.status];
+    return `<tr style="cursor:pointer;" onclick="openVendorBillFromWorkspace('${b.id}')">
+      <td>${escHtml(b.number||b.id)}</td>
+      <td>${b.billDate||'-'}</td>
+      <td style="${overdue?'color:var(--danger);font-weight:700;':''}">${b.dueDate||'-'}${overdue?' ⚠️':''}</td>
+      <td class="num">${(b.grossAmount||0).fmt()}</td>
+      <td class="num">${((b.paidAmount||0)+(b.creditedAmount||0)).fmt()}</td>
+      <td class="num" style="font-weight:700;">${(b.outstandingAmount||0).fmt()}</td>
+      <td><span class="badge ${cls}">${lbl}</span></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">${overdueOnly ? 'لا توجد فواتير متأخرة' : 'لا توجد فواتير مفتوحة'}</td></tr>`;
+}
+
+// T026 — vendor-scoped AP aging (GET /api/ap-aging?vendorId=, T003),
+// rendering buckets/total as-is, zero client-side bucket math. Labeled
+// "Total AP Exposure" (finding G6), distinct from T009's "Open Bills" —
+// a legitimately broader, differently-scoped figure (research.md
+// Decision 8/11), never forced to agree.
+function renderVndAgingSection(agOutcome, agRow) {
+  const el = document.getElementById('vndAgingKpis');
+  if (!el) return;
+  if (agOutcome !== 'success') {
+    el.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--danger);padding:20px;">⚠️ تعذّر تحميل تقادم الذمم</div>`;
+    return;
+  }
+  const buckets = agRow ? agRow.buckets : { current:0, days30:0, days60:0, over90:0 };
+  const total = agRow ? agRow.total : 0;
+  el.innerHTML = `
+    <div class="kc gr"><div class="kl">إجمالي التعرض (Total AP Exposure)</div><div class="kv">${total.fmt()}</div><div class="ks">د.ك</div></div>
+    <div class="kc bl"><div class="kl">0-30 يوم</div><div class="kv">${(buckets.current||0).fmt()}</div><div class="ks">د.ك</div></div>
+    <div class="kc ye"><div class="kl">31-60 يوم</div><div class="kv">${(buckets.days30||0).fmt()}</div><div class="ks">د.ك</div></div>
+    <div class="kc re"><div class="kl">+60 يوم</div><div class="kv">${((buckets.days60||0)+(buckets.over90||0)).fmt()}</div><div class="ks">د.ك</div></div>`;
 }
 
 // R2: these buttons used to open vendorPayModal/vendorPurchaseModal, which
@@ -9805,6 +10062,37 @@ function recordVendorPayment() {
   showTab('vendorbills', document.querySelector('[onclick*="showTab(\'vendorbills\'"]'));
   const filt = document.getElementById('vbVendorFilt');
   if (filt) { setTimeout(() => { filt.value = currentVendorId; loadVendorBills(); }, 150); }
+}
+
+// T017 (US2, FR-008) — clicking an open item in the vendor workspace closes
+// the workspace and navigates to the existing "Vendor Bills (AP)" tab,
+// reusing its completely unmodified openVbDetail(id) there — no nested
+// modal, no new write path, no new permissions (research.md Decision 3/4).
+let _vndDeepLinkSeq = 0;
+async function openVendorBillFromWorkspace(id) {
+  const seq = ++_vndDeepLinkSeq;
+  closeModal('vendorStmtModal');
+  // Populate the vendor filter's real <option>s first (finding
+  // T016-VENDOR-FILTER-SYNC-RACE) — under this feature's own primary
+  // use case (opening a vendor's workspace directly), #vbVendorFilt
+  // otherwise still holds only its single static empty option.
+  populateVbVendorSelects();
+  const filt = document.getElementById('vbVendorFilt');
+  if (filt) filt.value = currentVendorId;
+  // Reset the status filter to neutral (finding T015-STATUS-FILTER-NOT-SYNCED)
+  // — an open item is by definition never PAID/CANCELLED, so a leftover
+  // status filter could otherwise silently exclude it. Both filters are
+  // set before showTab(), not after (finding
+  // T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD) — this is an explicit
+  // product decision (finding T016-FILTER-RESET-UNDOCUMENTED-UX-SIDEEFFECT,
+  // spec.md Assumptions), not an accidental side effect: no capture/restore
+  // of the AP tab's prior filter state is added.
+  const stFilt = document.getElementById('vbStatusFilt');
+  if (stFilt) stFilt.value = '';
+  showTab('vendorbills', document.querySelector('[onclick*="showTab(\'vendorbills\'"]'));
+  await loadVendorBills();
+  if (seq !== _vndDeepLinkSeq) return;
+  openVbDetail(id);
 }
 
 // ---- VENDOR PURCHASE (فاتورة/شراء من مورد) ----
@@ -13463,16 +13751,29 @@ function populateVbVendorSelects() {
   const vbFilt = document.getElementById('vbVendorFilt'); if (vbFilt) { const cur=vbFilt.value; vbFilt.innerHTML = filtOpts; vbFilt.value = cur; }
 }
 
+// T016 (finding T015-DOUBLE-LOADVENDORBILLS-NO-RECENCY-GUARD): a minimal
+// request-generation counter — whichever of two overlapping calls to this
+// function was started *later* always wins, regardless of which one's
+// network response arrives first. Needed because openVendorBillFromWorkspace
+// (below) and showTab()'s own internal dispatch (~line 6149) can both call
+// this function in quick succession. See research.md Decision 4.
+let _vbBillsReqSeq = 0;
 async function loadVendorBills() {
+  const seq = ++_vbBillsReqSeq;
   populateVbVendorSelects();
   const vendorId = document.getElementById('vbVendorFilt')?.value || '';
   const status = document.getElementById('vbStatusFilt')?.value || '';
   const qs = new URLSearchParams(); if (vendorId) qs.set('vendorId', vendorId); if (status) qs.set('status', status);
   try {
     const r = await fetch(`/api/vendor-bills${qs.toString()?'?'+qs.toString():''}`);
-    _vbBills = await r.json().catch(()=>[]);
-    if (!Array.isArray(_vbBills)) _vbBills = [];
-  } catch { showToast('خطأ في الاتصال — تعذّر تحميل فواتير الموردين', 'error'); _vbBills = []; }
+    const data = await r.json().catch(()=>[]);
+    if (seq !== _vbBillsReqSeq) return;
+    _vbBills = Array.isArray(data) ? data : [];
+  } catch {
+    if (seq !== _vbBillsReqSeq) return;
+    showToast('خطأ في الاتصال — تعذّر تحميل فواتير الموردين', 'error'); _vbBills = [];
+  }
+  if (seq !== _vbBillsReqSeq) return;
   renderVendorBills();
 }
 

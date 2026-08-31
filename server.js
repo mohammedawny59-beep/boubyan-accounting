@@ -8820,7 +8820,15 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
       : 'فرق حقيقي غير مُرقَّع: على الأرجح مصروف واحد أو أكثر بطريقة دفع "آجل" (payMethod: accrued) رُحِّل عبر POST /api/expenses مباشرة (خارج دورة حياة accruedExpenses[])، أو ترحيل يدوي مباشر لحساب مورد لم يمرّ عبر /api/vendor-bills — راجع GET /api/reports/ledger-diagnostic لتحديد المصدر.',
   };
 
-  res.json({ asOf: asOfStr, rows, grandTotal: subledgerTotal, reconciliation });
+  // Vendor / AP Workspace Upgrade — optional ?vendorId= filter (additive,
+  // opt-in; omitting it reproduces the response above byte-for-byte).
+  // rows/subledgerTotal/reconciliation above are already fully computed
+  // from the unfiltered set; only this response-only variable is scoped.
+  const matchedVendor = req.query.vendorId ? db.vendors.find(v => v.id === req.query.vendorId) : null;
+  const vendorName = matchedVendor ? matchedVendor.name : null;
+  const responseRows = req.query.vendorId ? rows.filter(r => r.vendor === vendorName) : rows;
+
+  res.json({ asOf: asOfStr, rows: responseRows, grandTotal: subledgerTotal, reconciliation });
 });
 
 // ═══════════════════════════════════════════════════

@@ -39,6 +39,7 @@ function buildInitialDB() {
       { id: 'usr-admin',   username: 'admin',       email: 'admin@test.com',   passwordHash: hash('AdminPass1!'),   role: 'admin',      fullName: 'مدير النظام',  active: true, createdAt: nowIso(), lastLogin: null },
       { id: 'usr-acct',    username: 'accountant1',  email: 'acct@test.com',    passwordHash: hash('AcctPass1!'),    role: 'accountant', fullName: 'محاسب',        active: true, createdAt: nowIso(), lastLogin: null },
       { id: 'usr-view',    username: 'viewer1',      email: 'view@test.com',    passwordHash: hash('ViewPass1!'),    role: 'viewer',      fullName: 'مشاهد',        active: true, createdAt: nowIso(), lastLogin: null },
+      { id: 'usr-recep',   username: 'receptionist1',email: 'recep@test.com',   passwordHash: hash('RecepPass1!'),   role: 'receptionist', fullName: 'استقبال',      active: true, createdAt: nowIso(), lastLogin: null },
       { id: 'usr-demote',  username: 'demoteme',     email: 'demote@test.com',  passwordHash: hash('DemotePass1!'),  role: 'admin',       fullName: 'يُخفَّض لاحقاً', active: true, createdAt: nowIso(), lastLogin: null },
       { id: 'usr-disable', username: 'disableme',    email: 'disable@test.com', passwordHash: hash('DisablePass1!'), role: 'admin',       fullName: 'يُعطَّل لاحقاً', active: true, createdAt: nowIso(), lastLogin: null },
     ],
@@ -85,6 +86,7 @@ beforeAll(async () => {
     ['admin', 'admin', 'AdminPass1!'],
     ['accountant', 'accountant1', 'AcctPass1!'],
     ['viewer', 'viewer1', 'ViewPass1!'],
+    ['receptionist', 'receptionist1', 'RecepPass1!'],
     ['demote', 'demoteme', 'DemotePass1!'],
     ['disable', 'disableme', 'DisablePass1!'],
   ]) {
@@ -346,5 +348,44 @@ describe('P0.4 — Audit Tests A–J (financial & security audit trail)', () => 
     const tenantAIds = new Set(res.body.logs.map(e => e.id));
     for (const entry of tenantBLog) expect(tenantAIds.has(entry.id)).toBe(false);
     for (const entry of defaultLog) expect(tenantAIds.has(entry.id)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Vendor / AP Workspace Upgrade — T033: RBAC is unchanged for every
+// reused/modified endpoint this feature touches, including the new
+// ?vendorId= aging filter (spec.md FR-022 — no new, narrower permission
+// tier; no expanded visibility for any role beyond what it already had).
+// ═══════════════════════════════════════════════════════════════════════
+describe('Vendor Workspace — RBAC unchanged (T033)', () => {
+  test('T033 A: a role without vendors:view (receptionist) is denied the vendor statement endpoint, exactly as before this feature', async () => {
+    const res = await auth(request(app).get('/api/vendors/some-id/statement'), 'receptionist');
+    expect(res.status).toBe(403);
+  });
+
+  test('T033 B: a role without vendors:view (receptionist) is denied the vendor-bills list endpoint this feature\'s workspace fetches from, exactly as before', async () => {
+    const res = await auth(request(app).get('/api/vendor-bills'), 'receptionist');
+    expect(res.status).toBe(403);
+  });
+
+  test('T033 C: a role without financials:view (receptionist) is denied the new ?vendorId= aging filter exactly as it was already denied the unfiltered endpoint — this feature introduces no new permission surface', async () => {
+    const unfiltered = await auth(request(app).get('/api/ap-aging'), 'receptionist');
+    expect(unfiltered.status).toBe(403);
+    const filtered = await auth(request(app).get('/api/ap-aging').query({ vendorId: 'some-id' }), 'receptionist');
+    expect(filtered.status).toBe(403);
+  });
+
+  test('T033 D: a role that already has vendors:view (accountant) is still allowed the vendor statement endpoint, for a real vendor, unaffected by this feature', async () => {
+    const create = await auth(request(app).post('/api/vendors'), 'admin').send({ name: 'Vendor-RBAC-T033', phone: '000' });
+    expect(create.status).toBe(200);
+    const res = await auth(request(app).get(`/api/vendors/${create.body.vendor.id}/statement`), 'accountant');
+    expect(res.status).toBe(200);
+  });
+
+  test('T033 E: a role that already has financials:view (viewer) is still allowed both the unfiltered and the new ?vendorId=-filtered aging endpoint, unaffected by this feature', async () => {
+    const unfiltered = await auth(request(app).get('/api/ap-aging'), 'viewer');
+    expect(unfiltered.status).toBe(200);
+    const filtered = await auth(request(app).get('/api/ap-aging').query({ vendorId: 'ven-does-not-exist' }), 'viewer');
+    expect(filtered.status).toBe(200);
   });
 });

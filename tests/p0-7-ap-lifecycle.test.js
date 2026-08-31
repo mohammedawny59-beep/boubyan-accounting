@@ -535,6 +535,114 @@ describe('P0.7 — AP Reconciliation: subledger vs GL, honest not forced', () =>
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Vendor / AP Workspace Upgrade — GET /api/ap-aging?vendorId= filter
+// (T002/T004/T005 — additive, backward-compatible; see
+// specs/001-vendor-ap-workspace/contracts/vendor-ap-workspace-api.md)
+// Positioned after Reconciliation A/B deliberately: this shared-tenant
+// file's AP-aging endpoint counts every currently-outstanding vendor
+// bill regardless of its billDate vs. the query's asOf (a pre-existing,
+// out-of-scope characteristic of GET /api/ap-aging, unrelated to and
+// unchanged by this filter), while GL balances ARE asOf-filtered via
+// buildBalanceMap() — so a bill dated after an earlier test's own asOf
+// would otherwise inflate that earlier test's subledgerTotal without a
+// matching glTotal change and break its reconciled:true assertion.
+// Running after Reconciliation A/B (whose own asOf values are 2049-02-10
+// / 2049-02-15) with this block's bills dated in 2049-03 avoids that
+// collision entirely, without touching Reconciliation A/B's own dates
+// or this block's.
+// ═══════════════════════════════════════════════════════════════════════
+describe('Vendor Workspace — AP Aging vendorId filter', () => {
+  test('Filter A: ?vendorId= returns a single row identical to the corresponding row in the unfiltered response', async () => {
+    const vendor = await createVendor('Vendor-AgingFilter-A');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendor.id, billDate: '2049-03-01', dueDate: '2049-03-01', allocations: [{ accountCode: '5100', amount: 444 }],
+    }).expect(200);
+
+    const unfiltered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10' });
+    const expectedRow = unfiltered.body.rows.find(r => r.vendor === 'Vendor-AgingFilter-A');
+    expect(expectedRow).toBeTruthy();
+
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10', vendorId: vendor.id });
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.rows.length).toBe(1);
+    expect(filtered.body.rows[0]).toEqual(expectedRow);
+  });
+
+  test('Filter A (finding F6): a vendor with outstanding AP but zero overdue bills — current bucket equals the full outstanding total, overdue buckets zero', async () => {
+    const vendor = await createVendor('Vendor-AgingFilter-F6');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendor.id, billDate: '2049-03-05', dueDate: '2049-03-05', allocations: [{ accountCode: '5100', amount: 250 }],
+    }).expect(200);
+
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10', vendorId: vendor.id });
+    const row = filtered.body.rows[0];
+    expect(row.buckets.current).toBeCloseTo(250, 3);
+    expect(row.buckets.days30).toBe(0);
+    expect(row.buckets.days60).toBe(0);
+    expect(row.buckets.over90).toBe(0);
+  });
+
+  test('Filter A (finding H3): grandTotal and reconciliation stay firm-wide under the vendorId filter, for the same asOf date', async () => {
+    const vendor = await createVendor('Vendor-AgingFilter-H3');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendor.id, billDate: '2049-03-06', dueDate: '2049-03-06', allocations: [{ accountCode: '5100', amount: 99 }],
+    }).expect(200);
+
+    const unfiltered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10' });
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10', vendorId: vendor.id });
+
+    expect(filtered.body.grandTotal).toBeCloseTo(unfiltered.body.grandTotal, 3);
+    expect(filtered.body.reconciliation).toEqual(unfiltered.body.reconciliation);
+  });
+
+  test('Regression (T004): omitting vendorId still returns every vendor\'s row, unfiltered, with the same response shape as before', async () => {
+    const vendorX = await createVendor('Vendor-AgingFilter-RegX');
+    const vendorY = await createVendor('Vendor-AgingFilter-RegY');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendorX.id, billDate: '2049-03-07', dueDate: '2049-03-07', allocations: [{ accountCode: '5100', amount: 60 }],
+    }).expect(200);
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendorY.id, billDate: '2049-03-07', dueDate: '2049-03-07', allocations: [{ accountCode: '5100', amount: 70 }],
+    }).expect(200);
+
+    const unfiltered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10' });
+    expect(unfiltered.status).toBe(200);
+    expect(unfiltered.body.rows.some(r => r.vendor === 'Vendor-AgingFilter-RegX')).toBe(true);
+    expect(unfiltered.body.rows.some(r => r.vendor === 'Vendor-AgingFilter-RegY')).toBe(true);
+    expect(Object.keys(unfiltered.body).sort()).toEqual(['asOf', 'grandTotal', 'reconciliation', 'rows'].sort());
+  });
+
+  test('Filter B (T005): an unknown vendorId returns a safe, empty, non-erroring result', async () => {
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10', vendorId: 'ven-does-not-exist' });
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.rows).toEqual([]);
+  });
+
+  test('Filter B (T005): a vendorId with no AP activity at all returns a safe, empty, non-erroring result', async () => {
+    const vendor = await createVendor('Vendor-AgingFilter-NoActivity');
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10', vendorId: vendor.id });
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.rows).toEqual([]);
+  });
+
+  test('T025: vendor-level aging totals shown in the workspace equal that vendor\'s row in the firm-wide AP aging report', async () => {
+    const vendor = await createVendor('Vendor-AgingFilter-T025');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendor.id, billDate: '2049-03-08', dueDate: '2049-03-08', allocations: [{ accountCode: '5100', amount: 333 }],
+    }).expect(200);
+
+    const firmWide = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10' });
+    const firmWideRow = firmWide.body.rows.find(r => r.vendor === 'Vendor-AgingFilter-T025');
+    const workspace = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-03-10', vendorId: vendor.id });
+    // T026's workspace aging section renders workspace.body.rows[0] as-is —
+    // this must be byte-for-byte the same row the firm-wide report shows.
+    expect(workspace.body.rows[0]).toEqual(firmWideRow);
+    expect(workspace.body.rows[0].total).toBeCloseTo(333, 3);
+    expect(workspace.body.rows[0].buckets).toEqual(firmWideRow.buckets);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // RBAC A-B / Audit A-B / Tenant A
 // ═══════════════════════════════════════════════════════════════════════
 describe('P0.7 — RBAC, Audit, Tenant Isolation', () => {
