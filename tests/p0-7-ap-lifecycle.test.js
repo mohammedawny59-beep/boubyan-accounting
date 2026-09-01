@@ -743,6 +743,94 @@ describe('Vendor Workspace — AP Aging vendorId filter', () => {
     expect(row.ambiguousAmountExcluded).toBeUndefined();
   });
 
+  // Owner-review remediation ROUND 3 (finding
+  // ACCRUED-DESCRIPTION-MISATTRIBUTION, CRITICAL — surfaced by an
+  // independent regression sweep of round 2, outside round 2's own AREA7-1
+  // A/B/C/E tests, all of which supply an explicit `vendor` field on every
+  // fixture): `db.accruedExpenses[].vendor` has always fallen back to
+  // `.description` for DISPLAY purposes when no explicit vendor was
+  // entered (a legitimate, pre-existing convenience) — but round 2 let
+  // resolveAccruedVendorId() resolve IDENTITY from that same
+  // fallback-including field, so a vendor-less accrued expense could be
+  // silently, confidently attributed to a real vendor merely because its
+  // unrelated `description` happened to read like that vendor's name.
+  // Fixed: identity resolution now reads exclusively from
+  // `vendorIdentityText` (the genuinely-entered `vendor`, or '' if blank)
+  // — `description` never has identity authority, only display authority.
+  test('AREA7-1 F.1 (round 3 — the critical reproduction): an accrued expense with NO explicit vendor is never attributed to a real vendor just because its description matches that vendor\'s name', async () => {
+    const vendor = await createVendor('Office Supplies Co');
+    const unfilteredBefore = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10' });
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'Office Supplies Co', amount: 999, month: '2049-06', dueDate: '2049-06-02', accountCode: '5100',
+      // deliberately NO `vendor` field at all
+    }).expect(200);
+
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: vendor.id });
+    // The vendor has no bills/openings/genuinely-attributed accrued items
+    // of its own — the description-only item must never be claimed for it.
+    expect(filtered.body.rows).toEqual([]);
+
+    // The amount must still count firm-wide, exactly once — never dropped.
+    const unfilteredAfter = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10' });
+    expect(unfilteredAfter.body.grandTotal).toBeCloseTo(unfilteredBefore.body.grandTotal + 999, 3);
+  });
+
+  test('AREA7-1 F.2 (round 3): an accrued expense WITH an explicit vendor field still resolves correctly, regardless of description text or harmless whitespace', async () => {
+    const vendor = await createVendor('Office Supplies Co F2');
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'totally unrelated narrative text', amount: 250, month: '2049-06', dueDate: '2049-06-03', accountCode: '5100',
+      vendor: vendor.name + ' ', // explicit vendor, harmless trailing-space formatting variance
+    }).expect(200);
+
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: vendor.id });
+    expect(filtered.body.rows.length).toBe(1);
+    expect(filtered.body.rows[0].total).toBeCloseTo(250, 3);
+  });
+
+  test('AREA7-1 F.3 (round 3): description text matching Vendor A while the explicit vendor field names Vendor B — attribution follows Vendor B only; description has zero identity authority', async () => {
+    const vendorA = await createVendor('Vendor Identity F3 A');
+    const vendorB = await createVendor('Vendor Identity F3 B');
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: vendorA.name, amount: 60, month: '2049-06', dueDate: '2049-06-04', accountCode: '5100',
+      vendor: vendorB.name,
+    }).expect(200);
+
+    const filteredA = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: vendorA.id });
+    expect(filteredA.body.rows).toEqual([]);
+    const filteredB = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: vendorB.id });
+    expect(filteredB.body.rows.length).toBe(1);
+    expect(filteredB.body.rows[0].total).toBeCloseTo(60, 3);
+  });
+
+  test('AREA7-1 F.4 (round 3): no vendor field and an unrelated description stays unassigned for every vendor\'s scoped view', async () => {
+    const vendorC = await createVendor('Vendor Identity F4 C');
+    const otherVendor = await createVendor('Vendor Identity F4 Other');
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'a narrative that names neither vendor', amount: 15, month: '2049-06', dueDate: '2049-06-05', accountCode: '5100',
+    }).expect(200);
+
+    const filteredC = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: vendorC.id });
+    expect(filteredC.body.rows).toEqual([]);
+    const filteredOther = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: otherVendor.id });
+    expect(filteredOther.body.rows).toEqual([]);
+  });
+
+  test('AREA7-1 F.5 (round 3): ambiguous EXPLICIT vendor text is still never guessed — preserves the existing ambiguity handling, unaffected by this round\'s fix', async () => {
+    const vendorX = await createVendor('Vendor Identity F5 Collide');
+    const vendorY = await createVendor('Vendor  Identity F5 Collide'); // double space — normalizes identically
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'ambiguous explicit-vendor case', amount: 88, month: '2049-06', dueDate: '2049-06-06', accountCode: '5100',
+      vendor: 'Vendor Identity F5 Collide',
+    }).expect(200);
+
+    const filteredX = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: vendorX.id });
+    expect((filteredX.body.rows[0] || {}).total || 0).toBe(0);
+    expect(filteredX.body.rows[0].ambiguousAmountExcluded).toBe(true);
+    const filteredY = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-06-10', vendorId: vendorY.id });
+    expect((filteredY.body.rows[0] || {}).total || 0).toBe(0);
+    expect(filteredY.body.rows[0].ambiguousAmountExcluded).toBe(true);
+  });
+
   // Owner-review remediation (finding AREA7-2): db.vendors.find(...) was
   // unguarded, unlike every other source array this same route reads —
   // reachable as a real 500 on a tenant DB missing the vendors key.

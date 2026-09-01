@@ -8743,7 +8743,17 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
       const ageFrom  = a.dueDate || monthEndDate(a.month);
       const days     = Math.floor((asOf - new Date(ageFrom)) / 86400000);
       return {
-        source: 'accrued-expense', id: a.id, number: a.number, vendor: a.vendor || a.description, description: a.description,
+        // `vendor` stays `a.vendor || a.description` for DISPLAY purposes
+        // only (firm-wide grouping/label — unchanged, backward compatible).
+        // `vendorIdentityText` (owner-review remediation round 3, finding
+        // ACCRUED-DESCRIPTION-MISATTRIBUTION) is the ONLY field a
+        // vendor-scoped ?vendorId= query may resolve identity from: the
+        // genuinely-entered `a.vendor` value, or '' if it was left blank.
+        // `a.description` is accounting narrative text, never vendor
+        // identity — an accrued expense with no explicit vendor is
+        // UNASSIGNED for scoped attribution even if its description
+        // happens to read like a real vendor's name.
+        source: 'accrued-expense', id: a.id, number: a.number, vendor: a.vendor || a.description, vendorIdentityText: a.vendor || '', description: a.description,
         original, paid, outstanding: remain,
         documentDate: monthEndDate(a.month), dueDate: a.dueDate || null, ageFrom, days,
       };
@@ -8828,11 +8838,18 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
   };
 
   // Vendor / AP Workspace Upgrade — optional ?vendorId= filter (additive,
-  // opt-in; omitting it reproduces the response above byte-for-byte:
-  // `rows`/`subledgerTotal`/`reconciliation` above are already fully and
-  // finally computed from the unfiltered set, grouped by display name
-  // exactly as this route always has been — nothing below this point
-  // changes any of that firm-wide computation or grouping).
+  // opt-in; omitting it reproduces the `rows`/`subledgerTotal`/
+  // `reconciliation` figures above unchanged — already fully and finally
+  // computed from the unfiltered set, grouped by display name exactly as
+  // this route always has been, and nothing below this point changes any
+  // of that firm-wide computation or grouping. Correction, round 3: an
+  // earlier version of this comment claimed the unfiltered response is
+  // "byte-for-byte" identical to before this feature — false as of round 2,
+  // since Source 2/3 items unconditionally gained a `vendorId` field, and
+  // Source 1 items a `vendorIdentityText` field, both now visible in the
+  // unfiltered response's own `rows[].items[]` too; no consumer reads
+  // `items[]` exhaustively, so this has zero functional effect, but the
+  // comment now says so accurately instead of overclaiming exact parity).
   //
   // Owner-review remediation round 2 (findings AREA7-1 split-liability and
   // AREA7-1 cross-vendor-collision — the round-1 exact/normalized-name
@@ -8851,6 +8868,22 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
   // grouped `rows[]` also fixes the split-liability bug: a single real
   // vendor's exposure from multiple sources is summed into exactly one
   // response row, never left fragmented across several.
+  //
+  // Owner-review remediation round 3 (finding
+  // ACCRUED-DESCRIPTION-MISATTRIBUTION, CRITICAL): Source 1's `vendor`
+  // field (used for firm-wide display/grouping) has always fallen back to
+  // `description` when no explicit vendor was entered — a legitimate
+  // display convenience, but round 2 mistakenly let resolveAccruedVendorId()
+  // resolve identity from that same fallback-including field, so an accrued
+  // expense with NO vendor at all could be silently, confidently attributed
+  // to a real vendor merely because its unrelated description happened to
+  // read like that vendor's name. Fixed by resolving identity exclusively
+  // from `vendorIdentityText` (the genuinely-entered `a.vendor`, or '' if
+  // blank) — `description` never has identity authority, only display
+  // authority. A vendor-less accrued expense is now unresolved for
+  // vendor-scoped attribution regardless of its description, while still
+  // counting toward the firm-wide total exactly as before (firm-wide
+  // grouping/display still uses the original `vendor` field, unchanged).
   let responseRows = rows;
   if (req.query.vendorId) {
     const targetVendor = (db.vendors || []).find(v => v.id === req.query.vendorId);
@@ -8859,11 +8892,17 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
     } else {
       const normalizeVendorName = s => String(s || '').trim().replace(/\s+/g, ' ');
       const allVendors = db.vendors || [];
-      // Resolve one accrued-expense item's free-text `vendor` field to a
-      // real vendorId ONLY when exactly one vendor's (normalized) name
-      // matches it — never guessed, never fuzzy, and never persisted back
-      // onto the historical accrued-expense record; this result exists
-      // only for the duration of this one request/response.
+      // Resolve one accrued-expense item's genuinely-entered `vendor` field
+      // (never its `description`/display-label fallback — owner-review
+      // remediation round 3, finding ACCRUED-DESCRIPTION-MISATTRIBUTION:
+      // description is accounting narrative text, not vendor identity, and
+      // must never gain identity authority just because it happens to read
+      // like a real vendor's name) to a real vendorId ONLY when exactly one
+      // vendor's (normalized) name matches it — never guessed, never
+      // fuzzy, and never persisted back onto the historical accrued-expense
+      // record; this result exists only for the duration of this one
+      // request/response. Callers MUST pass `vendorIdentityText`, never
+      // `vendor` (which still carries the description fallback for display).
       function resolveAccruedVendorId(rawVendorText) {
         const normalized = normalizeVendorName(rawVendorText);
         if (!normalized) return { status: 'unresolved', vendorId: null, candidateIds: [] };
@@ -8882,8 +8921,14 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
           if (i.vendorId === req.query.vendorId) scopedItems.push(i);
           return;
         }
-        // i.source === 'accrued-expense' — no stable vendorId; resolve.
-        const resolution = resolveAccruedVendorId(i.vendor);
+        // i.source === 'accrued-expense' — no stable vendorId; resolve
+        // from the genuinely-entered vendor text ONLY (never `i.vendor`,
+        // which for a vendor-less item falls back to `description` — see
+        // finding ACCRUED-DESCRIPTION-MISATTRIBUTION). An accrued expense
+        // created with no explicit vendor is unresolved here regardless of
+        // what its description says, even if that text happens to match a
+        // real vendor's name exactly.
+        const resolution = resolveAccruedVendorId(i.vendorIdentityText);
         if (resolution.status === 'resolved' && resolution.vendorId === req.query.vendorId) {
           scopedItems.push(i);
         } else if (resolution.status === 'ambiguous' && resolution.candidateIds.includes(req.query.vendorId)) {
