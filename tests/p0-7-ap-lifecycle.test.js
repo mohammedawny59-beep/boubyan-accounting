@@ -641,54 +641,106 @@ describe('Vendor Workspace — AP Aging vendorId filter', () => {
     expect(workspace.body.rows[0].buckets).toEqual(firmWideRow.buckets);
   });
 
-  // Owner-review remediation (finding AREA7-1): accrued-expense rows carry
-  // only a free-text `vendor` field, never validated against db.vendors —
-  // an exact-string match previously dropped a real liability on trivial
-  // whitespace variance. The fix normalizes (trim + collapse whitespace)
-  // both sides before comparing, in-memory only.
-  test('AREA7-1 A: a real vendor\'s accrued-expense liability is NOT silently dropped by a trailing-whitespace variance in its free-text vendor field', async () => {
-    const vendor = await createVendor('Vendor-AccruedMatch-A');
+  // Owner-review remediation ROUND 2 (finding AREA7-1 — the round-1
+  // normalized-name filter over the already name-grouped `rows` array is
+  // REJECTED and replaced): vendor identity is now authoritative wherever
+  // a stable vendorId exists (vendor-bill/vendor-opening rows carry their
+  // real vendorId and are matched by id alone, never by name). Only
+  // accrued-expense free text is resolved by normalized-name lookup
+  // against db.vendors, and ONLY when exactly one vendor matches — zero
+  // matches stays unresolved, 2+ matches is treated as genuinely
+  // ambiguous and is never guessed/attributed to either candidate.
+  test('AREA7-1 A (round 2 — split-liability fix): a real vendor-bill liability plus a whitespace-variant accrued-expense liability for the SAME vendor are summed into ONE scoped row, never dropped and never left fragmented', async () => {
+    const vendor = await createVendor('Vendor-Identity-A');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendor.id, billDate: '2049-05-01', dueDate: '2049-05-01', allocations: [{ accountCode: '5100', amount: 900 }],
+    }).expect(200);
     await request(app).post('/api/accrued-expenses').set(auth()).send({
-      description: 'AREA7-1 A accrued liability', amount: 500, month: '2049-04', dueDate: '2049-04-15',
-      vendor: vendor.name + ' ', accountCode: '5100', // trailing space — the exact repro from the review
+      description: 'AREA7-1 A round 2 — whitespace-variant accrued liability', amount: 500, month: '2049-05', dueDate: '2049-05-02',
+      vendor: vendor.name + ' ', accountCode: '5100', // trailing space — harmless formatting variance
     }).expect(200);
 
-    const unfiltered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20' });
-    expect(unfiltered.body.rows.some(r => r.vendor === vendor.name + ' ')).toBe(true);
-
-    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendor.id });
-    // Before the fix this was []: the real 500 KWD liability vanished from
-    // the vendor-scoped view. After the fix, normalized matching finds it.
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10', vendorId: vendor.id });
+    // ONE row (never fragmented across two array elements) totalling
+    // 900 + 500 = 1400 (never silently just 900 — the round-1 bug).
     expect(filtered.body.rows.length).toBe(1);
-    expect(filtered.body.rows[0].total).toBeCloseTo(500, 3);
+    expect(filtered.body.rows[0].total).toBeCloseTo(1400, 3);
+    expect(filtered.body.rows[0].ambiguousAmountExcluded).toBeUndefined();
   });
 
-  test('AREA7-1 B: an internal double-space variance is also matched (whitespace runs collapse, not just trim)', async () => {
-    const vendor = await createVendor('Vendor Accrued  Match B'); // note: double space in the real vendor name itself
+  test('AREA7-1 B (round 2): an unrelated vendor\'s accrued liability never appears in a different vendor\'s scoped view', async () => {
+    const vendorA = await createVendor('Vendor-Identity-B-A');
+    const vendorB = await createVendor('Vendor-Identity-B-B-Unrelated');
     await request(app).post('/api/accrued-expenses').set(auth()).send({
-      description: 'AREA7-1 B accrued liability', amount: 260, month: '2049-04', dueDate: '2049-04-16',
-      vendor: 'Vendor Accrued Match B', // single space here — differs only in whitespace run length
-      accountCode: '5100',
+      description: 'belongs to B only', amount: 70, month: '2049-05', dueDate: '2049-05-03',
+      vendor: vendorB.name, accountCode: '5100',
     }).expect(200);
 
-    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendor.id });
-    expect(filtered.body.rows.length).toBe(1);
-    expect(filtered.body.rows[0].total).toBeCloseTo(260, 3);
+    const filteredA = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10', vendorId: vendorA.id });
+    expect(filteredA.body.rows).toEqual([]);
+    const filteredB = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10', vendorId: vendorB.id });
+    expect(filteredB.body.rows.length).toBe(1);
+    expect(filteredB.body.rows[0].total).toBeCloseTo(70, 3);
   });
 
-  test('AREA7-1 C (negative case): a genuinely different vendor\'s accrued liability is still correctly excluded — normalization never fuzzy-matches unrelated names', async () => {
-    const vendorX = await createVendor('Vendor-AccruedMatch-X');
-    const vendorY = await createVendor('Vendor-AccruedMatch-Y-Completely-Different');
-    await request(app).post('/api/accrued-expenses').set(auth()).send({
-      description: 'AREA7-1 C — belongs to Y only', amount: 90, month: '2049-04', dueDate: '2049-04-17',
-      vendor: 'Vendor-AccruedMatch-Y-Completely-Different', accountCode: '5100',
+  test('AREA7-1 C (round 2 — the core regression this round fixes): two distinct vendors whose names collapse to the same normalized string never cross-attribute a real, vendorId-linked liability, and a genuinely ambiguous accrued amount is reported as ambiguous, never guessed', async () => {
+    const vendorX = await createVendor('Vendor Identity Collide');       // single space throughout
+    const vendorY = await createVendor('Vendor  Identity Collide');     // double space — normalizes identically to X
+
+    // Y has a REAL, vendorId-linked vendor-bill liability. X has none.
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendorY.id, billDate: '2049-05-01', dueDate: '2049-05-01', allocations: [{ accountCode: '5100', amount: 777 }],
     }).expect(200);
 
-    const filteredX = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendorX.id });
+    // X must NEVER receive Y's real liability, despite the name collision —
+    // vendor-bill rows are matched by vendorId alone, never by name.
+    const filteredX = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10', vendorId: vendorX.id });
     expect(filteredX.body.rows).toEqual([]);
-    const filteredY = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendorY.id });
+    const filteredY = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10', vendorId: vendorY.id });
     expect(filteredY.body.rows.length).toBe(1);
-    expect(filteredY.body.rows[0].total).toBeCloseTo(90, 3);
+    expect(filteredY.body.rows[0].total).toBeCloseTo(777, 3);
+
+    // Now add a genuinely ambiguous accrued-expense amount whose free text
+    // normalizes identically to BOTH X's and Y's registered names — it
+    // must be excluded from both scoped totals, with an explicit
+    // ambiguity flag, never silently attributed to either.
+    const unfilteredBefore = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10' });
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'genuinely ambiguous — matches two real vendors', amount: 333, month: '2049-05', dueDate: '2049-05-04',
+      vendor: 'Vendor Identity Collide', accountCode: '5100',
+    }).expect(200);
+
+    const filteredXAfter = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10', vendorId: vendorX.id });
+    // X still has no confidently-attributed liability of its own (0), but
+    // the ambiguous amount must be surfaced, never presented as a silent,
+    // conclusive zero.
+    expect((filteredXAfter.body.rows[0] || {}).total || 0).toBe(0);
+    expect(filteredXAfter.body.rows[0].ambiguousAmountExcluded).toBe(true);
+
+    const filteredYAfter = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10', vendorId: vendorY.id });
+    // Y's real 777 must stay exactly 777 — the ambiguous 333 is never
+    // silently folded in — but Y must also be warned it may be incomplete.
+    expect(filteredYAfter.body.rows[0].total).toBeCloseTo(777, 3);
+    expect(filteredYAfter.body.rows[0].ambiguousAmountExcluded).toBe(true);
+
+    // The firm-wide (unfiltered) view is completely unaffected by any of
+    // this identity resolution — grandTotal simply grows by the new
+    // accrued item's own 333, exactly as it always would.
+    const unfilteredAfter = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10' });
+    expect(unfilteredAfter.body.grandTotal).toBeCloseTo(unfilteredBefore.body.grandTotal + 333, 3);
+  });
+
+  test('AREA7-1 E (round 2): omitting vendorId reproduces the firm-wide response exactly, unaffected by the identity-resolution code path', async () => {
+    const vendor = await createVendor('Vendor-Identity-E');
+    await request(app).post('/api/vendor-bills').set(auth()).send({
+      vendorId: vendor.id, billDate: '2049-05-05', dueDate: '2049-05-05', allocations: [{ accountCode: '5100', amount: 45 }],
+    }).expect(200);
+    const unfiltered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-05-10' });
+    expect(unfiltered.status).toBe(200);
+    const row = unfiltered.body.rows.find(r => r.vendor === 'Vendor-Identity-E');
+    expect(row).toBeTruthy();
+    expect(row.total).toBeCloseTo(45, 3);
+    expect(row.ambiguousAmountExcluded).toBeUndefined();
   });
 
   // Owner-review remediation (finding AREA7-2): db.vendors.find(...) was

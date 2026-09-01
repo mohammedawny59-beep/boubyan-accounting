@@ -28,6 +28,12 @@ process.env.CONFIG_FILE = path.join(tmp, 'config.json');
 const app = require('../server');
 const { initDB, shutdownDB, loadDB, saveDB } = require('../lib/database');
 const { DEFAULT_COA, DEFAULT_ROLES } = require('../lib/defaults');
+// Owner-review remediation round 2 (findings AREA8-2/AREA8-3): the exact,
+// single production source of truth public/index.html's
+// calcVendorBalance()/renderVndOpenItems() delegate to — requiring it
+// directly here means these tests exercise the real shipped logic, never
+// a hand-typed duplicate that could silently drift from it.
+const VendorWorkspaceLogic = require('../public/js/vendorWorkspaceLogic.js');
 
 function hash(pw) { return bcrypt.hashSync(pw, 10); }
 
@@ -73,8 +79,10 @@ async function createBill(vendorId, opts = {}) {
 
 // The exact predicate T015's open-items list, T007/T009's Open Bills
 // figure, and T018's next-item preview all key off (research.md Decision
-// 4, finding F1) — not `status` alone.
-const isOpen = b => b.status !== 'CANCELLED' && b.status !== 'PAID' && (b.outstandingAmount || 0) > 0.001;
+// 4, finding F1) — not `status` alone. Delegated to the same shared
+// module as the round-2 AREA8-2/AREA8-3 fix, so this file has exactly one
+// copy of the predicate too, not a second one living only in this test.
+const isOpen = VendorWorkspaceLogic.isOpenBill;
 
 // ═══════════════════════════════════════════════════════════════════════
 // T014 — Open-items derivation (finding F1)
@@ -184,18 +192,14 @@ describe('Vendor Workspace — statement date-range filter leaves reconciliation
 // T027 — "outstanding only" / "overdue only" filters
 // ═══════════════════════════════════════════════════════════════════════
 describe('Vendor Workspace — outstanding-only and overdue-only filtering data', () => {
-  // Owner-review remediation (finding AREA8-3): the vendor-list "outstanding
-  // only" control (#vndBalFilt, public/index.html) is driven by
-  // calcVendorBalance() — a client-side sum over DB.journalEntries — NOT by
-  // vendorBills' outstandingAmount/status. The original version of this
-  // test only queried GET /api/vendor-bills, a completely independent
-  // computation path, so it never actually exercised the real filter logic
-  // it claimed to validate. This version reproduces calcVendorBalance()'s
-  // own formula against real, persisted journal entries, and specifically
-  // uses a vendor whose ONLY GL activity is a legacy direct-journal posting
-  // with NO vendorBills record at all — proving the two paths are genuinely
-  // independent, not just coincidentally correlated.
-  test('Filters A: a vendor whose only GL activity is a legacy direct-journal posting (no vendorBills at all) still correctly shows an outstanding balance under the real vendor-list "outstanding only" filter path', async () => {
+  // Owner-review remediation ROUND 2 (findings AREA8-2/AREA8-3 — the
+  // round-1 versions of these two tests are REJECTED): both tests below
+  // now `require()` public/js/vendorWorkspaceLogic.js directly — the
+  // exact, single production source of truth public/index.html's
+  // calcVendorBalance()/renderVndOpenItems() now delegate to (see that
+  // file, and its wiring in public/index.html) — not a hand-typed
+  // duplicate that could silently drift from the shipped behavior.
+  test('Filters A (round 2 — exercises the actual shipped calcVendorBalanceFromEntries function): a vendor whose only GL activity is a legacy direct-journal posting (no vendorBills at all) still correctly shows an outstanding balance under the real, shipped vendor-list "outstanding only" filter logic', async () => {
     const owing = await createVendor('Vendor-Filters-Owing');
     const clear = await createVendor('Vendor-Filters-Clear');
 
@@ -210,64 +214,53 @@ describe('Vendor Workspace — outstanding-only and overdue-only filtering data'
     });
     saveDB(db);
 
-    // Reproduce calcVendorBalance()'s own formula (public/index.html) over
-    // the real persisted journal entries — this, not vendorBills, is what
-    // renderVendors()'s "outstanding only"/"owing" option actually filters
-    // vendors by.
-    function calcVendorBalanceLikeFrontend(dbState, accountId) {
-      let balance = 0;
-      (dbState.journalEntries || []).forEach(e => (e.lines || []).forEach(l => {
-        if (String(l.accountId) === String(accountId) || String(l.accountCode) === String(accountId)) {
-          balance += (parseFloat(l.credit) || 0) - (parseFloat(l.debit) || 0);
-        }
-      }));
-      return balance;
-    }
-
     const dbAfter = loadDB();
-    expect(calcVendorBalanceLikeFrontend(dbAfter, owing.accountId)).toBeGreaterThan(0);
-    expect(calcVendorBalanceLikeFrontend(dbAfter, clear.accountId)).toBe(0);
+    // Calls the REAL, shipped calcVendorBalanceFromEntries() from
+    // public/js/vendorWorkspaceLogic.js — the exact function
+    // public/index.html's calcVendorBalance() now delegates to — never a
+    // hand-typed duplicate. A future change to the real formula that
+    // breaks this WILL fail this test, closing finding AREA8-3.
+    expect(VendorWorkspaceLogic.calcVendorBalanceFromEntries(dbAfter.journalEntries, owing.accountId)).toBeGreaterThan(0);
+    expect(VendorWorkspaceLogic.calcVendorBalanceFromEntries(dbAfter.journalEntries, clear.accountId)).toBe(0);
 
     // This vendor genuinely has ZERO vendorBills — a vendorBills-only check
-    // (the original, mislabeled version of this test) would have wrongly
-    // concluded this vendor has no outstanding activity at all.
+    // would have wrongly concluded this vendor has no outstanding activity.
     const bills = await request(app).get('/api/vendor-bills').set(auth()).query({ vendorId: owing.id });
     expect(bills.body.length).toBe(0);
   });
 
-  // Owner-review remediation (finding AREA8-2): tasks.md T027 requires
-  // proving the filter narrows correctly, CAN BE CLEARED, and shows the
-  // real empty-message convention on no matches — the original test only
-  // covered narrowing. This version adds both.
-  test('Filters B: overdue-only narrows correctly, can be cleared back to the full open-items list, and yields a genuinely empty (not error) result when nothing qualifies', async () => {
+  test('Filters B (round 2 — exercises the actual shipped filterOpenItems function): overdue-only narrows correctly, clearing genuinely re-invokes the real function and restores the full list, and a genuinely empty result appears when nothing qualifies', async () => {
     const vendor = await createVendor('Vendor-Filters-Overdue');
     const overdue = await createBill(vendor.id, { billDate: '2020-01-01', dueDate: '2020-01-01', amount: 60 });
     const notOverdue = await createBill(vendor.id, { billDate: '2099-01-01', dueDate: '2099-01-01', amount: 70 });
 
     const res = await request(app).get('/api/vendor-bills').set(auth()).query({ vendorId: vendor.id });
-    const allOpen = res.body.filter(isOpen);
     const today = new Date().toISOString().slice(0, 10);
 
-    // Enable: overdue-only narrows to exactly the overdue bill.
-    const overdueOnly = allOpen.filter(b => b.dueDate && b.dueDate < today);
-    expect(overdueOnly.map(b => b.id)).toEqual([overdue.id]);
-    expect(overdueOnly.map(b => b.id)).not.toContain(notOverdue.id);
+    // Enable: the REAL, shipped filterOpenItems() — the exact function
+    // renderVndOpenItems() calls in public/index.html — with
+    // overdueOnly:true narrows to exactly the overdue bill.
+    const overdueOnlyResult = VendorWorkspaceLogic.filterOpenItems(res.body, { overdueOnly: true, todayStr: today });
+    expect(overdueOnlyResult.map(b => b.id)).toEqual([overdue.id]);
+    expect(overdueOnlyResult.map(b => b.id)).not.toContain(notOverdue.id);
 
-    // Clear: the toggle's own "off" state is simply not applying that
-    // client-side filter — the same already-fetched open-items array,
-    // un-narrowed, still contains both bills. Proves the filter is
-    // non-destructive: clearing it restores the full list, no re-fetch
-    // needed (T029: client-side, no re-fetch).
-    expect(allOpen.map(b => b.id).sort()).toEqual([overdue.id, notOverdue.id].sort());
+    // Clear: calling the SAME real function again with overdueOnly:false
+    // (the checkbox's unchecked state) — a genuine second invocation of
+    // the production code, not a self-comparison against an array the
+    // narrowing step never touched — and it restores the full open-items
+    // set. This is the specific gap finding AREA8-2 identified: closed.
+    const clearedResult = VendorWorkspaceLogic.filterOpenItems(res.body, { overdueOnly: false, todayStr: today });
+    expect(clearedResult.map(b => b.id).sort()).toEqual([overdue.id, notOverdue.id].sort());
 
     // Empty state: a vendor with open items but NONE overdue must yield a
-    // genuinely empty overdue-only result, never an error — exactly what
-    // backs the real inline empty-message convention (finding H5) when
-    // the "متأخرة فقط" toggle is checked and nothing qualifies.
+    // genuinely empty overdue-only result from the real function, never an
+    // error — exactly what backs the real inline empty-message convention
+    // (finding H5) when the "متأخرة فقط" toggle is checked and nothing
+    // qualifies.
     const neverOverdueVendor = await createVendor('Vendor-Filters-NeverOverdue');
     await createBill(neverOverdueVendor.id, { billDate: '2099-01-01', dueDate: '2099-01-01', amount: 80 });
     const res2 = await request(app).get('/api/vendor-bills').set(auth()).query({ vendorId: neverOverdueVendor.id });
-    const noneOverdue = res2.body.filter(isOpen).filter(b => b.dueDate && b.dueDate < today);
+    const noneOverdue = VendorWorkspaceLogic.filterOpenItems(res2.body, { overdueOnly: true, todayStr: today });
     expect(noneOverdue).toEqual([]);
   });
 });

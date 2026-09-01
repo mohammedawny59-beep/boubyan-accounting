@@ -8751,11 +8751,16 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
 
   // Source 2 (P0.7): vendorBills[] — outstanding already maintained
   // (grossAmount - creditedAmount - paidAmount) by the bill routes themselves.
+  // `vendorId` is carried through unmodified alongside the pre-existing
+  // `vendor` display-name field (owner-review remediation round 2, finding
+  // AREA7-1 cross-vendor-collision) — this is the ONE authoritative
+  // identity a ?vendorId= scoped query below keys off; the display name
+  // is never used for scoping/grouping any real vendorBills-sourced row.
   (db.vendorBills || []).filter(b => b.status !== 'CANCELLED' && b.status !== 'PAID' && b.outstandingAmount > 0.001).forEach(b => {
     const ageFrom = b.dueDate || b.billDate;
     const days = Math.floor((asOf - new Date(ageFrom)) / 86400000);
     outstanding.push({
-      source: 'vendor-bill', id: b.id, number: b.number, vendor: b.vendorName, description: b.description || b.billNumber,
+      source: 'vendor-bill', id: b.id, number: b.number, vendor: b.vendorName, vendorId: b.vendorId, description: b.description || b.billNumber,
       original: b.grossAmount, paid: b.paidAmount, outstanding: b.outstandingAmount,
       documentDate: b.billDate, dueDate: b.dueDate || null, ageFrom, days,
     });
@@ -8771,7 +8776,9 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
     const ageFrom = v.openingDate || null;
     const days = ageFrom ? Math.floor((asOf - new Date(ageFrom)) / 86400000) : null;
     outstanding.push({
-      source: 'vendor-opening', id: 'OB-' + v.id, number: 'OB-' + v.accountId, vendor: v.name, description: 'رصيد افتتاحي',
+      // vendorId carried alongside the display name — see Source 2's own
+      // comment above (owner-review remediation round 2, AREA7-1).
+      source: 'vendor-opening', id: 'OB-' + v.id, number: 'OB-' + v.accountId, vendor: v.name, vendorId: v.id, description: 'رصيد افتتاحي',
       original: amt, paid: 0, outstanding: amt,
       documentDate: ageFrom, dueDate: null, ageFrom, days: days == null ? 0 : days,
     });
@@ -8821,37 +8828,95 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
   };
 
   // Vendor / AP Workspace Upgrade — optional ?vendorId= filter (additive,
-  // opt-in; omitting it reproduces the response above byte-for-byte).
-  // rows/subledgerTotal/reconciliation above are already fully computed
-  // from the unfiltered set; only this response-only variable is scoped.
-  // Owner-review remediation (finding AREA7-2): guarded with `|| []`,
-  // matching this same route's own established convention (Source 2/3
-  // above) — a tenant DB missing the `vendors` key must return a safe
-  // empty result, never a 500.
-  const matchedVendor = req.query.vendorId ? (db.vendors || []).find(v => v.id === req.query.vendorId) : null;
-  const vendorName = matchedVendor ? matchedVendor.name : null;
-  // Owner-review remediation (finding AREA7-1): accrued-expense rows
-  // (Source 1 above) carry only a free-text `vendor` field — never a
-  // vendorId, never validated against db.vendors at creation (see
-  // POST /api/accrued-expenses, `vendor: vendor || ''`) — so an exact-
-  // string match against a real vendor's registered name silently drops a
-  // real, GL-posted liability on any trivial formatting variance (e.g. a
-  // stray leading/trailing/doubled space). Vendor-bills and vendor-opening
-  // rows are unaffected (their `vendor`/`vendorName` field is always
-  // copied server-side from the real vendor record, so it's already an
-  // exact match). Normalize BOTH sides — trim + collapse internal
-  // whitespace runs — before comparing, purely in-memory for this
-  // response; never rewrites or persists anything back to any historical
-  // record. Deliberately NOT fuzzy matching (no typo/edit-distance
-  // tolerance) — only whitespace formatting is normalized, so two
-  // genuinely different vendor names never collide. A normalized name
-  // that collapses to an empty string never matches anything (fails safe
-  // rather than risking an accidental empty-string collision).
-  const normalizeVendorName = s => String(s || '').trim().replace(/\s+/g, ' ');
-  const normalizedVendorName = vendorName ? normalizeVendorName(vendorName) : null;
-  const responseRows = req.query.vendorId
-    ? rows.filter(r => normalizedVendorName && normalizeVendorName(r.vendor) === normalizedVendorName)
-    : rows;
+  // opt-in; omitting it reproduces the response above byte-for-byte:
+  // `rows`/`subledgerTotal`/`reconciliation` above are already fully and
+  // finally computed from the unfiltered set, grouped by display name
+  // exactly as this route always has been — nothing below this point
+  // changes any of that firm-wide computation or grouping).
+  //
+  // Owner-review remediation round 2 (findings AREA7-1 split-liability and
+  // AREA7-1 cross-vendor-collision — the round-1 exact/normalized-name
+  // filter over the already-grouped `rows` array is REJECTED): vendor
+  // identity, not display-name matching, is now authoritative wherever a
+  // stable vendorId exists. Source 2 (vendor-bill) and Source 3 (vendor-
+  // opening) items above now carry their own real `vendorId` field,
+  // copied straight from the underlying record — a vendor-scoped query
+  // matches those by id alone, never by name, so two vendors whose names
+  // happen to collide (exactly, or after whitespace normalization) can
+  // never leak one's real, GL-posted liability into the other's scoped
+  // view. Source 1 (accrued-expense) items carry no vendorId at all — see
+  // resolveAccruedVendorId() below for how (and when) those get safely
+  // attributed. Building the scoped total directly from `outstanding[]`
+  // (the pre-grouping, per-item array) rather than filtering the already-
+  // grouped `rows[]` also fixes the split-liability bug: a single real
+  // vendor's exposure from multiple sources is summed into exactly one
+  // response row, never left fragmented across several.
+  let responseRows = rows;
+  if (req.query.vendorId) {
+    const targetVendor = (db.vendors || []).find(v => v.id === req.query.vendorId);
+    if (!targetVendor) {
+      responseRows = [];
+    } else {
+      const normalizeVendorName = s => String(s || '').trim().replace(/\s+/g, ' ');
+      const allVendors = db.vendors || [];
+      // Resolve one accrued-expense item's free-text `vendor` field to a
+      // real vendorId ONLY when exactly one vendor's (normalized) name
+      // matches it — never guessed, never fuzzy, and never persisted back
+      // onto the historical accrued-expense record; this result exists
+      // only for the duration of this one request/response.
+      function resolveAccruedVendorId(rawVendorText) {
+        const normalized = normalizeVendorName(rawVendorText);
+        if (!normalized) return { status: 'unresolved', vendorId: null, candidateIds: [] };
+        const matches = allVendors.filter(v => normalizeVendorName(v.name) === normalized);
+        if (matches.length === 1) return { status: 'resolved', vendorId: matches[0].id, candidateIds: [] };
+        if (matches.length === 0) return { status: 'unresolved', vendorId: null, candidateIds: [] };
+        // 2+ real vendors share this normalized name — genuinely
+        // ambiguous. Never attribute this liability to any of them.
+        return { status: 'ambiguous', vendorId: null, candidateIds: matches.map(v => v.id) };
+      }
+
+      let ambiguousAmountExcluded = false;
+      const scopedItems = [];
+      outstanding.forEach(i => {
+        if (i.source === 'vendor-bill' || i.source === 'vendor-opening') {
+          if (i.vendorId === req.query.vendorId) scopedItems.push(i);
+          return;
+        }
+        // i.source === 'accrued-expense' — no stable vendorId; resolve.
+        const resolution = resolveAccruedVendorId(i.vendor);
+        if (resolution.status === 'resolved' && resolution.vendorId === req.query.vendorId) {
+          scopedItems.push(i);
+        } else if (resolution.status === 'ambiguous' && resolution.candidateIds.includes(req.query.vendorId)) {
+          // This vendor is one of several this free-text amount COULD
+          // belong to — never silently attributed, but the scoped result
+          // must not read as conclusively complete either.
+          ambiguousAmountExcluded = true;
+        }
+      });
+
+      if (!scopedItems.length && !ambiguousAmountExcluded) {
+        responseRows = [];
+      } else {
+        const scopedBuckets = { current: 0, days30: 0, days60: 0, days90: 0, over90: 0 };
+        scopedItems.forEach(i => {
+          if      (i.days <= 30) scopedBuckets.current += i.outstanding;
+          else if (i.days <= 60) scopedBuckets.days30  += i.outstanding;
+          else if (i.days <= 90) scopedBuckets.days60  += i.outstanding;
+          else                    scopedBuckets.over90  += i.outstanding;
+        });
+        Object.keys(scopedBuckets).forEach(k => scopedBuckets[k] = r3(scopedBuckets[k]));
+        const scopedRow = {
+          vendor: targetVendor.name, total: r3(scopedItems.reduce((s, i) => s + i.outstanding, 0)),
+          buckets: scopedBuckets, count: scopedItems.length, items: scopedItems,
+        };
+        // Additive-only metadata — absent entirely unless a real
+        // ambiguity affects THIS vendor; existing consumers reading only
+        // vendor/total/buckets/count/items are unaffected either way.
+        if (ambiguousAmountExcluded) scopedRow.ambiguousAmountExcluded = true;
+        responseRows = [scopedRow];
+      }
+    }
+  }
 
   res.json({ asOf: asOfStr, rows: responseRows, grandTotal: subledgerTotal, reconciliation });
 });
