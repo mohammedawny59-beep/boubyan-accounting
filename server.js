@@ -8824,9 +8824,34 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
   // opt-in; omitting it reproduces the response above byte-for-byte).
   // rows/subledgerTotal/reconciliation above are already fully computed
   // from the unfiltered set; only this response-only variable is scoped.
-  const matchedVendor = req.query.vendorId ? db.vendors.find(v => v.id === req.query.vendorId) : null;
+  // Owner-review remediation (finding AREA7-2): guarded with `|| []`,
+  // matching this same route's own established convention (Source 2/3
+  // above) — a tenant DB missing the `vendors` key must return a safe
+  // empty result, never a 500.
+  const matchedVendor = req.query.vendorId ? (db.vendors || []).find(v => v.id === req.query.vendorId) : null;
   const vendorName = matchedVendor ? matchedVendor.name : null;
-  const responseRows = req.query.vendorId ? rows.filter(r => r.vendor === vendorName) : rows;
+  // Owner-review remediation (finding AREA7-1): accrued-expense rows
+  // (Source 1 above) carry only a free-text `vendor` field — never a
+  // vendorId, never validated against db.vendors at creation (see
+  // POST /api/accrued-expenses, `vendor: vendor || ''`) — so an exact-
+  // string match against a real vendor's registered name silently drops a
+  // real, GL-posted liability on any trivial formatting variance (e.g. a
+  // stray leading/trailing/doubled space). Vendor-bills and vendor-opening
+  // rows are unaffected (their `vendor`/`vendorName` field is always
+  // copied server-side from the real vendor record, so it's already an
+  // exact match). Normalize BOTH sides — trim + collapse internal
+  // whitespace runs — before comparing, purely in-memory for this
+  // response; never rewrites or persists anything back to any historical
+  // record. Deliberately NOT fuzzy matching (no typo/edit-distance
+  // tolerance) — only whitespace formatting is normalized, so two
+  // genuinely different vendor names never collide. A normalized name
+  // that collapses to an empty string never matches anything (fails safe
+  // rather than risking an accidental empty-string collision).
+  const normalizeVendorName = s => String(s || '').trim().replace(/\s+/g, ' ');
+  const normalizedVendorName = vendorName ? normalizeVendorName(vendorName) : null;
+  const responseRows = req.query.vendorId
+    ? rows.filter(r => normalizedVendorName && normalizeVendorName(r.vendor) === normalizedVendorName)
+    : rows;
 
   res.json({ asOf: asOfStr, rows: responseRows, grandTotal: subledgerTotal, reconciliation });
 });

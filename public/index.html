@@ -9639,7 +9639,20 @@ let _vndBillsOutcome = 'error';
 // started. See research.md Decision 4 and tasks.md T011.
 let _vndStmtReqSeq = 0;
 let _vndStmtRows = []; // last successfully-fetched statement rows, for T022/T023's client-side filters
+// Owner-review remediation (finding STMT-ERROR-STATE-CLOBBERED-BY-FILTER-
+// RERENDER): the statement fetch's own outcome, tracked separately from
+// _vndStmtRows. renderVndStatementRows() (T022/T023's filter re-render)
+// must consult THIS, never `_vndStmtRows.length === 0`, before touching
+// #vndStmtBody — an empty array is not a safe proxy for "the fetch
+// succeeded and there's genuinely nothing to show."
+let _vndStmtOutcome = 'error';
 const VND_TYPE_LABELS = { opening:'📂 رصيد افتتاحي', bill:'🧾 فاتورة', credit:'📝 إشعار دائن', payment:'💰 دفعة', 'legacy-journal':'قيد تاريخي' };
+// Owner-review remediation (finding VBWS-CONC-1): shared with
+// openVendorBillFromWorkspace() below — declared here, alongside the
+// workspace's own module state, since openVendorStatement() must also
+// invalidate an in-flight deep-link chain when a NEW vendor context
+// begins (a stale chain must never resurface a different vendor's bill).
+let _vndDeepLinkSeq = 0;
 
 function calcVendorBalance(accountId) {
   const entries = DB.journalEntries || [];
@@ -9794,6 +9807,17 @@ async function deleteVendor(id) {
 // ---- VENDOR STATEMENT ----
 function openVendorStatement(vendorId) {
   currentVendorId = vendorId;
+  // Owner-review remediation (finding VBWS-CONC-1): opening a (possibly
+  // different) vendor's workspace invalidates any in-flight
+  // openVendorBillFromWorkspace() deep-link chain from a previously-viewed
+  // vendor — without this, a still-resolving older chain could call
+  // openVbDetail(...) for vendor A's bill after the user has already moved
+  // on to vendor B's workspace, silently resurfacing a stale, actionable
+  // bill-detail modal once B's workspace is later closed. Reuses the
+  // existing _vndDeepLinkSeq counter; does not touch the deep-link
+  // function's own latest-click-wins guard, which still governs ordering
+  // between two clicks within the same vendor's workspace.
+  _vndDeepLinkSeq++;
   loadVendorStatement();
   document.getElementById('vendorStmtModal').classList.add('open');
 }
@@ -9861,6 +9885,13 @@ async function loadVendorStatement() {
   if (seq !== _vndStmtReqSeq) return;
 
   const recBadgeEl = document.getElementById('vndStmtRecBadge');
+  // Owner-review remediation (finding STMT-ERROR-STATE-CLOBBERED-BY-FILTER-
+  // RERENDER): _vndStmtOutcome tracks this fetch's own outcome, separate
+  // from _vndStmtRows — renderVndStatementRows() consults this before
+  // touching #vndStmtBody, so a later, independent filter-input change can
+  // never replace an honest error/not-found row with a fabricated "no
+  // transactions" message just because _vndStmtRows happens to be empty.
+  _vndStmtOutcome = outcome;
   if (outcome === 'notfound') {
     document.getElementById('vndStmtKpis').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text3);padding:20px;">هذا المورد غير موجود</div>`;
     _vndStmtRows = [];
@@ -9899,18 +9930,30 @@ async function loadVendorStatement() {
 
   // ---- Vendor-bills fetch (T007/T008) — independent of the statement
   // outcome above; always runs, regardless of which branch fired. -----
+  // Owner-review remediation (finding VSR2-1): fetch/parse into a LOCAL
+  // variable first — the shared _vndWorkspaceBills array is assigned ONLY
+  // after the recency check passes, mirroring the statement block's own
+  // already-correct _vndStmtRows pattern above. Previously the assignment
+  // happened unconditionally inside the try/catch, before the seq check,
+  // so a stale (older) response could silently overwrite the array with a
+  // different vendor's bills even though its own render was correctly
+  // suppressed — corrupting what the overdue-only toggle's unguarded
+  // renderVndOpenItems() would later read for whichever vendor is now on
+  // screen.
   let vbOutcome = 'error';
+  let vbData = [];
   try {
     const r2 = await fetch(`/api/vendor-bills?vendorId=${encodeURIComponent(v.id)}`);
     const parsed2 = await r2.json().catch(() => null);
     if (!r2.ok || !Array.isArray(parsed2)) throw new Error('vendor-bills fetch failed');
-    _vndWorkspaceBills = parsed2;
+    vbData = parsed2;
     vbOutcome = 'success';
   } catch {
     vbOutcome = 'error';
-    _vndWorkspaceBills = [];
+    vbData = [];
   }
   if (seq !== _vndStmtReqSeq) return;
+  _vndWorkspaceBills = vbData;
   if (vbOutcome === 'error') showToast('خطأ في الاتصال — تعذّر تحميل فواتير الموردين', 'error');
   renderVndBillsSection(vbOutcome);
 
@@ -9935,6 +9978,14 @@ async function loadVendorStatement() {
 // legacy-journal row deep-links to the existing showLedgerEntry(id)/
 // #ledgerEntryModal (finding G1/H4), unaffected by these filters.
 function renderVndStatementRows() {
+  // Owner-review remediation (finding STMT-ERROR-STATE-CLOBBERED-BY-FILTER-
+  // RERENDER): only re-render #vndStmtBody from a genuine success outcome.
+  // A filter input's onchange can fire at any time, including while the
+  // statement's own honest error/not-found message is on screen — without
+  // this guard, _vndStmtRows being [] in those states was indistinguishable
+  // from "successfully loaded, genuinely empty," and would silently replace
+  // the error/not-found row with a fabricated "no transactions" message.
+  if (_vndStmtOutcome !== 'success') return;
   const from = document.getElementById('vndStmtDateFrom')?.value || '';
   const to   = document.getElementById('vndStmtDateTo')?.value   || '';
   const typeFilt = document.getElementById('vndStmtTypeFilt')?.value || '';
@@ -10039,11 +10090,18 @@ function renderVndAgingSection(agOutcome, agRow) {
   }
   const buckets = agRow ? agRow.buckets : { current:0, days30:0, days60:0, over90:0 };
   const total = agRow ? agRow.total : 0;
+  // Owner-review remediation (finding T026-AGING-BUCKETS-COMBINED-NOT-AS-
+  // IS): render all four real, distinct API bucket fields separately — no
+  // client-side combining. Matches the labeling convention the pre-existing
+  // firm-wide AP Aging table (loadAgingAP()) already uses for the same four
+  // fields; `days90` remains the endpoint's own permanently-dead key and is
+  // still correctly omitted (not one of the four real buckets).
   el.innerHTML = `
     <div class="kc gr"><div class="kl">إجمالي التعرض (Total AP Exposure)</div><div class="kv">${total.fmt()}</div><div class="ks">د.ك</div></div>
     <div class="kc bl"><div class="kl">0-30 يوم</div><div class="kv">${(buckets.current||0).fmt()}</div><div class="ks">د.ك</div></div>
     <div class="kc ye"><div class="kl">31-60 يوم</div><div class="kv">${(buckets.days30||0).fmt()}</div><div class="ks">د.ك</div></div>
-    <div class="kc re"><div class="kl">+60 يوم</div><div class="kv">${((buckets.days60||0)+(buckets.over90||0)).fmt()}</div><div class="ks">د.ك</div></div>`;
+    <div class="kc ye"><div class="kl">61-90 يوم</div><div class="kv">${(buckets.days60||0).fmt()}</div><div class="ks">د.ك</div></div>
+    <div class="kc re"><div class="kl">+90 يوم</div><div class="kv">${(buckets.over90||0).fmt()}</div><div class="ks">د.ك</div></div>`;
 }
 
 // R2: these buttons used to open vendorPayModal/vendorPurchaseModal, which
@@ -10068,7 +10126,6 @@ function recordVendorPayment() {
 // the workspace and navigates to the existing "Vendor Bills (AP)" tab,
 // reusing its completely unmodified openVbDetail(id) there — no nested
 // modal, no new write path, no new permissions (research.md Decision 3/4).
-let _vndDeepLinkSeq = 0;
 async function openVendorBillFromWorkspace(id) {
   const seq = ++_vndDeepLinkSeq;
   closeModal('vendorStmtModal');

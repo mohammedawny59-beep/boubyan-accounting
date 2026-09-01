@@ -640,6 +640,83 @@ describe('Vendor Workspace — AP Aging vendorId filter', () => {
     expect(workspace.body.rows[0].total).toBeCloseTo(333, 3);
     expect(workspace.body.rows[0].buckets).toEqual(firmWideRow.buckets);
   });
+
+  // Owner-review remediation (finding AREA7-1): accrued-expense rows carry
+  // only a free-text `vendor` field, never validated against db.vendors —
+  // an exact-string match previously dropped a real liability on trivial
+  // whitespace variance. The fix normalizes (trim + collapse whitespace)
+  // both sides before comparing, in-memory only.
+  test('AREA7-1 A: a real vendor\'s accrued-expense liability is NOT silently dropped by a trailing-whitespace variance in its free-text vendor field', async () => {
+    const vendor = await createVendor('Vendor-AccruedMatch-A');
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'AREA7-1 A accrued liability', amount: 500, month: '2049-04', dueDate: '2049-04-15',
+      vendor: vendor.name + ' ', accountCode: '5100', // trailing space — the exact repro from the review
+    }).expect(200);
+
+    const unfiltered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20' });
+    expect(unfiltered.body.rows.some(r => r.vendor === vendor.name + ' ')).toBe(true);
+
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendor.id });
+    // Before the fix this was []: the real 500 KWD liability vanished from
+    // the vendor-scoped view. After the fix, normalized matching finds it.
+    expect(filtered.body.rows.length).toBe(1);
+    expect(filtered.body.rows[0].total).toBeCloseTo(500, 3);
+  });
+
+  test('AREA7-1 B: an internal double-space variance is also matched (whitespace runs collapse, not just trim)', async () => {
+    const vendor = await createVendor('Vendor Accrued  Match B'); // note: double space in the real vendor name itself
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'AREA7-1 B accrued liability', amount: 260, month: '2049-04', dueDate: '2049-04-16',
+      vendor: 'Vendor Accrued Match B', // single space here — differs only in whitespace run length
+      accountCode: '5100',
+    }).expect(200);
+
+    const filtered = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendor.id });
+    expect(filtered.body.rows.length).toBe(1);
+    expect(filtered.body.rows[0].total).toBeCloseTo(260, 3);
+  });
+
+  test('AREA7-1 C (negative case): a genuinely different vendor\'s accrued liability is still correctly excluded — normalization never fuzzy-matches unrelated names', async () => {
+    const vendorX = await createVendor('Vendor-AccruedMatch-X');
+    const vendorY = await createVendor('Vendor-AccruedMatch-Y-Completely-Different');
+    await request(app).post('/api/accrued-expenses').set(auth()).send({
+      description: 'AREA7-1 C — belongs to Y only', amount: 90, month: '2049-04', dueDate: '2049-04-17',
+      vendor: 'Vendor-AccruedMatch-Y-Completely-Different', accountCode: '5100',
+    }).expect(200);
+
+    const filteredX = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendorX.id });
+    expect(filteredX.body.rows).toEqual([]);
+    const filteredY = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: vendorY.id });
+    expect(filteredY.body.rows.length).toBe(1);
+    expect(filteredY.body.rows[0].total).toBeCloseTo(90, 3);
+  });
+
+  // Owner-review remediation (finding AREA7-2): db.vendors.find(...) was
+  // unguarded, unlike every other source array this same route reads —
+  // reachable as a real 500 on a tenant DB missing the vendors key.
+  test('AREA7-2: a tenant DB missing the vendors key entirely returns a safe empty result, never a 500', async () => {
+    // Capture the EXACT original array (not a fresh []) so it can be
+    // restored byte-for-byte afterward — this is a shared-tenant file and
+    // earlier tests' vendor fixtures must survive this test intact.
+    let savedVendors;
+    await runAsTenant('default', async () => {
+      const db = loadDB();
+      savedVendors = db.vendors;
+      delete db.vendors;
+      saveDB(db);
+    });
+    try {
+      const res = await request(app).get('/api/ap-aging').set(auth()).query({ asOf: '2049-04-20', vendorId: 'anything' });
+      expect(res.status).toBe(200);
+      expect(res.body.rows).toEqual([]);
+    } finally {
+      await runAsTenant('default', async () => {
+        const db = loadDB();
+        db.vendors = savedVendors;
+        saveDB(db);
+      });
+    }
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
