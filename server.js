@@ -9848,30 +9848,57 @@ app.get('/api/monitor/status', requireAuth, requirePermission('financials', 'vie
 });
 
 // جدولة تلقائية بدون مكتبة خارجية
+//
+// Owner-review remediation (PR #10 final-gate finding, HIGH — CI-crash root
+// cause + latent production risk): this scheduler used to (a) have no
+// environment guard at all, unlike its sibling startBackupSchedule() just
+// below, and (b) hand msUntilNext()'s raw delay straight to setTimeout,
+// which silently CLAMPS any delay over Node's 32-bit signed limit
+// (2,147,483,647ms ≈ 24.855 days) to fire almost immediately instead —
+// scheduleMonthlyReport()'s own delay (up to ~31 days) crosses that limit on
+// most days of the month. Two independent fixes, both required:
+//
+// 1) Test/non-production guard, mirroring startBackupSchedule()'s own
+//    established, deliberately-chosen pattern (see that function's R3
+//    comment): opt-IN to production only (`!== 'production'`), not opt-out
+//    of test only (`=== 'test'`) — R3 already found the opt-out form
+//    insufficient in this exact codebase, because scripts/departments/
+//    _sandbox.js spawns a real `node server.js` child without ever setting
+//    NODE_ENV, so an opt-out guard would silently miss it. This does not
+//    disable the monitor in real production (NODE_ENV=production still
+//    starts it, unchanged); it only stops it from ever arming during Jest
+//    (which sets NODE_ENV='test' by default), local dev, or a sandbox run —
+//    exactly where a background Telegram-broadcasting timer has no
+//    business running in the first place.
+// 2) scheduleAt() (lib/scheduler.js): both timers now go through a small,
+//    safe, pure, independently-unit-tested re-arming helper that never
+//    hands setTimeout a delay above Node's own safe maximum. It re-derives
+//    the *real* remaining delay against the already-computed absolute
+//    target time on every hop, so a >24.8-day wait is walked down in
+//    bounded chunks rather than clamped — the intended fire moment (and
+//    therefore the report's date/time) is never changed, never fires
+//    early, and fires exactly once per cycle (the next cycle's target is
+//    only computed after the current one's callback runs). Extracted into
+//    lib/scheduler.js — the same "pure logic in a small, Node-requirable
+//    module" pattern already used by public/js/vendorWorkspaceLogic.js —
+//    so this timer-overflow-safety property is directly, deterministically
+//    unit-tested without booting the app, a database, or real wall-clock
+//    time (see tests/scheduler-timer-safety.test.js).
 (function startMonitorSchedule() {
-  function msUntilNext(hour, minute, dayOfMonth) {
-    const now = new Date();
-    const next = new Date(now);
-    next.setHours(hour, minute, 0, 0);
-    if (dayOfMonth) {
-      next.setDate(dayOfMonth);
-      if (next <= now) { next.setMonth(next.getMonth() + 1); next.setDate(dayOfMonth); }
-    } else {
-      if (next <= now) next.setDate(next.getDate() + 1);
-    }
-    return next - now;
-  }
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const { msUntilNext, scheduleAt } = require('./lib/scheduler');
 
   // فحص المخزون يومياً الساعة 8 صباحاً
   function scheduleInventoryCheck() {
-    const delay = msUntilNext(8, 0);
-    setTimeout(() => { runInventoryCheck(); scheduleInventoryCheck(); }, delay);
+    const targetTime = Date.now() + msUntilNext(8, 0);
+    scheduleAt(targetTime, () => { runInventoryCheck(); scheduleInventoryCheck(); });
   }
 
   // تقرير شهري كل أول الشهر الساعة 9 صباحاً
   function scheduleMonthlyReport() {
-    const delay = msUntilNext(9, 0, 1);
-    setTimeout(() => { runMonthlyReport(); scheduleMonthlyReport(); }, delay);
+    const targetTime = Date.now() + msUntilNext(9, 0, 1);
+    scheduleAt(targetTime, () => { runMonthlyReport(); scheduleMonthlyReport(); });
   }
 
   scheduleInventoryCheck();
