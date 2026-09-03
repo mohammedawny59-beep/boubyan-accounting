@@ -8743,7 +8743,17 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
       const ageFrom  = a.dueDate || monthEndDate(a.month);
       const days     = Math.floor((asOf - new Date(ageFrom)) / 86400000);
       return {
-        source: 'accrued-expense', id: a.id, number: a.number, vendor: a.vendor || a.description, description: a.description,
+        // `vendor` stays `a.vendor || a.description` for DISPLAY purposes
+        // only (firm-wide grouping/label — unchanged, backward compatible).
+        // `vendorIdentityText` (owner-review remediation round 3, finding
+        // ACCRUED-DESCRIPTION-MISATTRIBUTION) is the ONLY field a
+        // vendor-scoped ?vendorId= query may resolve identity from: the
+        // genuinely-entered `a.vendor` value, or '' if it was left blank.
+        // `a.description` is accounting narrative text, never vendor
+        // identity — an accrued expense with no explicit vendor is
+        // UNASSIGNED for scoped attribution even if its description
+        // happens to read like a real vendor's name.
+        source: 'accrued-expense', id: a.id, number: a.number, vendor: a.vendor || a.description, vendorIdentityText: a.vendor || '', description: a.description,
         original, paid, outstanding: remain,
         documentDate: monthEndDate(a.month), dueDate: a.dueDate || null, ageFrom, days,
       };
@@ -8751,11 +8761,16 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
 
   // Source 2 (P0.7): vendorBills[] — outstanding already maintained
   // (grossAmount - creditedAmount - paidAmount) by the bill routes themselves.
+  // `vendorId` is carried through unmodified alongside the pre-existing
+  // `vendor` display-name field (owner-review remediation round 2, finding
+  // AREA7-1 cross-vendor-collision) — this is the ONE authoritative
+  // identity a ?vendorId= scoped query below keys off; the display name
+  // is never used for scoping/grouping any real vendorBills-sourced row.
   (db.vendorBills || []).filter(b => b.status !== 'CANCELLED' && b.status !== 'PAID' && b.outstandingAmount > 0.001).forEach(b => {
     const ageFrom = b.dueDate || b.billDate;
     const days = Math.floor((asOf - new Date(ageFrom)) / 86400000);
     outstanding.push({
-      source: 'vendor-bill', id: b.id, number: b.number, vendor: b.vendorName, description: b.description || b.billNumber,
+      source: 'vendor-bill', id: b.id, number: b.number, vendor: b.vendorName, vendorId: b.vendorId, description: b.description || b.billNumber,
       original: b.grossAmount, paid: b.paidAmount, outstanding: b.outstandingAmount,
       documentDate: b.billDate, dueDate: b.dueDate || null, ageFrom, days,
     });
@@ -8771,7 +8786,9 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
     const ageFrom = v.openingDate || null;
     const days = ageFrom ? Math.floor((asOf - new Date(ageFrom)) / 86400000) : null;
     outstanding.push({
-      source: 'vendor-opening', id: 'OB-' + v.id, number: 'OB-' + v.accountId, vendor: v.name, description: 'رصيد افتتاحي',
+      // vendorId carried alongside the display name — see Source 2's own
+      // comment above (owner-review remediation round 2, AREA7-1).
+      source: 'vendor-opening', id: 'OB-' + v.id, number: 'OB-' + v.accountId, vendor: v.name, vendorId: v.id, description: 'رصيد افتتاحي',
       original: amt, paid: 0, outstanding: amt,
       documentDate: ageFrom, dueDate: null, ageFrom, days: days == null ? 0 : days,
     });
@@ -8820,7 +8837,133 @@ app.get('/api/ap-aging', requirePermission('financials', 'view'), (req, res) => 
       : 'فرق حقيقي غير مُرقَّع: على الأرجح مصروف واحد أو أكثر بطريقة دفع "آجل" (payMethod: accrued) رُحِّل عبر POST /api/expenses مباشرة (خارج دورة حياة accruedExpenses[])، أو ترحيل يدوي مباشر لحساب مورد لم يمرّ عبر /api/vendor-bills — راجع GET /api/reports/ledger-diagnostic لتحديد المصدر.',
   };
 
-  res.json({ asOf: asOfStr, rows, grandTotal: subledgerTotal, reconciliation });
+  // Vendor / AP Workspace Upgrade — optional ?vendorId= filter (additive,
+  // opt-in; omitting it reproduces the `rows`/`subledgerTotal`/
+  // `reconciliation` figures above unchanged — already fully and finally
+  // computed from the unfiltered set, grouped by display name exactly as
+  // this route always has been, and nothing below this point changes any
+  // of that firm-wide computation or grouping. Correction, round 3: an
+  // earlier version of this comment claimed the unfiltered response is
+  // "byte-for-byte" identical to before this feature — false as of round 2,
+  // since Source 2/3 items unconditionally gained a `vendorId` field, and
+  // Source 1 items a `vendorIdentityText` field, both now visible in the
+  // unfiltered response's own `rows[].items[]` too; no consumer reads
+  // `items[]` exhaustively, so this has zero functional effect, but the
+  // comment now says so accurately instead of overclaiming exact parity).
+  //
+  // Owner-review remediation round 2 (findings AREA7-1 split-liability and
+  // AREA7-1 cross-vendor-collision — the round-1 exact/normalized-name
+  // filter over the already-grouped `rows` array is REJECTED): vendor
+  // identity, not display-name matching, is now authoritative wherever a
+  // stable vendorId exists. Source 2 (vendor-bill) and Source 3 (vendor-
+  // opening) items above now carry their own real `vendorId` field,
+  // copied straight from the underlying record — a vendor-scoped query
+  // matches those by id alone, never by name, so two vendors whose names
+  // happen to collide (exactly, or after whitespace normalization) can
+  // never leak one's real, GL-posted liability into the other's scoped
+  // view. Source 1 (accrued-expense) items carry no vendorId at all — see
+  // resolveAccruedVendorId() below for how (and when) those get safely
+  // attributed. Building the scoped total directly from `outstanding[]`
+  // (the pre-grouping, per-item array) rather than filtering the already-
+  // grouped `rows[]` also fixes the split-liability bug: a single real
+  // vendor's exposure from multiple sources is summed into exactly one
+  // response row, never left fragmented across several.
+  //
+  // Owner-review remediation round 3 (finding
+  // ACCRUED-DESCRIPTION-MISATTRIBUTION, CRITICAL): Source 1's `vendor`
+  // field (used for firm-wide display/grouping) has always fallen back to
+  // `description` when no explicit vendor was entered — a legitimate
+  // display convenience, but round 2 mistakenly let resolveAccruedVendorId()
+  // resolve identity from that same fallback-including field, so an accrued
+  // expense with NO vendor at all could be silently, confidently attributed
+  // to a real vendor merely because its unrelated description happened to
+  // read like that vendor's name. Fixed by resolving identity exclusively
+  // from `vendorIdentityText` (the genuinely-entered `a.vendor`, or '' if
+  // blank) — `description` never has identity authority, only display
+  // authority. A vendor-less accrued expense is now unresolved for
+  // vendor-scoped attribution regardless of its description, while still
+  // counting toward the firm-wide total exactly as before (firm-wide
+  // grouping/display still uses the original `vendor` field, unchanged).
+  let responseRows = rows;
+  if (req.query.vendorId) {
+    const targetVendor = (db.vendors || []).find(v => v.id === req.query.vendorId);
+    if (!targetVendor) {
+      responseRows = [];
+    } else {
+      const normalizeVendorName = s => String(s || '').trim().replace(/\s+/g, ' ');
+      const allVendors = db.vendors || [];
+      // Resolve one accrued-expense item's genuinely-entered `vendor` field
+      // (never its `description`/display-label fallback — owner-review
+      // remediation round 3, finding ACCRUED-DESCRIPTION-MISATTRIBUTION:
+      // description is accounting narrative text, not vendor identity, and
+      // must never gain identity authority just because it happens to read
+      // like a real vendor's name) to a real vendorId ONLY when exactly one
+      // vendor's (normalized) name matches it — never guessed, never
+      // fuzzy, and never persisted back onto the historical accrued-expense
+      // record; this result exists only for the duration of this one
+      // request/response. Callers MUST pass `vendorIdentityText`, never
+      // `vendor` (which still carries the description fallback for display).
+      function resolveAccruedVendorId(rawVendorText) {
+        const normalized = normalizeVendorName(rawVendorText);
+        if (!normalized) return { status: 'unresolved', vendorId: null, candidateIds: [] };
+        const matches = allVendors.filter(v => normalizeVendorName(v.name) === normalized);
+        if (matches.length === 1) return { status: 'resolved', vendorId: matches[0].id, candidateIds: [] };
+        if (matches.length === 0) return { status: 'unresolved', vendorId: null, candidateIds: [] };
+        // 2+ real vendors share this normalized name — genuinely
+        // ambiguous. Never attribute this liability to any of them.
+        return { status: 'ambiguous', vendorId: null, candidateIds: matches.map(v => v.id) };
+      }
+
+      let ambiguousAmountExcluded = false;
+      const scopedItems = [];
+      outstanding.forEach(i => {
+        if (i.source === 'vendor-bill' || i.source === 'vendor-opening') {
+          if (i.vendorId === req.query.vendorId) scopedItems.push(i);
+          return;
+        }
+        // i.source === 'accrued-expense' — no stable vendorId; resolve
+        // from the genuinely-entered vendor text ONLY (never `i.vendor`,
+        // which for a vendor-less item falls back to `description` — see
+        // finding ACCRUED-DESCRIPTION-MISATTRIBUTION). An accrued expense
+        // created with no explicit vendor is unresolved here regardless of
+        // what its description says, even if that text happens to match a
+        // real vendor's name exactly.
+        const resolution = resolveAccruedVendorId(i.vendorIdentityText);
+        if (resolution.status === 'resolved' && resolution.vendorId === req.query.vendorId) {
+          scopedItems.push(i);
+        } else if (resolution.status === 'ambiguous' && resolution.candidateIds.includes(req.query.vendorId)) {
+          // This vendor is one of several this free-text amount COULD
+          // belong to — never silently attributed, but the scoped result
+          // must not read as conclusively complete either.
+          ambiguousAmountExcluded = true;
+        }
+      });
+
+      if (!scopedItems.length && !ambiguousAmountExcluded) {
+        responseRows = [];
+      } else {
+        const scopedBuckets = { current: 0, days30: 0, days60: 0, days90: 0, over90: 0 };
+        scopedItems.forEach(i => {
+          if      (i.days <= 30) scopedBuckets.current += i.outstanding;
+          else if (i.days <= 60) scopedBuckets.days30  += i.outstanding;
+          else if (i.days <= 90) scopedBuckets.days60  += i.outstanding;
+          else                    scopedBuckets.over90  += i.outstanding;
+        });
+        Object.keys(scopedBuckets).forEach(k => scopedBuckets[k] = r3(scopedBuckets[k]));
+        const scopedRow = {
+          vendor: targetVendor.name, total: r3(scopedItems.reduce((s, i) => s + i.outstanding, 0)),
+          buckets: scopedBuckets, count: scopedItems.length, items: scopedItems,
+        };
+        // Additive-only metadata — absent entirely unless a real
+        // ambiguity affects THIS vendor; existing consumers reading only
+        // vendor/total/buckets/count/items are unaffected either way.
+        if (ambiguousAmountExcluded) scopedRow.ambiguousAmountExcluded = true;
+        responseRows = [scopedRow];
+      }
+    }
+  }
+
+  res.json({ asOf: asOfStr, rows: responseRows, grandTotal: subledgerTotal, reconciliation });
 });
 
 // ═══════════════════════════════════════════════════
@@ -9705,30 +9848,57 @@ app.get('/api/monitor/status', requireAuth, requirePermission('financials', 'vie
 });
 
 // جدولة تلقائية بدون مكتبة خارجية
+//
+// Owner-review remediation (PR #10 final-gate finding, HIGH — CI-crash root
+// cause + latent production risk): this scheduler used to (a) have no
+// environment guard at all, unlike its sibling startBackupSchedule() just
+// below, and (b) hand msUntilNext()'s raw delay straight to setTimeout,
+// which silently CLAMPS any delay over Node's 32-bit signed limit
+// (2,147,483,647ms ≈ 24.855 days) to fire almost immediately instead —
+// scheduleMonthlyReport()'s own delay (up to ~31 days) crosses that limit on
+// most days of the month. Two independent fixes, both required:
+//
+// 1) Test/non-production guard, mirroring startBackupSchedule()'s own
+//    established, deliberately-chosen pattern (see that function's R3
+//    comment): opt-IN to production only (`!== 'production'`), not opt-out
+//    of test only (`=== 'test'`) — R3 already found the opt-out form
+//    insufficient in this exact codebase, because scripts/departments/
+//    _sandbox.js spawns a real `node server.js` child without ever setting
+//    NODE_ENV, so an opt-out guard would silently miss it. This does not
+//    disable the monitor in real production (NODE_ENV=production still
+//    starts it, unchanged); it only stops it from ever arming during Jest
+//    (which sets NODE_ENV='test' by default), local dev, or a sandbox run —
+//    exactly where a background Telegram-broadcasting timer has no
+//    business running in the first place.
+// 2) scheduleAt() (lib/scheduler.js): both timers now go through a small,
+//    safe, pure, independently-unit-tested re-arming helper that never
+//    hands setTimeout a delay above Node's own safe maximum. It re-derives
+//    the *real* remaining delay against the already-computed absolute
+//    target time on every hop, so a >24.8-day wait is walked down in
+//    bounded chunks rather than clamped — the intended fire moment (and
+//    therefore the report's date/time) is never changed, never fires
+//    early, and fires exactly once per cycle (the next cycle's target is
+//    only computed after the current one's callback runs). Extracted into
+//    lib/scheduler.js — the same "pure logic in a small, Node-requirable
+//    module" pattern already used by public/js/vendorWorkspaceLogic.js —
+//    so this timer-overflow-safety property is directly, deterministically
+//    unit-tested without booting the app, a database, or real wall-clock
+//    time (see tests/scheduler-timer-safety.test.js).
 (function startMonitorSchedule() {
-  function msUntilNext(hour, minute, dayOfMonth) {
-    const now = new Date();
-    const next = new Date(now);
-    next.setHours(hour, minute, 0, 0);
-    if (dayOfMonth) {
-      next.setDate(dayOfMonth);
-      if (next <= now) { next.setMonth(next.getMonth() + 1); next.setDate(dayOfMonth); }
-    } else {
-      if (next <= now) next.setDate(next.getDate() + 1);
-    }
-    return next - now;
-  }
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const { msUntilNext, scheduleAt } = require('./lib/scheduler');
 
   // فحص المخزون يومياً الساعة 8 صباحاً
   function scheduleInventoryCheck() {
-    const delay = msUntilNext(8, 0);
-    setTimeout(() => { runInventoryCheck(); scheduleInventoryCheck(); }, delay);
+    const targetTime = Date.now() + msUntilNext(8, 0);
+    scheduleAt(targetTime, () => { runInventoryCheck(); scheduleInventoryCheck(); });
   }
 
   // تقرير شهري كل أول الشهر الساعة 9 صباحاً
   function scheduleMonthlyReport() {
-    const delay = msUntilNext(9, 0, 1);
-    setTimeout(() => { runMonthlyReport(); scheduleMonthlyReport(); }, delay);
+    const targetTime = Date.now() + msUntilNext(9, 0, 1);
+    scheduleAt(targetTime, () => { runMonthlyReport(); scheduleMonthlyReport(); });
   }
 
   scheduleInventoryCheck();
