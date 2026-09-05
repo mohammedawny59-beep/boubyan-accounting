@@ -1,68 +1,78 @@
 # Quickstart: Verifying Tenant Isolation + Backup/Restore Hardening (P4)
 
-All steps run against an **isolated local/test environment** — `DB_FILE_ONLY=true` or a `mongodb-memory-server` instance started via `tests/helpers/mongoTestHarness.js`. None of these steps touch production or demo. This mirrors the existing project convention (see `feedback-staging-environment-safety` operating note) rather than inventing a new verification environment.
+**Revised in Design Remediation Pass 1** — steps 6-8 rewritten for the offline-staging redesign; steps 9-12 added for the restore lock, digest-based resume, backup fingerprint, and default-duplicate pre-flight.
+
+All steps run against an **isolated local/test environment** — `DB_FILE_ONLY=true` or a `mongodb-memory-server` instance via `tests/helpers/mongoTestHarness.js`. None touch production or demo.
 
 ## 1. Prerequisite: two tenants with colliding identifiers
 
-Seed data deliberately shaped to reproduce the original bugs, not just "two tenants with different data":
-- Tenant `default` and a second tenant `acme` (or any real-flow-registered tenant id).
-- Give both a user with the **same** `id` value (e.g. `usr-1`) and an `EntityChunk` with the **same** `key` (e.g. `vendors`) but different `data`.
-- This is the exact shape that made `persistUsers()`/`persistEntityKey()`'s unscoped filters dangerous — two tenants sharing an identifier value is normal (ids are assigned per-tenant, not globally), not a contrived edge case.
+Seed `default` and a second tenant `acme` with a user sharing the same `id` (e.g. `usr-1`) and an `EntityChunk` sharing the same `key` (e.g. `vendors`) but different data — the exact shape that made the original unscoped filters dangerous.
 
-## 2. Verify tenant-safe Mongo writes (A)
+## 2. Verify tenant-safe Mongo writes (A) — unchanged
 
-1. As `default`, trigger any write that flows through `saveDB()` (e.g. create/edit an expense).
-2. Re-read `acme`'s `usr-1` user and `vendors` entity chunk directly from Mongo.
-3. Expected: byte-identical to before step 1. Before this phase's fix, `acme`'s documents could be deleted or overwritten by `default`'s own save.
+As `default`, save; re-read `acme`'s same-`id`/`key` documents directly from Mongo; confirm byte-identical.
 
-## 3. Verify tenant-safe config (B)
+## 3. Verify tenant-safe config, including cold-start and file-fallback (B) — revised
 
-1. As `acme`, change a config value (e.g. a fee rate or branding field) via whatever route calls `saveConfig()`.
-2. As `default`, call `loadConfig()` (any route that reads config).
-3. Expected: `default` never sees `acme`'s value, and vice versa. Before this phase's fix, there was exactly one shared `_configCache` for every tenant in the process.
+1. As `acme`, `saveConfig()`; as `default`, `loadConfig()`; confirm no cross-visibility.
+2. **Cold-miss fail-closed (new)**: call `loadConfig()` for a tenant whose config was never warmed (bypassing `tenantMiddleware` deliberately); confirm it throws rather than returning `default`'s config.
+3. **File-fallback (new)**: under `DB_FILE_ONLY=true`, `saveConfig()` for `acme`, clear `_tenantConfigCaches`, `warmTenantConfigCache('acme')` again; confirm the value survives and zero Mongo connection was attempted.
 
-## 4. Verify Telegram/monitor default-only boundary (C)
+## 4. Verify Telegram/monitor default-only boundary (C) — now five routes
 
-1. As an authenticated `acme` user with the relevant permission, call each of: `POST /api/telegram/start`, `POST /api/monitor/inventory`, `POST /api/monitor/monthly-report`, `POST /api/reports/send-telegram`.
-2. Expected: `403` with `code: 'TELEGRAM_DEFAULT_TENANT_ONLY'` on all four, and no message sent / no bot state changed.
-3. Repeat as a `default`-tenant user: expected unchanged, pre-existing behavior (regression guard).
+Call, as `acme`: `POST /api/telegram/start`, `POST /api/monitor/inventory`, `POST /api/monitor/monthly-report`, `POST /api/reports/send-telegram`, and **`GET /api/monitor/status`**. Confirm `403` + `TELEGRAM_DEFAULT_TENANT_ONLY` on all five, including that the status route discloses no `botActive`/`chatIdSet` value. Repeat as `default`: confirm unchanged behavior.
 
-## 5. Verify tenant-scoped backup (D)
+## 5. Verify tenant-scoped backup, including the default-duplicate pre-flight (D)
 
 ```
 node scripts/tenant-backup.js --tenant=acme
 ```
-1. Expected: `backups/tenant-acme-<stamp>.json` created, `scope:'tenant'`, `tenantId:'acme'`.
-2. Open the file; confirm zero documents belong to `default` or any other tenant.
-3. Run `node scripts/tenant-backup.js` (no `--tenant=`): expected non-zero exit, no file written.
-4. Run `node scripts/tenant-backup.js --tenant=default`: expected the legacy no-`tenantId`-field seed data from step 1 IS present.
+1. `backups/tenant-acme-<stamp>.json` created: `scope:'tenant'`, `tenantId:'acme'`, `collections:{users,entityChunks,appConfigs}` — **no `tenants`/`subscriptions` key**.
+2. Confirm zero `default`-owned documents in the file.
+3. No `--tenant=` → non-zero exit, no file.
+4. `--tenant=default` → legacy no-`tenantId`-field seed data (seeded via the **raw driver**, not `Model.create()`) is present.
+5. **Default-duplicate pre-flight (new)**: seed a genuine duplicate `default` identity (raw-driver-seeded legacy copy + explicit `tenantId:'default'` copy of the same `id`); attempt `--tenant=default`; confirm hard failure naming the exact identity, zero file written.
+6. Seed a real `IdempotencyRecord` and an `EntityChunk` keyed `idempotencyRecords` for `acme`; back it up; confirm neither appears anywhere in the output.
 
-## 6. Verify tenant-scoped restore (E/F) — full staged sequence
+## 6. Verify offline restore staging touches nothing live (E/F)
 
-1. Mutate `acme`'s data further (so it now differs from the step-5 backup).
-2. `node scripts/tenant-restore.js backups/tenant-acme-<stamp>.json --tenant=acme --target=local-test --yes`
-3. Expected: `acme`'s data matches the backup exactly; `default`'s data (and any other seeded tenant) is byte-identical to before the restore.
-4. Inspect `backups/.restore-checkpoints/<runId>.json`: `stage:'completed'`, `collectionsSwapped` includes every expected collection.
+1. Start `tenant-restore.js` for `acme` against the step-5 backup.
+2. **Before** the apply step reaches `entityChunks` (pause via a test hook, or inspect immediately after Step 3 completes): query the live database directly and confirm **zero** documents exist under any placeholder/synthetic `tenantId` — staging wrote only to a local file (`backups/.restore-staging/<runId>.json`), never to Mongo.
+3. Let it complete; confirm `acme`'s data matches the backup and `default`'s data is untouched.
 
-## 7. Verify restore rejects the wrong input (E)
+## 7. Verify the restore lock (NEW)
 
-1. Feed `acme`'s tenant-scoped backup with `--tenant=default` (mismatched target): expected hard rejection, zero writes, before any Mongo connection's data is touched.
-2. Feed a whole-instance backup file (from `npm run backup`) into `tenant-restore.js`: expected rejection at the `scope` check, zero writes.
+1. Start two `tenant-restore.js` processes against the same tenant and backup concurrently.
+2. Confirm exactly one acquires the lock and proceeds; the other is rejected immediately (before it even opens the backup file), naming the held lock's `runId`/`pid`/age.
+3. After the first completes (lock released), confirm a third invocation now succeeds normally.
 
-## 8. Verify partial-failure recovery is deterministic (F)
+## 8. Verify digest-based resume closes the checkpoint-lies window (G/H)
 
-1. Using a test hook or manual interruption, force `tenant-restore.js` to fail after the `users` collection swaps but before `entityChunks`.
-2. Expected: `acme`'s `users` now match the backup; `acme`'s `entityChunks`/`appConfigs` are unchanged from before the restore attempt; checkpoint file shows `collectionsSwapped: ['users']`, `stage:'failed'`.
-3. Re-run the same command: expected it completes successfully with no leftover synthetic `__restage__` documents in any collection afterward.
+1. Apply `users` successfully.
+2. Kill the process (a real process kill, not a caught exception) before `entityChunks`'s checkpoint entry is written — simulating a crash exactly between a category's DB write succeeding and its checkpoint write landing.
+3. Re-run with the **same** backup file. Confirm: `users` is **not** redundantly deleted/reinserted (its live digest already matches `expected`), while `entityChunks`/`appConfigs` proceed normally to completion.
+4. Confirm the final checkpoint shows `stage:'completed'` and all three categories in `categoriesApplied`.
 
-## 9. Whole-instance path regression check (H)
+## 9. Verify the mandatory mid-apply failure injection (unchanged intent)
 
-1. Run the existing `npm run backup` / `npm run restore -- --target=local-test` exactly as before this phase.
-2. Expected: byte-identical behavior to before this phase — these two scripts are not modified at all.
+Force a failure after `users` applies but before `entityChunks` begins. Confirm: Tenant B untouched; `acme`'s `entityChunks`/`appConfigs` unchanged from pre-restore; `acme`'s `users` matches the backup; checkpoint `stage:'failed'`, `categoriesApplied:['users']`; non-zero exit; no false success message.
 
-## 10. Full regression
+## 10. Verify the backup-fingerprint check rejects a mismatched resume (NEW)
+
+After step 9's partial failure, re-invoke `tenant-restore.js` for the same tenant with a **different** backup file. Confirm hard rejection before any further write, naming both files' fingerprints.
+
+## 11. Verify restore rejects the wrong format (E) — updated
+
+1. Feed `acme`'s tenant-scoped backup into `scripts/restore.js` (whole-instance, unmodified): confirm rejection via the new, deliberate `scope==='tenant'` guard in `validateBackupObject()`.
+2. Feed a whole-instance backup into `tenant-restore.js`: confirm rejection at Step 1.2.
+
+## 12. Whole-instance path regression check (H) — unchanged
+
+`npm run backup` / `npm run restore -- --target=local-test` behave exactly as before this phase.
+
+## 13. Full regression
 
 ```
 npm test
 ```
-Expected: the full existing suite still passes (single-tenant/`default` behavior is a required regression target per spec.md, "Regression" test category), plus every new test file this phase adds (see `plan.md` Project Structure).
+Full existing suite passes, plus every new test file from this phase.

@@ -1,6 +1,8 @@
 # Contract: Telegram / Scheduler Default-Tenant-Only Boundary (C)
 
-HTTP contract — four existing routes gain one explicit check each. No route's existing `requireAuth`/`tenantMiddleware`/`requirePermission`/`requireAdminAction` gate is weakened, removed, or reordered; the new check is inserted immediately after those, before any Telegram/scheduler side effect.
+**Revised in Design Remediation Pass 1**: a fifth route (`GET /api/monitor/status`) is added to the guarded list (research.md Decision 3) — `/speckit-analyze` found it reads the same process-global `bot`/config state the other four protect, but was excluded because the original design only reasoned about routes that could *change* that state, not ones that merely *read* it (spec.md FR-032).
+
+HTTP contract — five existing routes gain one explicit check each. No route's existing `requireAuth`/`tenantMiddleware`/`requirePermission`/`requireAdminAction` gate is weakened, removed, or reordered; the new check is inserted immediately after those, before any Telegram/scheduler side effect (or, for the status route, before any process-global state is read into the response).
 
 ## Guarded routes
 
@@ -10,6 +12,7 @@ HTTP contract — four existing routes gain one explicit check each. No route's 
 | `POST /api/monitor/inventory` | `server.js:9822` | `requireAuth, requireAdminAction('monitor.trigger_inventory')` |
 | `POST /api/monitor/monthly-report` | `server.js:9826` | `requireAuth, requireAdminAction('monitor.trigger_monthly_report')` |
 | `POST /api/reports/send-telegram` | `server.js:15987` | `requireAuth, requirePermission('reports','export')` |
+| `GET /api/monitor/status` | `server.js:9830` | `requireAuth, requirePermission('financials','view')` |
 
 ## New check (identical shape on all four)
 
@@ -24,9 +27,9 @@ if (req.tenantId && req.tenantId !== 'default') {
 
 **Response contract**: `403`, structured JSON body with a stable `code` field (`TELEGRAM_DEFAULT_TENANT_ONLY`) so a future frontend can detect and message this distinctly from a generic permission failure — never a silent `200` that pretends the action happened, and never a silent fallback that acts on the `default` tenant's behalf without telling the caller.
 
-## Why these four and not the ~50 `bot.sendMessage()` call sites inside `setupBot()`
+## Why these five and not the ~50 `bot.sendMessage()` call sites inside `setupBot()`
 
-`setupBot(bot)`'s inbound-message handlers (`server.js:2700-3735`) fire from Telegram's own polling loop — outside any `runAsTenant()` context — so they already, unconditionally, operate on the `default` tenant's `loadDB()`/`loadConfig()` (AsyncLocalStorage has no active store, `_currentTenantId()` falls back to `'default'`, `lib/database.js:24-26`). The only way a non-`default` tenant could ever cause those handlers to run against a bot that isn't `default`'s own is by reaching route (1) above and reconfiguring the process-global `bot` singleton. Blocking route (1) for non-`default` tenants makes every downstream handler's tenant identity moot — they can only ever be `default`'s bot, talking to `default`'s Telegram chat, mutating `default`'s data, exactly as today's single-clinic deployment already behaves. Routes (2)-(4) are blocked independently because they are additional entry points that touch the same singleton/its config directly, not because the root-cause fix in (1) is insufficient — defense in depth, not redundant plumbing.
+`setupBot(bot)`'s inbound-message handlers (`server.js:2700-3735`) fire from Telegram's own polling loop — outside any `runAsTenant()` context — so they already, unconditionally, operate on the `default` tenant's `loadDB()`/`loadConfig()` (AsyncLocalStorage has no active store, `_currentTenantId()` falls back to `'default'`, `lib/database.js:24-26`). The only way a non-`default` tenant could ever cause those handlers to run against a bot that isn't `default`'s own is by reaching route (1) above and reconfiguring the process-global `bot` singleton. Blocking route (1) for non-`default` tenants makes every downstream handler's tenant identity moot — they can only ever be `default`'s bot, talking to `default`'s Telegram chat, mutating `default`'s data, exactly as today's single-clinic deployment already behaves. Routes (2)-(5) are blocked independently because they are additional entry points that touch the same singleton/its config directly (mutating it, or — route 5 — merely reading and disclosing its live status to a caller of any tenant), not because the root-cause fix in (1) is insufficient — defense in depth, not redundant plumbing. Route 5 (`GET /api/monitor/status`) uses the identical `403`/`code` response, chosen for consistency over a softer "safe tenant-local status" alternative — a caller integrating against this boundary should not need to special-case one of five otherwise-identical routes (research.md Decision 3).
 
 ## Already-safe, unchanged (verified, not modified)
 
@@ -34,6 +37,6 @@ if (req.tenantId && req.tenantId !== 'default') {
 
 ## Test contract
 
-1. Authenticate as a non-`default` tenant user with every permission needed to normally pass each route's existing gate; call each of the four routes; assert `403` + `code:'TELEGRAM_DEFAULT_TENANT_ONLY'`, and assert `global._tgBot`/`bot` is unchanged (for route 1) / no message was sent (for routes 2-4, via a mocked `sendMessage`).
+1. Authenticate as a non-`default` tenant user with every permission needed to normally pass each route's existing gate; call each of the five routes; assert `403` + `code:'TELEGRAM_DEFAULT_TENANT_ONLY'`, and assert `global._tgBot`/`bot` is unchanged (for route 1) / no message was sent (for routes 2-4, via a mocked `sendMessage`) / the response body discloses no `botActive`/`chatIdSet` value (for route 5).
 2. Authenticate as a `default`-tenant user with the same permissions; call each route; assert unchanged pre-existing behavior (regression guard — this phase must not break the single-clinic flow every current test already exercises).
-3. Confirm via code inspection (not a runtime test — no real Telegram credentials in this repo) that no fifth route touching `bot`/`global._tgBot`/`TelegramBot` exists beyond the four listed; `/speckit-tasks` MUST re-run the grep in research.md Decision 3 immediately before implementation to catch any route added between this plan and implementation.
+3. Confirm via code inspection (not a runtime test — no real Telegram credentials in this repo) that no sixth route touching `bot`/`global._tgBot`/`TelegramBot` exists beyond the five listed (re-confirmed by a full-file grep during remediation pass 1, research.md Decision 3); `/speckit-tasks` MUST re-run that same grep immediately before implementation to catch any route added since.

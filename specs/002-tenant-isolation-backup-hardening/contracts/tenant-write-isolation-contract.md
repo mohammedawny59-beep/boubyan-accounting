@@ -1,8 +1,10 @@
 # Contract: Tenant-Safe Mongo Writes (A) + Tenant-Safe Config (B)
 
-Internal function contracts — not HTTP endpoints. Callers are unaffected (`flushToMongo()`, `persistAll()`, every route that calls `loadConfig()`/`saveConfig()`); only the functions' internal filters change.
+**Revised in Design Remediation Pass 1** — Section A is unchanged (survived `/speckit-analyze`). Section B is substantially redesigned (research.md Decision 2, 3).
 
-## `persistUsers(users)` — default-tenant path (`lib/database.js:424`)
+Internal function contracts — not HTTP endpoints. Callers are unaffected (`flushToMongo()`, `persistAll()`, every route that calls `loadConfig()`/`saveConfig()`); only the functions' internal filters/caching change.
+
+## `persistUsers(users)` — default-tenant path (`lib/database.js:424`) — UNCHANGED
 
 **Before**
 ```js
@@ -22,55 +24,72 @@ filter: { ..._defaultTenantFilter, id: u.id }
 update: { $set: { tenantId: 'default', ...u } }       // normalizes forward
 ```
 
-**Guarantees**
-- MUST NOT match, delete, or overwrite any document whose `tenantId` is a real non-`default` tenant identity.
-- MUST still match a legacy document with no `tenantId` field, or `tenantId: null`, or `tenantId: 'default'` (all three shapes `_defaultTenantFilter` covers).
-- Every document written by this path MUST carry an explicit `tenantId: 'default'` after the write, even if it did not before.
+**Guarantees**: unchanged from the original pass — never matches a real non-`default` tenant's document; still matches a legacy no-`tenantId`-field document; every write normalizes `tenantId:'default'` forward.
 
-**Non-goal**: does not retroactively deduplicate a pre-existing pair of (legacy no-field doc, already-normalized doc) sharing the same `id` — see research.md Decision 1's residual-risk note.
+## `persistEntityKey(key, data)` — default-tenant path (`lib/database.js:445`) — UNCHANGED
 
-## `persistEntityKey(key, data)` — default-tenant path (`lib/database.js:445`)
+`updateOne({..._defaultTenantFilter, key}, {$set:{tenantId:'default', data, updatedAt}}, {upsert:true})`. Unchanged.
 
-**Before**: `updateOne({key}, {$set:{data,updatedAt}}, {upsert:true})` — matches any tenant's chunk for that key.
+## `loadConfig()` / `saveConfig(cfg)` (`lib/database.js:801-815`) — REDESIGNED
 
-**After**: `updateOne({..._defaultTenantFilter, key}, {$set:{tenantId:'default', data, updatedAt}}, {upsert:true})`.
+**Rejected (original pass) design**: an inline `AppConfig.findOne(...).lean()` inside `loadConfig()`'s non-default branch. **Rejected because**: `loadConfig()` is, and must remain, synchronous — a Mongo round-trip cannot execute inline inside a sync function, and none of `loadConfig()`'s ~18 existing synchronous call sites in `server.js` may become `await`ers (spec.md FR-022).
 
-**Guarantees**: identical shape to `persistUsers()` above — never touches a real tenant's `EntityChunk` document; always normalizes `tenantId` forward on write.
+**Contract (revised)** — two-part design mirroring `warmTenantCache()`/`loadDB()` exactly:
 
-## `loadConfig()` / `saveConfig(cfg)` (`lib/database.js:801-815`)
-
-**Contract (new)**:
 ```
-loadConfig():
-  tid = _currentTenantId()
-  if tid === 'default':
-    return deepMerge(_defaultConfig, _configCache)          # unchanged behavior
+// Async — called by tenantMiddleware, never by a route handler directly
+async function warmTenantConfigCache(tenantId):
+  if tenantId === 'default': return                      # already synchronously populated at boot
+  if _tenantConfigCaches.has(tenantId): return            # already warm
+  if _useFileFallback:
+    doc = fs.existsSync(_tenantConfigFilePath(tenantId)) ? fs.readJsonSync(...) : null
   else:
-    if _tenantConfigCaches.has(tid): return cached value
-    doc = AppConfig.findOne({ tenantId: tid, key: 'config' }).lean()
-    resolved = deepMerge(_defaultConfig, doc?.data || {})
-    _tenantConfigCaches.set(tid, resolved)
-    return resolved
+    doc = (await AppConfig.findOne({tenantId, key:'config'}).lean())?.data
+  resolved = deepMerge(_defaultConfig, doc || {})
+  _tenantConfigCaches.set(tenantId, resolved)
 
-saveConfig(cfg):
+// Synchronous — unchanged call signature, every existing caller untouched
+function loadConfig():
   tid = _currentTenantId()
   if tid === 'default':
-    _configCache = cfg; _configDirty = true; schedulePersist()  # unchanged behavior
+    return deepMerge(_defaultConfig, _configCache)         # UNCHANGED behavior
+  if _tenantConfigCaches.has(tid):
+    return _tenantConfigCaches.get(tid)
+  throw new Error(`Tenant config not warmed for "${tid}"`)  # fail closed — a bug, not a cold path
+
+// Synchronous — unchanged call signature
+function saveConfig(cfg):
+  tid = _currentTenantId()
+  if tid === 'default':
+    _configCache = cfg; _configDirty = true; schedulePersist()   # UNCHANGED behavior
   else:
     _tenantConfigCaches.set(tid, cfg)
-    _tenantConfigDirty.add(tid)
-    _scheduleTenantPersist(tid)   # existing per-tenant debounce timer
+    if _useFileFallback:
+      _scheduleTenantConfigFilePersist(tid)                       # new: writes _tenantConfigFilePath(tid)
+    else:
+      _tenantConfigDirty.add(tid)
+      _scheduleTenantPersist(tid)                                 # EXISTING per-tenant debounce timer (reused)
+```
+
+**`lib/tenantMiddleware.js:94`** gains one line, alongside the existing warm call:
+```js
+await warmTenantCache(tenantId);
+await warmTenantConfigCache(tenantId);   // NEW
+if (!_refreshLiveUser(req)) return res.status(401)...
 ```
 
 **Guarantees**
-- A `saveConfig()` call while `_currentTenantId() === 'A'` MUST NOT become visible to a subsequent `loadConfig()` call while `_currentTenantId() === 'B'`, for any `A !== B`.
-- `default`'s own Mongo read/write (inside the `tid==='default'` branch's underlying `initConfig()`/`flushToMongo()` calls) gets the identical `_defaultTenantFilter` + normalize-forward treatment as User/EntityChunk, for the identical legacy-record reason.
-- A tenant's first-ever `loadConfig()` call (no existing `AppConfig` document) returns a merge over `_defaultConfig` — never `{}` or a crash.
-- This contract does NOT decide whether a request lacking any resolved tenant context is allowed to reach `loadConfig()`/`saveConfig()` at all — that fail-closed decision belongs to `tenantMiddleware` (existing FR-002), not to these functions.
+- A `saveConfig()` call while `_currentTenantId() === 'A'` MUST NOT become visible to a `loadConfig()` call while `_currentTenantId() === 'B'`, for any `A !== B`.
+- `loadConfig()`'s signature, synchronicity, and every existing call site are **completely unchanged** — the only new observable behavior is a thrown error, and only when a non-`default` tenant's config was never warmed (unreachable via any existing route, since `tenantMiddleware` always warms it first — spec.md FR-022).
+- `_useFileFallback`: non-`default` tenant config is read from and written to `data/tenants/<tid>.config.json` (a sibling to that tenant's `<tid>.json` data file, both sanitized via the same path helper) — **no Mongo call of any kind is attempted in file mode** (spec.md FR-023).
+- `default`'s own Mongo read/write gets the identical `_defaultTenantFilter` + normalize-forward treatment as User/EntityChunk (unchanged from the original pass).
+- `_tenantConfigCaches`/`_tenantConfigDirty` are cleared by `initDB()`'s existing P0.11 cross-backend reset block (`lib/database.js:945-951`), alongside `_tenantCaches`/`_tenantDirty` — no config survives a same-process backend switch.
 
-## Test contract (both)
+## Test contract (revised)
 
-1. **Isolation**: Tenant A saves a config value; Tenant B's `loadConfig()` in the same process never observes it (direct unit test against the two new Maps, no HTTP layer needed).
-2. **Cross-tenant write safety**: seed a `User`/`EntityChunk` document for Tenant B; call the default-tenant `persistUsers()`/`persistEntityKey()` with data that would, under the old unscoped filter, have matched Tenant B's document (e.g. same `id`/`key`); assert Tenant B's document is byte-for-byte unchanged afterward.
-3. **Legacy compatibility**: seed a `User`/`EntityChunk` document with no `tenantId` field at all; call the default-tenant write path; assert the *same* document is updated (not duplicated) and now carries `tenantId:'default'` explicitly.
-4. **Default config legacy compatibility**: seed an `AppConfig` document with no `tenantId` field; call `saveConfig()` under `tid==='default'`; assert no duplicate `AppConfig` document is created.
+1. **Isolation**: Tenant A's `saveConfig()`, followed by warming and reading Tenant B's config, never observes Tenant A's value.
+2. **Cross-tenant write safety**: unchanged from the original pass (seed Tenant B, write via default's path, assert unchanged).
+3. **Legacy compatibility**: unchanged (legacy no-`tenantId`-field `AppConfig` document, seeded via the raw driver per spec.md FR-027 — see the test-quality remediation in `tenant-restore-contract.md` — is normalized in place, never duplicated).
+4. **Cold-miss fail-closed (NEW)**: call `loadConfig()` for a non-`default` tenant that was never warmed (bypassing `tenantMiddleware` deliberately, to simulate the bug this guard exists for) and assert it throws — never returns `_defaultConfig` or another tenant's cached value.
+5. **File-fallback persistence (NEW)**: under `DB_FILE_ONLY=true`, `saveConfig()` for a non-`default` tenant, restart the cache (clear `_tenantConfigCaches`), `warmTenantConfigCache()` again, and assert the value survives — with zero Mongo connection attempted at any point (assert via a Mongo-connection spy/mock that no query fires).
+6. **Cross-backend reset (NEW)**: warm a non-`default` tenant's config under one backend, call `initDB()` again against a different, empty backend, and assert the tenant's config cache does not carry over (mirrors the existing P0.11 regression test pattern for `_tenantCaches`).
