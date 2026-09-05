@@ -1,6 +1,6 @@
 # Quickstart: Verifying Tenant Isolation + Backup/Restore Hardening (P4)
 
-**Revised in Design Remediation Pass 1** — steps 6-8 rewritten for the offline-staging redesign; steps 9-12 added for the restore lock, digest-based resume, backup fingerprint, and default-duplicate pre-flight.
+**Revised in Design Remediation Pass 1, corrected again in a second pass** — steps 6-8 rewritten for the offline-staging redesign; steps 9-12 added for the restore lock, digest-based resume, backup fingerprint, and default-duplicate pre-flight; second pass adds the `--force-unlock`-after-any-crash requirement to steps 7-8, corrects the checkpoint/staging paths to be tenant-keyed, adds an `entityChunks` key-scoping check to step 6, and adds a "Recovery model" summary.
 
 All steps run against an **isolated local/test environment** — `DB_FILE_ONLY=true` or a `mongodb-memory-server` instance via `tests/helpers/mongoTestHarness.js`. None touch production or demo.
 
@@ -37,21 +37,22 @@ node scripts/tenant-backup.js --tenant=acme
 ## 6. Verify offline restore staging touches nothing live (E/F)
 
 1. Start `tenant-restore.js` for `acme` against the step-5 backup.
-2. **Before** the apply step reaches `entityChunks` (pause via a test hook, or inspect immediately after Step 3 completes): query the live database directly and confirm **zero** documents exist under any placeholder/synthetic `tenantId` — staging wrote only to a local file (`backups/.restore-staging/<runId>.json`), never to Mongo.
-3. Let it complete; confirm `acme`'s data matches the backup and `default`'s data is untouched.
+2. **Before** the apply step reaches `entityChunks` (pause via a test hook, or inspect immediately after Step 3 completes): query the live database directly and confirm **zero** documents exist under any placeholder/synthetic `tenantId` — staging wrote only to a local file (`backups/.restore-staging/<tenantId>.json`), never to Mongo.
+3. Let it complete; confirm `acme`'s data matches the backup and `default`'s data is untouched, and that the Step-0 restore lock and `acme`'s own live `idempotencyRecords` document (seed one before starting, if not already present) both survived the `entityChunks` category's delete+insert untouched — proving that delete was scoped by `key`, not just `tenantId`.
 
-## 7. Verify the restore lock (NEW)
+## 7. Verify the restore lock, including force-unlock atomicity (NEW)
 
 1. Start two `tenant-restore.js` processes against the same tenant and backup concurrently.
 2. Confirm exactly one acquires the lock and proceeds; the other is rejected immediately (before it even opens the backup file), naming the held lock's `runId`/`pid`/age.
 3. After the first completes (lock released), confirm a third invocation now succeeds normally.
+4. Kill a run mid-apply (a real process kill). Confirm a plain re-run (no `--force-unlock`) is rejected at Step 0, naming the dead run's `pid`/age. Confirm a re-run **with** `--force-unlock` succeeds.
 
-## 8. Verify digest-based resume closes the checkpoint-lies window (G/H)
+## 8. Verify digest-based resume closes the checkpoint-lies window, with the corrected lock policy (G/H)
 
 1. Apply `users` successfully.
 2. Kill the process (a real process kill, not a caught exception) before `entityChunks`'s checkpoint entry is written — simulating a crash exactly between a category's DB write succeeding and its checkpoint write landing.
-3. Re-run with the **same** backup file. Confirm: `users` is **not** redundantly deleted/reinserted (its live digest already matches `expected`), while `entityChunks`/`appConfigs` proceed normally to completion.
-4. Confirm the final checkpoint shows `stage:'completed'` and all three categories in `categoriesApplied`.
+3. Re-run **with `--force-unlock`** (required after any real process kill — there is no exception for this scenario, per the corrected lock policy) with the **same** backup file. Confirm: `users` is **not** redundantly deleted/reinserted (its live digest already matches `expected`), while `entityChunks`/`appConfigs` proceed normally to completion.
+4. Confirm the final checkpoint (now at `backups/.restore-checkpoints/<tenantId>.json`, not a `<runId>.json` path) shows `stage:'completed'` and all three categories in `categoriesApplied`, and that a fresh, different `runId` for this second invocation did not prevent it from finding and comparing against the first invocation's own checkpoint.
 
 ## 9. Verify the mandatory mid-apply failure injection (unchanged intent)
 
@@ -69,6 +70,10 @@ After step 9's partial failure, re-invoke `tenant-restore.js` for the same tenan
 ## 12. Whole-instance path regression check (H) — unchanged
 
 `npm run backup` / `npm run restore -- --target=local-test` behave exactly as before this phase.
+
+## Recovery model (stated once, plainly, for operators)
+
+**Resume is supported. Rollback is not.** After any restore that exits cleanly (a caught failure), a plain re-run with the same backup file resumes correctly, skipping whatever the digest re-check confirms is already applied. After any restore that is killed rather than exiting cleanly, resuming requires the explicit `--force-unlock` flag — with no exception, even for an otherwise-routine crash — because the tool cannot safely tell "genuinely dead" from "merely slow" without an operator's own judgment, especially across independent machines. There is no automatic way to revert a category that already applied successfully back to its pre-restore state; reverting means restoring again, deliberately, from a backup taken before the unwanted one.
 
 ## 13. Full regression
 

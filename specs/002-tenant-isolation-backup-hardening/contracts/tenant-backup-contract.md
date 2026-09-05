@@ -1,6 +1,6 @@
 # Contract: Tenant-Scoped Backup (D)
 
-**Revised in Design Remediation Pass 1**: scope narrowed to exactly three categories (research.md Decision 10), idempotency exclusion made real (Decision 8), a mandatory default-duplicate pre-flight added (Decision 15), file-mode output shape fully defined (Decision 9), category digests added (for restore's Decision 12 resume logic).
+**Revised in Design Remediation Pass 1, corrected again in a second pass**: scope narrowed to exactly three categories (research.md Decision 10), idempotency exclusion made real and extended to `__restoreLock__` (Decision 8), a mandatory default-duplicate pre-flight added (Decision 16), file-mode output shape fully defined and corrected to skip genuinely-absent keys (Decision 9), category digests added with a precisely-specified canonicalization (Decision 6).
 
 New CLI script: `scripts/tenant-backup.js`. New npm script: `backup:tenant`. Does not modify `scripts/backup.js`/`npm run backup` in any way.
 
@@ -14,7 +14,7 @@ node scripts/tenant-backup.js --tenant=<tenantId>
 
 ## Pre-flight (default tenant only) — MUST run and pass before anything else
 
-For `--tenant=default`: scan every logical identity matched by `_defaultTenantFilter` (a `User.id`, an `EntityChunk`/`AppConfig` `key`) and count distinct physical documents per identity. **Any identity with more than one document → hard-fail**, printing the exact category + identity + both documents' `_id`s, and write **no** backup file (research.md Decision 15, spec.md FR-026). This is a detection gate, not a repair — the tool never merges or guesses.
+For `--tenant=default`: scan every logical identity matched by `_defaultTenantFilter` (a `User.id`, an `EntityChunk`/`AppConfig` `key`) and count distinct physical documents per identity. **Any identity with more than one document → hard-fail**, printing the exact category + identity + both documents' `_id`s, and write **no** backup file (research.md Decision 16, spec.md FR-026). This is a detection gate, not a repair — the tool never merges or guesses.
 
 ## Output file format
 
@@ -33,15 +33,19 @@ See `data-model.md` → "New logical file format 1". `{scope:'tenant', schemaVer
 | `entityChunks` | same tenant filter, plus `key: {$in: TENANT_BACKUP_ENTITY_KEYS}` — **never raw `ENTITY_KEYS`** (research.md Decision 8; `TENANT_BACKUP_ENTITY_KEYS` is `ENTITY_KEYS` minus `'idempotencyRecords'`, exported from `lib/database.js`) |
 | `appConfigs` | same tenant filter, `key:'config'` |
 
-`IdempotencyRecord` (the dedicated model) is never queried. `Tenant`/`Subscription` are never queried (research.md Decision 10).
+`IdempotencyRecord` (the dedicated model) is never queried. `Tenant`/`Subscription` are never queried (research.md Decision 10). Mongo mode naturally returns only chunks that actually exist for the tenant — no undefined-data risk here (that risk is specific to the file-mode transform below).
 
 ## File-mode transform (unified shape, research.md Decision 9)
 
-`collections.users = blob.users`; `collections.entityChunks = TENANT_BACKUP_ENTITY_KEYS.map(key => ({tenantId, key, data: blob[key], updatedAt}))`, synthesized from the raw per-tenant file blob's own fields; `collections.appConfigs = [{tenantId, key:'config', data: <that tenant's config file content>}]` if it exists, else `[]`. The output shape is identical to Mongo mode's — a restore never needs to know which backend produced the file.
+`collections.users = blob.users`; `collections.appConfigs = [{tenantId, key:'config', data: <that tenant's config file content>, updatedAt: backupCreatedAt}]` if it exists, else `[]`.
+
+**`collections.entityChunks` — corrected, second `/speckit-analyze` pass**: `TENANT_BACKUP_ENTITY_KEYS.filter(key => blob[key] !== undefined).map(key => ({tenantId, key, data: blob[key], updatedAt: backupCreatedAt}))` — **filtering out keys absent from the blob, not mapping every key unconditionally** (Pass 1's bug). `passwordResets`/`errorLog` are real `ENTITY_KEYS` members absent from `emptyDBShape()`, so they are `undefined` for any tenant that never triggered a password reset or a logged error — mapping them unconditionally would insert a schema-invalid, `data`-less `EntityChunk` record and (absent `{ordered:false}`, see below) abort the whole category's insert on restore. `updatedAt` is the backup run's own `createdAt` (file storage tracks no per-key write time) — never meaningful per-record provenance for a file-mode-sourced backup.
+
+The output shape is otherwise identical to Mongo mode's — a restore never needs to know which backend produced the file.
 
 ## Category digests
 
-For each of `users`/`entityChunks`/`appConfigs`: `recordCounts.<cat> = collections.<cat>.length`; `categoryDigests.<cat> = computeChecksum(canonicalJson(collections.<cat>))` (reusing the existing, unmodified `computeChecksum()`), computed from the same in-memory arrays just written — never a second query.
+For each of `users`/`entityChunks`/`appConfigs`: `recordCounts.<cat> = collections.<cat>.length`; `categoryDigests.<cat> = computeChecksum(canonicalJson(collections.<cat>))`. `canonicalJson()` (new, exported from `lib/backupValidation.js` alongside `computeChecksum()`) sorts each array by its stable identity field (`id` for `users`, `key` for `entityChunks`/`appConfigs`) **before** recursively sorting object keys at every depth — the array-sort half matters because a later live-database re-query (during restore) carries no implicit stable order, and without it two logically-identical record sets could hash differently purely from ordering. Computed from the same in-memory arrays just written — never a second query.
 
 ## Guarantees
 
@@ -58,3 +62,5 @@ For each of `users`/`entityChunks`/`appConfigs`: `recordCounts.<cat> = collectio
 4. Idempotency exclusion (NEW): seed a real `IdempotencyRecord` document and an `EntityChunk` with `key:'idempotencyRecords'` for the target tenant; back it up; assert neither appears anywhere in the output, and `TENANT_BACKUP_ENTITY_KEYS` (not `ENTITY_KEYS`) is confirmed (by import, not by re-implementing the filter in the test) to be the query source.
 5. Default-duplicate pre-flight (NEW): seed a genuine duplicate identity for `default` (a legacy no-`tenantId` user and an explicit `tenantId:'default'` user sharing the same `id`, both via the raw driver); attempt a `default` backup; assert hard failure, exact identity named, zero file written.
 6. `Tenant`/`Subscription` absence (NEW): confirm the output file has no `tenants`/`subscriptions` key at all, for both `default` (which has no such rows) and a real tenant (which does, but they must not appear).
+7. **File-mode undefined-key handling (NEW, second pass)**: under `DB_FILE_ONLY=true`, back up an ordinary tenant that has never triggered a password reset or a logged error; assert the output's `collections.entityChunks` contains no `passwordResets`/`errorLog` entry at all (not an entry with `data:undefined`), and that `recordCounts.entityChunks` matches the actual filtered array length.
+8. **`__restoreLock__` exclusion (NEW, second pass)**: seed an `EntityChunk` with `key:'__restoreLock__'` for the target tenant (simulating a leftover/stuck lock); back it up; assert it does not appear anywhere in the output, mirroring test 4's `idempotencyRecords` case.

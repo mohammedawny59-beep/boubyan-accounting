@@ -14,7 +14,7 @@ HTTP contract — five existing routes gain one explicit check each. No route's 
 | `POST /api/reports/send-telegram` | `server.js:15987` | `requireAuth, requirePermission('reports','export')` |
 | `GET /api/monitor/status` | `server.js:9830` | `requireAuth, requirePermission('financials','view')` |
 
-## New check (identical shape on all four)
+## New check (identical shape on all five)
 
 ```js
 if (req.tenantId && req.tenantId !== 'default') {
