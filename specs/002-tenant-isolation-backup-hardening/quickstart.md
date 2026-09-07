@@ -1,6 +1,6 @@
 # Quickstart: Verifying Tenant Isolation + Backup/Restore Hardening (P4)
 
-**Revised in Design Remediation Pass 1, corrected again in a second pass** — steps 6-8 rewritten for the offline-staging redesign; steps 9-12 added for the restore lock, digest-based resume, backup fingerprint, and default-duplicate pre-flight; second pass adds the `--force-unlock`-after-any-crash requirement to steps 7-8, corrects the checkpoint/staging paths to be tenant-keyed, adds an `entityChunks` key-scoping check to step 6, and adds a "Recovery model" summary.
+**Revised through Design Remediation Passes 1-4** — steps 6-8 rewritten for the offline-staging redesign; steps 9-12 added for the restore lock, digest-based resume, backup fingerprint, and default-duplicate pre-flight; Pass 2 adds the `--force-unlock`-after-any-crash requirement to steps 7-8, corrects the checkpoint/staging paths to be tenant-keyed, adds an `entityChunks` key-scoping check to step 6, and adds a "Recovery model" summary; **Pass 3 made no change to this file** (its fixes were internal to the digest-computation helper and did not change any operator-facing step); **Pass 4 adds step 6a (verify the restart-requirement message) and step 6b (verify the idempotency-staleness note is documented), and extends the "Recovery model" summary below**.
 
 All steps run against an **isolated local/test environment** — `DB_FILE_ONLY=true` or a `mongodb-memory-server` instance via `tests/helpers/mongoTestHarness.js`. None touch production or demo.
 
@@ -40,6 +40,14 @@ node scripts/tenant-backup.js --tenant=acme
 2. **Before** the apply step reaches `entityChunks` (pause via a test hook, or inspect immediately after Step 3 completes): query the live database directly and confirm **zero** documents exist under any placeholder/synthetic `tenantId` — staging wrote only to a local file (`backups/.restore-staging/<tenantId>.json`), never to Mongo.
 3. Let it complete; confirm `acme`'s data matches the backup and `default`'s data is untouched, and that the Step-0 restore lock and `acme`'s own live `idempotencyRecords` document (seed one before starting, if not already present) both survived the `entityChunks` category's delete+insert untouched — proving that delete was scoped by `key`, not just `tenantId`.
 
+## 6a. Verify the restart-requirement message (NEW, Pass 4)
+
+Confirm the Step 6 success output explicitly instructs the operator to restart `acme`'s live application server process(es) before any further write to that tenant. If a live server process for `acme` is available in the test environment (optional, for full end-to-end confidence): without restarting it, make one unrelated write for `acme` through that server (e.g. edit a vendor) and confirm — as the concrete illustration of why the warning exists — that the server's own stale in-memory cache does *not* silently overwrite the just-restored `entityChunks` category on its next debounced flush (i.e. confirm the risk the warning describes, don't just confirm the warning text is present).
+
+## 6b. Verify the idempotency-staleness note is documented (NEW, Pass 4)
+
+Confirm `docs/PRODUCTION_RUNBOOK.md`'s tenant-restore section states plainly that idempotency claims are not rolled back by a restore. No runtime assertion needed — this is a documentation-completeness check.
+
 ## 7. Verify the restore lock, including force-unlock atomicity (NEW)
 
 1. Start two `tenant-restore.js` processes against the same tenant and backup concurrently.
@@ -74,6 +82,8 @@ After step 9's partial failure, re-invoke `tenant-restore.js` for the same tenan
 ## Recovery model (stated once, plainly, for operators)
 
 **Resume is supported. Rollback is not.** After any restore that exits cleanly (a caught failure), a plain re-run with the same backup file resumes correctly, skipping whatever the digest re-check confirms is already applied. After any restore that is killed rather than exiting cleanly, resuming requires the explicit `--force-unlock` flag — with no exception, even for an otherwise-routine crash — because the tool cannot safely tell "genuinely dead" from "merely slow" without an operator's own judgment, especially across independent machines. There is no automatic way to revert a category that already applied successfully back to its pre-restore state; reverting means restoring again, deliberately, from a backup taken before the unwanted one.
+
+**A completed restore is not the end of the operational task, added Pass 4.** The restore tool has no way to reach into, or invalidate, an already-running application server's own in-memory cache — restarting the target tenant's server process(es) is a required last step, not an optional courtesy, and the tool's own success message says so. Separately, a restore never touches idempotency claims — this is intentional and correct, but it means a legitimate retry of a financial operation completed after the backup's cutoff can be silently short-circuited as "already done" post-restore; this is a documented, known limitation, not a bug to work around silently.
 
 ## 13. Full regression
 

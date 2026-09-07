@@ -1,14 +1,14 @@
 # Implementation Plan: Tenant Isolation + Safe Backup/Restore Hardening (P4)
 
-**Branch**: `002-tenant-isolation-backup-hardening` | **Date**: 2026-09-07 (Design Remediation Pass 3) | **Spec**: [spec.md](./spec.md)
+**Branch**: `002-tenant-isolation-backup-hardening` | **Date**: 2026-09-07 (Design Remediation Pass 4) | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `specs/002-tenant-isolation-backup-hardening/spec.md`. Revised after a first adversarial `/speckit-analyze` found 8 CRITICAL/6 HIGH/3 MEDIUM defects (Remediation Pass 1); revised again after a **second** `/speckit-analyze` — re-verifying Pass 1's own fixes rather than assuming they worked — found 5 CRITICAL/6 HIGH/2 MEDIUM new or incompletely-closed defects **in Pass 1 itself** (Remediation Pass 2); revised again after a **third** `/speckit-analyze` — re-verifying Pass 2's own fixes the same way — found 3 CRITICAL/2 HIGH/4 MEDIUM further defects **in Pass 2 itself** (Remediation Pass 3, this revision).
+**Input**: Feature specification from `specs/002-tenant-isolation-backup-hardening/spec.md`. Revised through four rounds of adversarial `/speckit-analyze` + remediation: Pass 1 closed 17 findings (8 CRITICAL/6 HIGH/3 MEDIUM) from the first analyze; Pass 2 closed 13 findings (5 CRITICAL/6 HIGH/2 MEDIUM) a re-verification found in Pass 1 itself; Pass 3 closed 9 findings (3 CRITICAL/2 HIGH/4 MEDIUM) a re-verification found in Pass 2 itself; **Pass 4 (this revision)** closes 11 findings (1 CRITICAL/6 HIGH/4 MEDIUM) a re-verification found in Pass 3 itself.
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
 ## Summary
 
-Pass 1 correctly identified and rejected the root cause of the original design's worst flaw (live-Mongo synthetic-tenant restore staging) and replaced it with offline/logical staging. Pass 2 fixed five further problems re-verification found in that replacement: `entityChunks`-delete key-scoping, tenant-vs-runId checkpoint/staging keying, a contradictory stale-lock policy, a non-atomic `--force-unlock`, and array-order-sensitive digest canonicalization — plus a dropped default-tenant `AppConfig` scoping regression. **A third re-verification of Pass 2 itself found three further classes of problem**: (1) the new `_tenantConfigFileTimers` map (added in Pass 2 to fix a SIGTERM data-loss gap) was itself given only a bare `.clear()` in the P0.11 reset block, not the `clearTimeout`-then-`.clear()` pattern its two sibling timer maps already use — reintroducing, one level deeper, the exact stale-timer bug class Pass 2 had just closed for the sibling gap; (2) the digest-integrity mechanism Pass 2 built (`categoryDigests`, compared at three points: backup-write, restore-staging, restore-apply) was computed over structurally inconsistent representations — Mongo-sourced backup records keep their `_id` field (matching the existing, unmodified `scripts/backup.js` precedent), but restore staging strips `_id` before its own recompute, so a real Mongo-sourced tenant backup could never pass its own digest-integrity check, permanently defeating the resume-skip mechanism Pass 2 built specifically to make trustworthy — closed by introducing one shared `computeCategoryDigest()` helper (strip-then-hash) used identically at all three computation points; (3) a stale `<runId>.json` staging-path reference survived in research.md's own Decision 6 after Decision 15 (added later in the same Pass 2 document) corrected the path everywhere else, plus several stale decision-number and task-ID cross-references left over from Pass 2's own renumbering. This pass fixes all of the above at the design-document level; none of it has been implemented as source code. Phase A (`persistUsers()`/`persistEntityKey()`) remains **unchanged** — it has now survived three rounds of adversarial analysis intact.
+Passes 1-3 progressively replaced live-Mongo synthetic-tenant staging with offline/logical staging and closed a series of scoping, keying, and consistency defects in that replacement (see research.md's own header note for the full history). **Pass 4's re-verification of Pass 3 found one genuinely new, previously-unconsidered CRITICAL architectural gap, plus a cluster of Pass-3-introduced citation errors and one implementation-design mismatch**: (1) **the CRITICAL finding**: `scripts/tenant-restore.js` writes directly to Mongo from a separate CLI process, but nothing in three passes of design ever considered the *live application server's* own in-memory per-tenant cache (`_tenantCaches`/`_dbCache`), which is populated once per tenant per process lifetime and never re-read from Mongo afterward — meaning a completed, correctly-scoped restore can be silently, completely undone by the very next unrelated write the live server accepts for that tenant, once that write's own debounced flush persists the *old*, pre-restore in-memory state back over Mongo. Closed not with new invalidation infrastructure but with an explicit, mandatory operational requirement (new Decision 19, FR-033): the target tenant's server process(es) must be restarted immediately after every tenant-scoped restore, stated in the tool's own success output and the runbook, mirroring this codebase's own existing "changing X requires a restart" pattern. (2) A related, HIGH finding: idempotency-claim survival across a restore (correct and necessary — Decision 8) was never acknowledged as a residual risk before now (new Decision 20, FR-034) — a legitimate retry of a since-reverted operation can be silently told "already done." (3) Pass 3, while fixing two-thirds of its own citation cleanup correctly, got the other third wrong: it "corrected" three separate citations of "the apply step, Decision X" from 17 to 18 (the runbook decision) when the actually-correct target was 12 (the decision that defines the apply mechanic itself) — now re-corrected, together with several other stale cross-references Pass 3 left untouched. (4) Pass 2's file-mode config shutdown-flush instruction ("flush pending timer entries only") does not actually match the real sibling code it claimed to mirror (which flushes *every* cached tenant unconditionally) — corrected to match the real pattern. This pass fixes all of the above at the design-document level; none of it has been implemented as source code. Phase A (`persistUsers()`/`persistEntityKey()`) remains **unchanged** — it has now survived four rounds of adversarial analysis intact.
 
 ## Technical Context
 
@@ -32,23 +32,23 @@ Pass 1 correctly identified and rejected the root cause of the original design's
 
 ## Constitution Check
 
-*GATE: Re-checked after Design Remediation Pass 2. No gate regressed from Pass 1; Principle V and VI's bases are corrected to reflect what the design now actually specifies, not what Pass 1 merely claimed.*
+*GATE: Re-checked after Design Remediation Pass 4. No gate has regressed across any pass. Rows below still marked "second pass"/"this pass" (Pass 2) are historically accurate as written and unchanged since; Pass 3 and Pass 4 findings were citation/implementation-detail corrections and two new operational requirements (FR-033/FR-034) respectively — neither changed any gate's PASS/FAIL status, so no row was rewritten solely to relabel its pass number.*
 
 | Principle | Status | Basis |
 |---|---|---|
-| I. Accounting Integrity Is Non-Negotiable | **PASS** | Unchanged reasoning; the `entityChunks` delete-scoping fix (second pass) additionally protects the tenant's own live idempotency-claim store from being incidentally destroyed by an ordinary restore — a real accounting-integrity-adjacent risk Pass 1 introduced and this pass closes. |
+| I. Accounting Integrity Is Non-Negotiable | **PASS** | Unchanged reasoning; the `entityChunks` delete-scoping fix (Pass 2) protects the tenant's own live idempotency-claim store from being incidentally destroyed by an ordinary restore. **Pass 4**: idempotency-claim survival across a restore is now an explicitly documented residual risk (FR-034) rather than a silently-assumed-safe byproduct — the risk itself is unchanged (it always existed once Decision 8's correct exclusion was adopted), what changed is that it is now acknowledged rather than unconsidered. |
 | II. Historical Financial Data Must Be Preserved | **PASS** | Unchanged — offline staging still never rewrites live history before the validated, digest-gated apply step. |
 | III. Production Safety | **PASS** | Unchanged — isolated-dev work only, re-confirmed below. |
 | IV. Data Preservation and Backups | **PASS** | Strengthened further: the force-unlock atomicity fix and the tenant-keyed checkpoint lookup (second pass) close two more ways the restore tooling itself could have behaved unsafely under contention or on resume. |
 | V. Tenant Isolation and Security | **PASS, corrected basis** | Pass 1 claimed the live-synthetic-identity hazard was "eliminated by construction" — true for staging, but the apply-time `entityChunks` delete (unscoped by key) reopened an adjacent hazard (destroying the in-flight lock, reopening the exact concurrent-restore race the lock exists to prevent) that Pass 1's own re-verification, not this document alone, is what actually caught. Now genuinely closed. |
-| VI. Persistence / Concurrency Reality | **PASS, corrected basis** | Pass 1 claimed its lock closed the cross-process safety gap; re-verification found the lock's own recovery path (`--force-unlock`) was itself non-atomic and the checkpoint it coordinates with was unfindable on resume. Both are fixed this pass; the underlying reasoning (no transactions, must design around it) is unchanged and correct. |
+| VI. Persistence / Concurrency Reality | **PASS, corrected basis** | Pass 1 claimed its lock closed the cross-process safety gap; Pass 2 found the lock's own recovery path (`--force-unlock`) was itself non-atomic and the checkpoint it coordinates with was unfindable on resume — both fixed in Pass 2. **Pass 4**: a further, previously-unconsidered instance of this same principle — the live application server's own in-memory per-tenant cache is itself a form of "concurrency" this design had not accounted for (Decision 19) — is now closed via an explicit operational restart requirement (FR-033), consistent with this codebase's existing single-instance, restart-to-pick-up-state-changes architecture rather than new invalidation infrastructure. |
 | VII. Canonical Calculations | **PASS** | Unchanged. |
 | VIII. Testing Before Confidence | **PASS** | Unchanged from Pass 1's FR-027 requirement; this pass adds explicit test coverage for the newly-corrected lock policy and delete scoping so these specific regressions cannot recur silently. |
 | IX. Demo / Production Isolation | N/A | Unchanged. |
 | X. No Uncontrolled Scope Expansion | **PASS** | All second-pass fixes are corrections to already-in-scope mechanisms (the lock, the checkpoint, the config scoping, the digest) — no new capability is added. |
 | XI. Auditability | **PASS** | Unchanged. |
 | XII. Deployment Control | N/A this phase | Unchanged. |
-| XIII. Spec Kit Usage | **PASS** | `/speckit-analyze` → Remediation Pass 1 → `/speckit-analyze` re-verification → Remediation Pass 2 (this) → a third `/speckit-analyze` re-verification next, per the user's own gate — the process is working exactly as intended: re-verification is catching what a single remediation pass missed. |
+| XIII. Spec Kit Usage | **PASS** | `/speckit-analyze` → Pass 1 → `/speckit-analyze` → Pass 2 → `/speckit-analyze` → Pass 3 → `/speckit-analyze` → Remediation Pass 4 (this document's current state) → a fourth `/speckit-analyze` re-verification next, per the user's own gate — the process continues to work exactly as intended: each re-verification round, including of Pass 3's own citation "fixes," has caught what the round before it missed, converging (17 → 13 → 9 → 11 gate-blocking findings) toward zero. |
 
 No gate failures.
 
@@ -58,30 +58,37 @@ No gate failures.
 
 ```text
 specs/002-tenant-isolation-backup-hardening/
-├── spec.md               # Unchanged structurally from Pass 1 (FR-022..FR-032 stand); no new FRs
-│                            were needed for Pass 2's fixes — they correct HOW the Pass-1 FRs are
-│                            met, not WHAT is required.
-├── plan.md               # This file
-├── research.md           # Decisions 2, 6, 7, 8, 9, 11, 12, 13, 14 revised again this pass;
-│                            new Decision 15 (tenant-keyed checkpoint/staging) inserted; former
-│                            Decisions 15/16/17 renumbered to 16/17/18.
-├── data-model.md          # AppConfig/checkpoint/lock/state-transition sections corrected;
-│                            new _tenantConfigFileTimers state added.
-├── quickstart.md          # Steps 6-8 corrected (force-unlock, tenant-keyed paths, key-scoping
-│                            check); new "Recovery model" summary added.
+├── spec.md               # FR-022..FR-034 (FR-033/034 new this pass — the restart requirement and
+│                            the idempotency-staleness acknowledgment are genuine new binding
+│                            requirements, not implementation-detail corrections like FR-022..032).
+├── plan.md               # This file.
+├── research.md           # 20 decisions (19/20 new this pass: live-server cache staleness; the
+│                            idempotency-staleness acknowledgment). Every decision-number citation
+│                            re-swept and corrected this pass, including two the third pass itself
+│                            introduced while "fixing" others (see the document's own header note).
+├── data-model.md          # AppConfig/checkpoint/lock/state-transition sections reflect the
+│                            tenant-keyed paths, computeCategoryDigest(), the corrected shutdown-
+│                            flush design, and the two Pass-4 notes (cache staleness, idempotency).
+├── quickstart.md          # Steps 1-12 plus 6a/6b (new this pass — restart-message and idempotency-
+│                            note verification); "Recovery model" summary now covers both.
 ├── contracts/
-│   ├── tenant-write-isolation-contract.md       # Section B: default-tenant AppConfig scoping
-│   │                                               restored, flush-guard fixed, file-mode timer/
-│   │                                               shutdown wiring added.
-│   ├── telegram-scheduler-boundary-contract.md  # Stale "four" heading corrected to "five".
-│   ├── tenant-backup-contract.md                # entityChunks file-mode transform corrected to
-│   │                                               skip absent keys; canonicalJson specified;
-│   │                                               __restoreLock__ exclusion added.
-│   └── tenant-restore-contract.md               # entityChunks delete/digest scoped by key; lock
-│                                                    policy made consistent; force-unlock made
-│                                                    atomic; checkpoint/staging paths tenant-keyed;
-│                                                    fingerprint check confirmed last-in-gate.
-└── tasks.md              # Revised — see Task Count in this pass's report.
+│   ├── tenant-write-isolation-contract.md       # Section B: default-tenant AppConfig scoping,
+│   │                                               corrected flush guard, corrected (unconditional)
+│   │                                               shutdown-flush design, cites Decision 2 only
+│   │                                               (not 2-and-3, a stale mislabel fixed this pass).
+│   ├── telegram-scheduler-boundary-contract.md  # Five guarded routes.
+│   ├── tenant-backup-contract.md                # 3-category scope; computeCategoryDigest() used
+│   │                                               consistently; entityChunks file-mode transform
+│   │                                               skips absent-or-null keys; __restoreLock__ and
+│   │                                               idempotencyRecords both excluded.
+│   └── tenant-restore-contract.md               # Offline staging; tenant-keyed lock/checkpoint/
+│                                                    staging paths; entityChunks delete/digest scoped
+│                                                    by key; atomic force-unlock, no exception for a
+│                                                    crash; computeCategoryDigest() at every digest
+│                                                    site; Step 6 now requires the restart message
+│                                                    (new this pass, Decision 19).
+└── tasks.md              # 76 tasks (T001-T075 plus T056a, new this pass) — see Task Count in this
+                             pass's report.
 ```
 
 ### Source Code (repository root)
@@ -133,12 +140,17 @@ scripts/tenant-restore.js          # NEW (E/F/G/H). Restore lock (Step 0) now sp
                                     # writes to a tenant-keyed local file (CHANGED this pass, was
                                     # runId-keyed). Checkpoint (Step 4) is tenant-keyed (CHANGED this
                                     # pass). Apply (Step 5)'s entityChunks delete and live-digest query
-                                    # are scoped by key as well as tenantId (NEW this pass), and its
-                                    # insertMany uses {ordered:false} (NEW this pass).
+                                    # are scoped by key as well as tenantId (Pass 2), and its
+                                    # insertMany uses {ordered:false} (Pass 2). NEW, Pass 4: Step 6
+                                    # (Finalize) success output MUST also instruct the operator to
+                                    # restart the target tenant's live server process(es) (Decision 19,
+                                    # FR-033, CRITICAL) — see the new tests/tenant-restore.test.js T056a.
 
-docs/PRODUCTION_RUNBOOK.md         # NEW section (research.md Decision 18): unchanged scope from
-                                    # Pass 1, now additionally documents the always-force-unlock-
-                                    # after-a-crash policy precisely.
+docs/PRODUCTION_RUNBOOK.md         # NEW section (research.md Decision 18): documents the always-
+                                    # force-unlock-after-a-crash policy precisely (Pass 2). NEW,
+                                    # Pass 4: a mandatory, numbered restart-the-server-process step
+                                    # (Decision 19, FR-033), and an idempotency-claim-survival
+                                    # limitation paragraph (Decision 20, FR-034).
 
 package.json                       # Unchanged from Pass 1: "backup:tenant", "restore:tenant".
 
@@ -174,18 +186,21 @@ tests/
 | Two new process-local Maps (`_tenantConfigCaches`/`_tenantConfigDirty`) plus a third (`_tenantConfigFileTimers`, second pass) rather than folding config into the existing `_tenantCaches`/`db` object | Config lives in a different collection with a structurally different write; folding it in would change `loadDB()`'s return shape for ~150 existing call sites. The third map is needed because file-mode config persistence needs its own debounce/shutdown-flush bookkeeping, exactly like the existing entity-data mechanism it mirrors — omitting it (Pass 1's gap) reintroduces a SIGTERM data-loss bug this codebase already fixed once for entity data. | Reusing `_tenantCaches` directly was rejected: blast radius far exceeds this phase's goal. Skipping the third map was Pass 1's actual choice and is now corrected. |
 | A cross-process restore lock, reusing `EntityChunk`'s existing unique index, with an atomic compare-and-delete force-unlock sequence (the atomicity requirement is new this pass) | Two independent CLI invocations of the *new* restore tool against the same tenant is a real, demonstrable corruption path with no mitigation otherwise. An unconditional delete-then-create force-unlock (Pass 1's original spec) is not atomic and could let two simultaneous recovery attempts both believe they hold the lock. | A new dedicated `RestoreLock` model was rejected as unnecessary schema surface. A third-party distributed-lock library was rejected as new infrastructure this feature's constraints forbid absent a proven need the existing primitive doesn't meet. An unconditional delete-then-create was tried in Pass 1 and rejected this pass once analysis showed its race window. |
 
-## Plan Consistency Review (re-run for Design Remediation Pass 2)
+## Plan Consistency Review (re-run for Design Remediation Pass 4)
 
 - **No tenant-owned write remains unscoped**: re-confirmed, now including the corrected `entityChunks` delete (`{tenantId,key:{$in:TENANT_BACKUP_ENTITY_KEYS}}`, never a bare `{tenantId}`) and the restored default-tenant `AppConfig` scoping.
-- **`default` tenant compatibility is handled explicitly**: unchanged `_defaultTenantFilter` reuse throughout, now genuinely applied to all three of `default`'s own AppConfig call sites (corrected this pass), paired with the mandatory duplicate pre-flight (Decision 16).
-- **No live-Mongo synthetic-tenant staging of any kind remains**: unchanged from Pass 1, confirmed again — the restore lock is the only non-real-tenant-owned-by-the-real-target write in the whole flow, and it is itself now protected from being incidentally deleted by the corrected `entityChunks` scoping.
+- **`default` tenant compatibility is handled explicitly**: unchanged `_defaultTenantFilter` reuse throughout, now genuinely applied to all three of `default`'s own AppConfig call sites (Pass 2), paired with the mandatory duplicate pre-flight (Decision 16).
+- **No live-Mongo synthetic-tenant staging of any kind remains**: unchanged from Pass 1, confirmed again — the restore lock is the only non-real-tenant-owned-by-the-real-target write in the whole flow, and it is itself protected from being incidentally deleted by the Pass-2 `entityChunks` scoping fix.
 - **Tenant restore cannot fall into whole-instance restore, and vice versa, deliberately**: unchanged from Pass 1.
 - **No plan step depends on Mongo transactions**: confirmed again.
-- **Rollback/recovery semantics are concrete, not vague, and now internally consistent**: this pass specifically closes the contradiction between the stale-lock policy and the mandatory crash-window test that Pass 1 left standing — one policy, stated identically everywhere, with the corrected force-unlock atomicity to back it.
-- **Backup and restore formats cannot be cross-fed accidentally**: unchanged from Pass 1, now also covering a planted `__restoreLock__` record as a rejected format violation.
+- **Rollback/recovery semantics are concrete, not vague, and internally consistent**: Pass 2 closed the contradiction between the stale-lock policy and the mandatory crash-window test; Pass 4 adds that "the tool's job is done" is itself not the whole recovery picture — a restarted server process is now an explicit, required part of considering a restore actually complete (Decision 19).
+- **Backup and restore formats cannot be cross-fed accidentally**: unchanged from Pass 1, also covering a planted `__restoreLock__` record as a rejected format violation (Pass 2).
 - **Tenant/Subscription policy is stated once, consistently, everywhere**: unchanged from Pass 1.
-- **A resumed invocation can always find its own prior state** (new check this pass): checkpoint and staging files are tenant-keyed, not `runId`-keyed — verified consistent across research.md, data-model.md, the restore contract, and tasks.md.
-- **The digest-resume mechanism is order-independent** (new check this pass): `canonicalJson()` is now precisely specified to sort array elements by identity key before serializing, not just to sort object keys — verified consistent across research.md, both backup/restore contracts, and data-model.md.
+- **A resumed invocation can always find its own prior state** (Pass 2): checkpoint and staging files are tenant-keyed, not `runId`-keyed — verified consistent across research.md, data-model.md, the restore contract, and tasks.md.
+- **The digest-resume mechanism is order-independent** (Pass 2) **and representation-consistent** (Pass 3): `canonicalJson()` sorts array elements by identity key before serializing; `computeCategoryDigest()` strips `_id`/`__v` identically at all three computation points (backup-write, staging, apply) — both verified consistent across research.md, both backup/restore contracts, data-model.md, and tasks.md this pass.
+- **`_tenantConfigFileTimers` gets the same crash-safety treatment as its siblings** (Pass 3/4, new check): `clearTimeout`-before-`.clear()` in the P0.11 reset block (not a bare `.clear()`), and an *unconditional* shutdown flush over `_tenantConfigCaches.keys()` (not a "pending timers only" flush that would miss a tenant mid-retry) — verified consistent across research.md, data-model.md, the write-isolation contract, and tasks.md T008/T015 this pass.
+- **A completed restore is genuinely complete, not silently reversible by the live server** (Pass 4, new check): the restart-requirement (Decision 19) is stated identically in the restore contract's Step 6, `tasks.md` T056/T056a, `docs/PRODUCTION_RUNBOOK.md`'s planned T064 section, and quickstart.md's new steps 6a/Recovery model addendum.
+- **Every decision-number citation in research.md resolves to the decision it claims to** (Pass 4, new check, after Pass 3 introduced two wrong ones of its own while fixing others): re-swept end to end this pass — see research.md's own header note for the corrected list (Decisions 6, 8, 9, 18's apply-step/write-scoping citations, previously and wrongly pointed at 17 or 18, now correctly point at 12).
 
 ## Ready for `/speckit-tasks`?
 
