@@ -1,6 +1,6 @@
 # Contract: Tenant-Scoped Backup (D)
 
-**Revised in Design Remediation Pass 1, corrected again in a second and third pass**: scope narrowed to exactly three categories (research.md Decision 10), idempotency exclusion made real and extended to `__restoreLock__` (Decision 8), a mandatory default-duplicate pre-flight added (Decision 16), file-mode output shape fully defined and corrected to skip genuinely-absent-or-null keys (Decision 9), category digests added with a precisely-specified canonicalization and a shared `_id`/`__v`-stripping helper reused at every digest computation point (Decision 6, third pass).
+**Revised in Design Remediation Pass 1, corrected again in a second and third pass, extended seventh pass**: scope narrowed to exactly three categories (research.md Decision 10), idempotency exclusion made real and extended to `__restoreLock__` (Decision 8), a mandatory default-duplicate pre-flight added (Decision 16), file-mode output shape fully defined and corrected to skip genuinely-absent-or-null keys (Decision 9), category digests added with a precisely-specified canonicalization and a shared `_id`/`__v`-stripping helper reused at every digest computation point (Decision 6, third pass). **Seventh pass (CRITICAL)**: a mandatory non-default tenant existence/active-status pre-check is added (research.md Decision 21, spec.md FR-007) — a narrow, deliberate exception to Decision 10's payload-exclusion rule, not a reversal of it. **Seventh pass (MEDIUM)**: the tool's own operator-facing error text MUST be Arabic (research.md Decision 22), matching `scripts/restore.js`'s own existing convention.
 
 New CLI script: `scripts/tenant-backup.js`. New npm script: `backup:tenant`. Does not modify `scripts/backup.js`/`npm run backup` in any way.
 
@@ -15,6 +15,10 @@ node scripts/tenant-backup.js --tenant=<tenantId>
 ## Pre-flight (default tenant only) — MUST run and pass before anything else
 
 For `--tenant=default`: scan every logical identity matched by `_defaultTenantFilter` (a `User.id`, an `EntityChunk`/`AppConfig` `key`) and count distinct physical documents per identity. **Any identity with more than one document → hard-fail**, printing the exact category + identity + both documents' `_id`s, and write **no** backup file (research.md Decision 16, spec.md FR-026). This is a detection gate, not a repair — the tool never merges or guesses.
+
+## Pre-flight (non-default tenant only, Mongo mode) — NEW, seventh pass, CRITICAL, MUST run and pass before anything else
+
+For any `--tenant=` other than `default`, and only when `MONGO_URI` is set (Mongo mode): `const tenant = await Tenant.findOne({tenantId}).lean(); if (!tenant || tenant.status !== 'active') { <hard-fail> }` — reusing `lib/tenantMiddleware.js:72-73`'s existing pattern verbatim (research.md Decision 21, spec.md FR-007). On failure, print `❌ المستأجر "<tenantId>" غير موجود أو غير نشط — رُفض النسخ الاحتياطي، لم يُكتب أي ملف.` and write **no** backup file. This is a single, discarded, read-only existence/status read — it never becomes part of the backup payload, and does not reverse research.md Decision 10's payload-exclusion rule for `Tenant`/`Subscription` (see that decision's own seventh-pass narrowing note). In file mode, there is no `Tenant` registry to query — instead check `_tenantFilePath(tenantId)` exists on disk; a missing file is treated as "does not exist" (same Arabic error family), and file mode has no per-tenant "active" status to check at all, so an existing file is always treated as active.
 
 ## Output file format
 
@@ -33,7 +37,7 @@ See `data-model.md` → "New logical file format 1". `{scope:'tenant', schemaVer
 | `entityChunks` | same tenant filter, plus `key: {$in: TENANT_BACKUP_ENTITY_KEYS}` — **never raw `ENTITY_KEYS`** (research.md Decision 8; `TENANT_BACKUP_ENTITY_KEYS` is `ENTITY_KEYS` minus `'idempotencyRecords'`, exported from `lib/database.js`) |
 | `appConfigs` | same tenant filter, `key:'config'` |
 
-`IdempotencyRecord` (the dedicated model) is never queried. `Tenant`/`Subscription` are never queried (research.md Decision 10). Mongo mode naturally returns only chunks that actually exist for the tenant — no undefined-data risk here (that risk is specific to the file-mode transform below).
+`IdempotencyRecord` (the dedicated model) is never queried. `Tenant`/`Subscription` **data** is never queried as part of this table — the sole exception is the Pre-flight step above's single existence/status read, which returns nothing that ever reaches this table's queries or the output payload (research.md Decision 10's payload-exclusion rule, narrowed seventh pass by Decision 21). Mongo mode naturally returns only chunks that actually exist for the tenant — no undefined-data risk here (that risk is specific to the file-mode transform below).
 
 ## File-mode transform (unified shape, research.md Decision 9)
 
@@ -55,6 +59,7 @@ For each of `users`/`entityChunks`/`appConfigs`: `recordCounts.<cat> = collectio
 - `recordCounts`/`categoryDigests` are always computed from the exact arrays written, never re-derived later.
 - Missing `--tenant=` fails before any Mongo connection or file read.
 - A `default`-tenant backup with an undetected duplicate identity is impossible — the pre-flight above blocks it structurally.
+- **A backup for a nonexistent or inactive non-default tenant is impossible (NEW, seventh pass)** — the existence/active-status pre-flight above blocks it structurally, before any entity-data read.
 
 ## Test contract
 
@@ -66,3 +71,4 @@ For each of `users`/`entityChunks`/`appConfigs`: `recordCounts.<cat> = collectio
 6. `Tenant`/`Subscription` absence (NEW): confirm the output file has no `tenants`/`subscriptions` key at all, for both `default` (which has no such rows) and a real tenant (which does, but they must not appear).
 7. **File-mode undefined-key handling (NEW, second pass)**: under `DB_FILE_ONLY=true`, back up an ordinary tenant that has never triggered a password reset or a logged error; assert the output's `collections.entityChunks` contains no `passwordResets`/`errorLog` entry at all (not an entry with `data:undefined`), and that `recordCounts.entityChunks` matches the actual filtered array length.
 8. **`__restoreLock__` exclusion (NEW, second pass)**: seed an `EntityChunk` with `key:'__restoreLock__'` for the target tenant (simulating a leftover/stuck lock); back it up; assert it does not appear anywhere in the output, mirroring test 4's `idempotencyRecords` case.
+9. **Non-default existence/active-status pre-check (NEW, seventh pass, MANDATORY)**: a `--tenant=` with no matching `Tenant` document hard-fails with an Arabic error naming the tenant identifier, before any file is written; a `Tenant` document with `status:'suspended'` or `status:'cancelled'` hard-fails identically; `--tenant=default` succeeds regardless of whether any `Tenant` row exists for it.
