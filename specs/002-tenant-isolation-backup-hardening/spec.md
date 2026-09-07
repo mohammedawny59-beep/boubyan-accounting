@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: Design Remediation Pass 1 complete — pending `/speckit-analyze` re-verification
+**Status**: Design Remediation Pass 3 complete — pending `/speckit-analyze` re-verification
 
 **Input**: User description: "P4 — a major hardening phase for Boubyan Accounting, not a new accounting feature. Design and implement a safe tenant-isolation and tenant-scoped backup/restore architecture without risking current production data. The two most important problems: (1) tenant isolation must remain correct across all shared Mongo-backed collections and process-level caches/state, (2) backup/restore must support one tenant without creating whole-instance blast radius."
 
@@ -34,6 +34,8 @@ An adversarial `/speckit-analyze` pass against the completed plan/data-model/con
 - Q: Given `loadConfig()` is called synchronously in roughly 18 places in `server.js` today, can the new per-tenant config design make it asynchronous? → A: No (product-owner decision). `loadConfig()` MUST remain synchronous, and none of its existing callers may be converted to `await` it. Tenant configuration MUST instead be asynchronously warmed into an in-process cache before any request-scoped code path can reach `loadConfig()` synchronously — mirroring the existing tenant-data cache-warming pattern (`warmTenantCache()`) exactly, not inventing a second mechanism. A synchronous read against a tenant whose config was never warmed is a bug, and MUST fail closed (an explicit error), never silently return the default tenant's or another tenant's configuration.
 - Q: Should pre-existing duplicate `default`-tenant records (a legacy no-`tenantId` copy and an explicit `tenantId:'default'` copy of the same logical user/entity/config) be automatically repaired by this phase's backup/restore tooling? → A: No (product-owner decision, reaffirming the original clarify session's "no automatic repair" principle, applied to a case analysis found the original design missed). Automatic repair is explicitly rejected — the tooling MUST NOT guess which copy is canonical. Instead, backup and restore targeting `default` MUST detect this conflict before proceeding and hard-fail with a diagnostic naming the exact conflicting identity, leaving the actual repair to a deliberate, separate, operator-reviewed action outside this feature.
 - Q: Should two independent restore attempts for the same tenant be allowed to run concurrently (e.g. an operator retry racing a still-running first attempt)? → A: No (product-owner decision). Concurrent restores against the same tenant MUST be mutually exclusive, enforced in a way that holds across independent operating-system processes pointed at the same database — not merely a variable inside one running process's memory.
+
+**Design Remediation Pass 2 and Pass 3 note**: two further `/speckit-analyze` re-verification rounds found, and closed, defects entirely at the implementation-specification level (a dropped scoping fix, an under-scoped delete filter, an inconsistent digest computation, several stale cross-references) — none of them changed *what* this feature requires (the FRs above and FR-022 through FR-032 remain accurate), only *how precisely* the plan/research/contracts/tasks documents specify meeting them. No new clarification decisions or FRs were needed for either pass.
 
 ## User Scenarios & Testing *(mandatory)*
 
