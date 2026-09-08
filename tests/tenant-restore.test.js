@@ -155,7 +155,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       const file = latestBackupOrCreate('e-valid', mongoEnv);
       const res = runRestore(`"${file}" --tenant=e-valid --target=t1`, mongoEnv);
       expect(res.status).toBe(0);
-      expect(res.stdout).toContain('اجتاز التحقق');
+      expect(res.stdout).toContain('اكتمل التجهيز');
     });
 
     test('a whole-instance backup file (no scope) fed to tenant-restore.js is rejected at Step 1.2', async () => {
@@ -217,6 +217,92 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       expect(res.stderr).toContain('restore-dup-1');
 
       await User.deleteMany({ id: 'restore-dup-1' });
+    });
+  });
+
+  // ── T046-T051: Phase F — offline/logical restore staging ───────────────
+  describe('Step 3: offline/logical staging (no live-Mongo writes)', () => {
+    test('sanitization strips _id/__v from every staged record, and the staging file is written at the tenant-keyed path', async () => {
+      await seedActiveTenant('f-stage-basic');
+      await EntityChunk.create({ tenantId: 'f-stage-basic', key: 'vendors', data: [{ id: 'V1' }] });
+      const file = latestBackupOrCreate('f-stage-basic', mongoEnv);
+
+      const res = runRestore(`"${file}" --tenant=f-stage-basic --target=t1`, mongoEnv);
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain('اكتمل التجهيز');
+
+      const stagingFile = path.join(backupDir, '.restore-staging', 'f-stage-basic.json');
+      expect(fs.existsSync(stagingFile)).toBe(true);
+      const staged = fs.readJsonSync(stagingFile);
+      const allRecords = [...staged.users, ...staged.entityChunks, ...staged.appConfigs];
+      expect(allRecords.length).toBeGreaterThan(0);
+      for (const r of allRecords) {
+        expect('_id' in r).toBe(false);
+        expect('__v' in r).toBe(false);
+      }
+    });
+
+    test('no live document under any identity is created, modified, or left behind during staging', async () => {
+      await seedActiveTenant('f-stage-noop');
+      await EntityChunk.create({ tenantId: 'f-stage-noop', key: 'vendors', data: [{ id: 'V1' }] });
+      const file = latestBackupOrCreate('f-stage-noop', mongoEnv);
+
+      const usersBefore = await User.find({}).lean();
+      const chunksBefore = await EntityChunk.find({}).lean();
+      const configsBefore = await AppConfig.find({}).lean();
+
+      const res = runRestore(`"${file}" --tenant=f-stage-noop --target=t1`, mongoEnv);
+      expect(res.status).toBe(0);
+
+      const usersAfter = await User.find({}).lean();
+      const chunksAfter = await EntityChunk.find({}).lean();
+      const configsAfter = await AppConfig.find({}).lean();
+
+      const sortById = arr => [...arr].map(d => JSON.stringify(d)).sort();
+      expect(sortById(usersAfter)).toEqual(sortById(usersBefore));
+      expect(sortById(configsAfter)).toEqual(sortById(configsBefore));
+      // entityChunks: the restore lock is created AND released within this
+      // same run (acquire -> stage -> release) — the live document SET must
+      // be byte-identical to before, proving nothing else was touched and
+      // the transient lock left no residue.
+      expect(sortById(chunksAfter)).toEqual(sortById(chunksBefore));
+    });
+
+    test('the recomputed digest check catches tampered collections content independently of Step 1 (direct unit call)', async () => {
+      const { stageBackup } = require('../scripts/tenant-restore');
+      const users = [{ id: 'u1', tenantId: 'f-digest-unit', username: 'x' }];
+      const entityChunks = [];
+      const appConfigs = [];
+      const backup = {
+        scope: 'tenant', schemaVersion: 1, tenantId: 'f-digest-unit', createdAt: new Date().toISOString(), source: 'mongodb',
+        recordCounts: { users: 1, entityChunks: 0, appConfigs: 0 },
+        // deliberately WRONG digest for a non-empty users array — the
+        // real backup tool would never produce this; a hand-edited or
+        // corrupted file could.
+        categoryDigests: { users: computeCategoryDigest([]), entityChunks: computeCategoryDigest([]), appConfigs: computeCategoryDigest([]) },
+        collections: { users, entityChunks, appConfigs },
+      };
+      expect(() => stageBackup(backup, 'f-digest-unit')).toThrow(/digest/);
+    });
+
+    test('ownership validation catches an internally-inconsistent record (direct unit call)', async () => {
+      const { stageBackup } = require('../scripts/tenant-restore');
+      // A record whose OWN tenantId belongs to a different tenant than the
+      // restore target, with categoryDigests/recordCounts correctly
+      // matching this tampered content (so Step 3's digest check alone
+      // would NOT catch it) — isolates the ownership check specifically.
+      const users = [{ id: 'u1', tenantId: 'some-other-tenant', username: 'x' }];
+      const entityChunks = [];
+      const appConfigs = [];
+      const backup = {
+        scope: 'tenant', schemaVersion: 1, tenantId: 'f-ownership-unit', createdAt: new Date().toISOString(), source: 'mongodb',
+        recordCounts: { users: 1, entityChunks: 0, appConfigs: 0 },
+        categoryDigests: {
+          users: computeCategoryDigest(users), entityChunks: computeCategoryDigest([]), appConfigs: computeCategoryDigest([]),
+        },
+        collections: { users, entityChunks, appConfigs },
+      };
+      expect(() => stageBackup(backup, 'f-ownership-unit')).toThrow(/tenantId inconsistent/);
     });
   });
 });

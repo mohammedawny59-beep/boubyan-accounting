@@ -9,10 +9,9 @@
  * ⚠️ خطير: يستبدل بيانات هذا المستأجر فقط. لا يمسّ أي مستأجر آخر، ولا يمسّ
  *    scripts/restore.js أو npm run restore بأي شكل.
  *
- * حالة هذا الملف: يطبّق حتى نهاية Step 2 فقط (قفل الاستعادة + بوابة التحقق +
- * فحص التكرار للعيادة الافتراضية) — specs/002.../tasks.md Phase E. مراحل
- * F/G/H (التجهيز غير المتصل، نقطة الحفظ، التطبيق الفعلي) تُبنى لاحقاً على
- * نفس هذا الملف.
+ * حالة هذا الملف: يطبّق حتى نهاية Step 3 (التجهيز غير المتصل بدون أي كتابة
+ * حية على Mongo) — specs/002.../tasks.md Phases E+F. مراحل G/H (نقطة الحفظ،
+ * تأكيد الكتابة، التطبيق الفعلي) تُبنى لاحقاً على نفس هذا الملف.
  */
 require('dotenv').config();
 const fs = require('fs');
@@ -20,8 +19,9 @@ const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const readline = require('readline');
-const { validateTenantBackupFile } = require('../lib/backupValidation');
+const { validateTenantBackupFile, stripMongoMeta, computeCategoryDigest } = require('../lib/backupValidation');
 const { appendAuditEvent } = require('../lib/auditLog');
+const { _atomicWriteJsonSync } = require('../lib/database');
 const User = require('../models/User');
 const EntityChunk = require('../models/EntityChunk');
 const AppConfig = require('../models/AppConfig');
@@ -78,6 +78,61 @@ function checkpointPath(tenantId) {
 }
 function lockFilePath(tenantId) {
   return path.join(CHECKPOINTS_DIR, `${tenantId}.lock`);
+}
+const STAGING_DIR = path.join(BACKUP_DIR, '.restore-staging');
+function stagingFilePath(tenantId) {
+  return path.join(STAGING_DIR, `${tenantId}.json`);
+}
+
+// Step 3.3 — ownership check (research.md Decision 6): a sanitized record's
+// own tenantId must be consistent with the restore target. For 'default',
+// this mirrors _defaultTenantFilter's own shape — an explicit 'default', a
+// genuinely-absent field, or null all count as "belongs to default" (the
+// same three shapes lib/database.js's own Mongo queries already treat as
+// equivalent for legacy pre-multi-tenancy documents).
+function ownershipConsistent(record, targetTenantId) {
+  const rid = record.tenantId;
+  if (targetTenantId === 'default') return rid === 'default' || rid === undefined || rid === null;
+  return rid === targetTenantId;
+}
+
+// Step 3 — offline/logical staging (research.md Decision 6, tasks.md
+// T047-T050). Sanitizes the already-validated backup's collections into
+// memory, re-verifies count+digest against the backup's own recorded
+// values (a second, independent check beyond Step 1's file-level one, now
+// against the actually-sanitized data), validates per-record ownership,
+// and writes the result to a local, tenant-keyed staging file. NO live-
+// Mongo write of any kind happens anywhere in this function.
+function stageBackup(backup, targetTenantId) {
+  const staged = {
+    users: (backup.collections.users || []).map(stripMongoMeta),
+    entityChunks: (backup.collections.entityChunks || []).map(stripMongoMeta),
+    appConfigs: (backup.collections.appConfigs || []).map(stripMongoMeta),
+  };
+
+  for (const cat of ['users', 'entityChunks', 'appConfigs']) {
+    const count = staged[cat].length;
+    const digest = computeCategoryDigest(staged[cat]);
+    if (count !== backup.recordCounts?.[cat]) {
+      throw new RestoreFailure(`staging: recomputed count for "${cat}" (${count}) does not match the backup's own recordCounts.${cat} (${backup.recordCounts?.[cat]})`);
+    }
+    if (digest !== backup.categoryDigests?.[cat]) {
+      throw new RestoreFailure(`staging: recomputed digest for "${cat}" does not match the backup's own categoryDigests.${cat}`);
+    }
+  }
+
+  for (const cat of ['users', 'entityChunks', 'appConfigs']) {
+    for (const record of staged[cat]) {
+      if (!ownershipConsistent(record, targetTenantId)) {
+        throw new RestoreFailure(`staging: a record in "${cat}" has a tenantId inconsistent with the restore target "${targetTenantId}"`);
+      }
+    }
+  }
+
+  fs.mkdirSync(STAGING_DIR, { recursive: true });
+  _atomicWriteJsonSync(stagingFilePath(targetTenantId), staged);
+
+  return staged;
 }
 
 function readJsonSafe(filePath) {
@@ -284,13 +339,26 @@ async function run() {
       }
     }
 
-    // Phase E's own scope ends here (tasks.md T045 checkpoint: "no staging
-    // or apply code exists yet"). Steps 3 (offline staging), 4 (checkpoint
-    // write), 4a (typed confirmation), 5 (apply), 6 (finalize) attach here
-    // in Phases F/G/H, built on this same lock/validation foundation.
+    // Step 3 — offline/logical staging (tasks.md T047-T050, Phase F). No
+    // live-Mongo write happens in this step or anything before it.
+    stageBackup(validation.backup, target);
+
+    // Phase F's own scope ends here (tasks.md T051 checkpoint). Steps 4
+    // (checkpoint write), 4a (typed confirmation), 5 (apply), 6 (finalize)
+    // attach here in Phase G, built on this same staged file.
     console.log(`🎯 الوجهة المُعلَنة: ${targetLabel}`);
-    console.log(`✅ اجتاز التحقق (Step 1) وفحص التكرار (Step 2) للمستأجر "${target}" — لم تُطبَّق أي بيانات بعد (التجهيز والتطبيق الفعلي في مرحلة لاحقة).`);
+    console.log(`✅ اكتمل التجهيز غير المتصل (Step 3) للمستأجر "${target}" — لم تُطبَّق أي بيانات على قاعدة البيانات الحية بعد (نقطة الحفظ والتطبيق الفعلي في مرحلة لاحقة).`);
     void yes; // consumed by Step 4a in a later phase — parsed now per tasks.md T040
+  } catch (e) {
+    // Staging (Step 3) is a defense-in-depth double-check that should never
+    // actually fire for any backup that already passed Step 1 — its own
+    // digest recompute is a no-op re-strip of the same content Step 1 just
+    // verified — so a RestoreFailure reaching here means something is
+    // genuinely, unexpectedly wrong. Not one of the four audited terminal-
+    // outcome families the contract names (Step 1/2/4a/5-6), so no
+    // dedicated audit call here — just a clean, non-zero exit.
+    console.error('❌ فشل التجهيز:', e.message);
+    process.exitCode = 1;
   } finally {
     if (lockAcquired) {
       if (isMongoMode) { try { await releaseLockMongo(target, runId); } catch {} }
@@ -304,4 +372,13 @@ if (require.main === module) {
   run();
 }
 
-module.exports = { run, parseArgs, printQuiesceWarning };
+module.exports = {
+  run, parseArgs, printQuiesceWarning,
+  // Exported for direct unit-testing of Step 3's own redundant digest-check
+  // and ownership-check layers in isolation (tasks.md T046, bullets 3/4) —
+  // both are, by construction, unreachable via the real CLI for any file
+  // that already passed Step 1's identical checks, so testing them through
+  // the full file/CLI pipeline can never actually exercise their own
+  // rejection branch.
+  stageBackup, ownershipConsistent, stagingFilePath,
+};
