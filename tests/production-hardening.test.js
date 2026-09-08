@@ -52,10 +52,10 @@ process.env.DATA_FILE   = path.join(tmp, 'database.json');
 process.env.CONFIG_FILE = path.join(tmp, 'config.json');
 
 const app = require('../server');
-const { initDB, shutdownDB, runAsTenant, loadDB, saveDB, warmTenantCache, _atomicWriteJsonSync } = require('../lib/database');
+const { initDB, shutdownDB, runAsTenant, loadDB, saveDB, warmTenantCache, _atomicWriteJsonSync, ENTITY_KEYS, TENANT_BACKUP_ENTITY_KEYS } = require('../lib/database');
 const { DEFAULT_COA, DEFAULT_ROLES } = require('../lib/defaults');
 const { validateProductionSecrets } = require('../lib/secretValidation');
-const { validateBackupFile, validateBackupObject, computeChecksum } = require('../lib/backupValidation');
+const { validateBackupFile, validateBackupObject, computeChecksum, canonicalJson, computeCategoryDigest } = require('../lib/backupValidation');
 const stripeLib = require('../lib/stripe');
 const ProcessedWebhookEvent = require('../models/ProcessedWebhookEvent');
 const Subscription = require('../models/Subscription');
@@ -456,6 +456,55 @@ describe('P0.5 — Backup generation and verification', () => {
   test('computeChecksum is deterministic', () => {
     expect(computeChecksum('abc')).toBe(computeChecksum('abc'));
     expect(computeChecksum('abc')).not.toBe(computeChecksum('abd'));
+  });
+
+  // P4 — Phase D (T029, third-pass addition, research.md Decision 6/9):
+  // canonicalJson()/computeCategoryDigest() must be byte-identical regardless
+  // of key-insertion order, array-element order, or a Mongo _id/__v field —
+  // otherwise a Mongo-sourced backup's own digest could never match
+  // restore's own recompute over _id-stripped records.
+  test('canonicalJson: identical logical input produces byte-identical output regardless of key-insertion order or array element order', () => {
+    const a = { z: 1, a: { c: 3, b: [{ id: '2', v: 'two' }, { id: '1', v: 'one' }] } };
+    const b = { a: { b: [{ v: 'one', id: '1' }, { v: 'two', id: '2' }], c: 3 }, z: 1 };
+    expect(JSON.stringify(canonicalJson(a))).toBe(JSON.stringify(canonicalJson(b)));
+  });
+
+  test('computeCategoryDigest: identical whether or not the records carry a Mongo _id/__v field', () => {
+    const withMeta = [
+      { _id: 'm1', __v: 0, id: 'u1', username: 'x' },
+      { _id: 'm2', __v: 0, id: 'u2', username: 'y' },
+    ];
+    const withoutMeta = [
+      { id: 'u2', username: 'y' },
+      { id: 'u1', username: 'x' },
+    ];
+    expect(computeCategoryDigest(withMeta)).toBe(computeCategoryDigest(withoutMeta));
+  });
+
+  test('computeCategoryDigest: a genuinely different record set hashes differently', () => {
+    expect(computeCategoryDigest([{ id: 'u1', username: 'x' }]))
+      .not.toBe(computeCategoryDigest([{ id: 'u1', username: 'DIFFERENT' }]));
+  });
+});
+
+// P4 — Phase D (T028, third/ninth-pass additions, research.md Decision 8):
+// guards TENANT_BACKUP_ENTITY_KEYS's whole exclusion-from-backup safety
+// property at the source — independent of any backup/restore fixture — so
+// '__restoreLock__'/'idempotencyRecords'/'auditLog' can never silently
+// become genuine, hand-added ENTITY_KEYS members in a later milestone
+// without this test catching it.
+describe('P4 Phase D — TENANT_BACKUP_ENTITY_KEYS exclusions (T028)', () => {
+  test('__restoreLock__ is never a real ENTITY_KEYS member and is excluded from TENANT_BACKUP_ENTITY_KEYS', () => {
+    expect(ENTITY_KEYS.includes('__restoreLock__')).toBe(false);
+    expect(TENANT_BACKUP_ENTITY_KEYS.includes('__restoreLock__')).toBe(false);
+  });
+  test('idempotencyRecords is excluded from TENANT_BACKUP_ENTITY_KEYS', () => {
+    expect(ENTITY_KEYS.includes('idempotencyRecords')).toBe(true); // it IS a real entity — just excluded from tenant backup/restore
+    expect(TENANT_BACKUP_ENTITY_KEYS.includes('idempotencyRecords')).toBe(false);
+  });
+  test('auditLog is excluded from TENANT_BACKUP_ENTITY_KEYS (ninth-pass, closes the Decision 23 self-destruction hazard)', () => {
+    expect(ENTITY_KEYS.includes('auditLog')).toBe(true);
+    expect(TENANT_BACKUP_ENTITY_KEYS.includes('auditLog')).toBe(false);
   });
 });
 
