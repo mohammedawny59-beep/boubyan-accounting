@@ -2676,6 +2676,17 @@ function _tgRegistrationWindowOpen() {
 // tenant's bot token — least-privilege gap, not the reported vulnerability.
 // Fixed to match every other tenant-configuration route's convention.
 app.post('/api/telegram/start', requireAuth, requirePermission('telegram', 'edit'), async (req, res) => {
+  // P4 — Telegram/Scheduler Default-Tenant-Only Boundary (research.md Decision 3,
+  // contracts/telegram-scheduler-boundary-contract.md). The process-global
+  // `bot`/`global._tgBot` singleton this route reconfigures is shared across
+  // every tenant in this process — a non-default tenant reaching this route
+  // could redirect default's own Telegram bot to a different token/chat.
+  if (req.tenantId && req.tenantId !== 'default') {
+    return res.status(403).json({
+      error: 'ميزة تيليجرام/الجدولة الآلية متاحة حالياً لعيادة بوبيان الافتراضية فقط — الدعم الكامل لكل مستأجر قادم في مرحلة لاحقة',
+      code: 'TELEGRAM_DEFAULT_TENANT_ONLY',
+    });
+  }
   const { token } = req.body;
 
   // Stop old bot completely before starting new one
@@ -9820,14 +9831,39 @@ async function runMonthlyReport() {
 // gated like any other privileged external-side-effect action rather than
 // left open to every authenticated role.
 app.post('/api/monitor/inventory', requireAuth, requireAdminAction('monitor.trigger_inventory'), async (req, res) => {
+  // P4 — Telegram/Scheduler Default-Tenant-Only Boundary (research.md Decision 3).
+  if (req.tenantId && req.tenantId !== 'default') {
+    return res.status(403).json({
+      error: 'ميزة تيليجرام/الجدولة الآلية متاحة حالياً لعيادة بوبيان الافتراضية فقط — الدعم الكامل لكل مستأجر قادم في مرحلة لاحقة',
+      code: 'TELEGRAM_DEFAULT_TENANT_ONLY',
+    });
+  }
   await runInventoryCheck();
   res.json({ success: true, message: 'تم فحص المخزون وإرسال التنبيهات' });
 });
 app.post('/api/monitor/monthly-report', requireAuth, requireAdminAction('monitor.trigger_monthly_report'), async (req, res) => {
+  // P4 — Telegram/Scheduler Default-Tenant-Only Boundary (research.md Decision 3).
+  if (req.tenantId && req.tenantId !== 'default') {
+    return res.status(403).json({
+      error: 'ميزة تيليجرام/الجدولة الآلية متاحة حالياً لعيادة بوبيان الافتراضية فقط — الدعم الكامل لكل مستأجر قادم في مرحلة لاحقة',
+      code: 'TELEGRAM_DEFAULT_TENANT_ONLY',
+    });
+  }
   await runMonthlyReport();
   res.json({ success: true, message: 'تم إرسال التقرير الشهري' });
 });
 app.get('/api/monitor/status', requireAuth, requirePermission('financials', 'view'), (req, res) => {
+  // P4 — Telegram/Scheduler Default-Tenant-Only Boundary (research.md
+  // Decision 3, Pass 1 extension): this route only READS process-global bot
+  // state, but disclosing it (botActive/chatIdSet) to a non-default tenant
+  // is itself a leak of default's own integration status — same 403/code
+  // response as the four state-CHANGING routes, before any state is read.
+  if (req.tenantId && req.tenantId !== 'default') {
+    return res.status(403).json({
+      error: 'ميزة تيليجرام/الجدولة الآلية متاحة حالياً لعيادة بوبيان الافتراضية فقط — الدعم الكامل لكل مستأجر قادم في مرحلة لاحقة',
+      code: 'TELEGRAM_DEFAULT_TENANT_ONLY',
+    });
+  }
   const db = loadDB();
   const { lowItems, inventory, monthlyRev, monthlyExp, thisMonth } = buildFinancialSummary(db);
   res.json({
@@ -15985,6 +16021,13 @@ function buildDailySummaryText(db) {
 // effect that leaves the tenant's data boundary even though it doesn't
 // mutate a balance — gated + audited like any other privileged action.
 app.post('/api/reports/send-telegram', requireAuth, requirePermission('reports', 'export'), async (req, res) => {
+  // P4 — Telegram/Scheduler Default-Tenant-Only Boundary (research.md Decision 3).
+  if (req.tenantId && req.tenantId !== 'default') {
+    return res.status(403).json({
+      error: 'ميزة تيليجرام/الجدولة الآلية متاحة حالياً لعيادة بوبيان الافتراضية فقط — الدعم الكامل لكل مستأجر قادم في مرحلة لاحقة',
+      code: 'TELEGRAM_DEFAULT_TENANT_ONLY',
+    });
+  }
   if (typeof bot === 'undefined' || !bot) return res.status(503).json({ error: 'Telegram bot not configured' });
   const db = loadDB(), cfg = loadConfig();
   const ids = (cfg.telegramChatIds || []).filter(Boolean);
