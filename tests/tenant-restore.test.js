@@ -863,4 +863,94 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       expect(res2.status).toBe(0);
     });
   });
+
+  // ── T066-T068: Phase I — default tenant restore, real production case ──
+  describe('Phase I: default tenant restore — real production compatibility (T066)', () => {
+    test('a legacy default User/EntityChunk/AppConfig (no tenantId field) is backed up then restored exactly once, normalized forward, no duplicate pair, no other tenant touched', async () => {
+      await seedActiveTenant('i066-other-tenant');
+      await User.create({ tenantId: 'i066-other-tenant', id: 'i066-other-user', username: 'other', passwordHash: 'x', role: 'admin', active: true });
+
+      // Raw-driver seeded, no tenantId field at all (spec.md FR-027) — never
+      // Model.create(), which would silently apply the schema's own
+      // default:'default' and defeat the whole point of this fixture. Uses
+      // 'bankRecons' (a real, but in this test file otherwise-unused,
+      // ENTITY_KEYS member) — plain 'vendors'/'expenses' collide with other
+      // tenants' own chunks of the same key elsewhere in this shared Mongo
+      // instance, and a bare {key:...} query with no tenantId scoping would
+      // match the WRONG tenant's document. AppConfig's own {tenantId,key}
+      // unique index means only one 'config' document can ever be
+      // tenantId-less at a time — safe without an equivalent key swap.
+      await User.collection.insertOne({ id: 'i066-legacy-user', username: 'legacy-user', passwordHash: 'x', role: 'admin', active: true });
+      await EntityChunk.collection.insertOne({ key: 'bankRecons', data: [{ id: 'X1' }], updatedAt: new Date() });
+      await AppConfig.collection.insertOne({ key: 'config', data: { companyName: 'Legacy Co' }, updatedAt: new Date() });
+
+      const uPre = await User.collection.findOne({ id: 'i066-legacy-user', tenantId: { $exists: false } });
+      expect(uPre).toBeTruthy();
+      const cPre = await EntityChunk.collection.findOne({ key: 'bankRecons', tenantId: { $exists: false } });
+      expect(cPre).toBeTruthy();
+      const aPre = await AppConfig.collection.findOne({ key: 'config', tenantId: { $exists: false } });
+      expect(aPre).toBeTruthy();
+
+      const file = latestBackupOrCreate('default', mongoEnv);
+      const backup = fs.readJsonSync(file);
+      expect(backup.collections.users.some(u => u.id === 'i066-legacy-user')).toBe(true);
+      expect(backup.collections.entityChunks.some(c => c.key === 'bankRecons')).toBe(true);
+      expect(backup.collections.appConfigs.some(c => c.key === 'config')).toBe(true);
+
+      // Simulated disaster — mutate ALL THREE post-backup, so Step 5
+      // genuinely re-applies every category (a category whose live content
+      // already matches the backup is correctly SKIPPED, per Decision 12 —
+      // it would stay in its original, un-normalized shape, which is
+      // exactly right for an untouched record but would defeat this test's
+      // own "normalized forward" assertion below).
+      await User.collection.updateOne({ id: 'i066-legacy-user' }, { $set: { username: 'CORRUPTED' } });
+      await EntityChunk.collection.updateOne({ key: 'bankRecons', tenantId: { $exists: false } }, { $set: { data: [{ id: 'X1', corrupted: true }] } });
+      await AppConfig.collection.updateOne({ key: 'config', tenantId: { $exists: false } }, { $set: { data: { companyName: 'CORRUPTED' } } });
+
+      const res = runRestore(`"${file}" --tenant=default --target=t1`, mongoEnv);
+      expect(res.status).toBe(0);
+
+      const uMatches = await User.find({ id: 'i066-legacy-user' }).lean();
+      expect(uMatches).toHaveLength(1); // no duplicate pair
+      expect(uMatches[0].tenantId).toBe('default'); // normalized forward
+      expect(uMatches[0].username).toBe('legacy-user'); // reverted to the backup's own content
+
+      const cMatches = await EntityChunk.find({ key: 'bankRecons' }).lean();
+      expect(cMatches).toHaveLength(1);
+      expect(cMatches[0].tenantId).toBe('default');
+
+      const aMatches = await AppConfig.find({ key: 'config' }).lean();
+      expect(aMatches).toHaveLength(1);
+      expect(aMatches[0].tenantId).toBe('default');
+
+      const otherUser = await User.findOne({ tenantId: 'i066-other-tenant', id: 'i066-other-user' }).lean();
+      expect(otherUser.username).toBe('other'); // a genuinely different tenant, completely untouched
+    });
+
+    test('the genuine-duplicate-identity case hard-blocks end-to-end on BOTH the backup side (T031) and the restore side (T044) for the same seeded conflict', async () => {
+      await User.collection.insertOne({ id: 'i066-dup', username: 'legacy-dup', passwordHash: 'x', role: 'admin', active: true });
+      await User.create({ tenantId: 'default', id: 'i066-dup', username: 'explicit-dup', passwordHash: 'x', role: 'admin', active: true });
+
+      // Backup side (T031): its own default-duplicate pre-flight rejects.
+      let backupRes;
+      try {
+        execSync('node scripts/tenant-backup.js --tenant=default', { cwd: ROOT, env: mongoEnv, stdio: 'pipe' });
+        backupRes = { status: 0 };
+      } catch (e) {
+        backupRes = { status: e.status, stderr: e.stderr?.toString() || '' };
+      }
+      expect(backupRes.status).not.toBe(0);
+      expect(backupRes.stderr).toContain('i066-dup');
+
+      // Restore side (T044): a still-valid EARLIER default backup (taken
+      // before this duplicate existed) is used — proving it is Step 2's own
+      // LIVE-database check, not the backup file's content, that blocks it.
+      const priorFile = latestTenantBackupFile('default');
+      const restoreRes = runRestore(`"${priorFile}" --tenant=default --target=t1`, mongoEnv);
+      expect(restoreRes.status).not.toBe(0);
+      expect(restoreRes.stderr).toContain('i066-dup');
+
+      await User.deleteMany({ id: 'i066-dup' });
+    });
+  });
 });
