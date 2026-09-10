@@ -64,6 +64,14 @@ function runRestore(argsString, envOverrides) {
   }
 }
 
+// Backup filenames carry a second-precision stamp — two backups for the
+// same tenant created within the same second would collide on filename.
+// Mirrors tests/tenant-backup.test.js's own identical helper.
+function waitPastSecondBoundary() {
+  const now = Date.now();
+  while (Date.now() - now < 1100) { /* busy-wait */ }
+}
+
 // T053a: no RESTORE_YES default here — used to exercise Step 4a's own
 // interactive prompt by piping typed input on stdin.
 function runRestoreInteractive(argsString, envOverrides, stdinInput) {
@@ -756,6 +764,103 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
 
       const cp = readCheckpoint('g-t058');
       expect(cp.stage).toBe('completed');
+
+      // T062: resume after the crash-window scenario completes fully, with
+      // no leftover local staging file.
+      expect(cp.categoriesApplied).toEqual(['users', 'entityChunks', 'appConfigs']);
+      expect(fs.existsSync(stagingFileOnDisk('g-t058'))).toBe(false);
     }, 30000);
+  });
+
+  // ── T060: Phase H — recovery behavior, lock contention ──────────────────
+  describe('Phase H: recovery behavior and restore lock contention (T060)', () => {
+    function spawnRestore(args, envOverrides) {
+      return new Promise(resolve => {
+        const child = spawn('node', ['scripts/tenant-restore.js', ...args], {
+          cwd: ROOT, env: { ...mongoEnv, RESTORE_YES: '1', ...envOverrides }, stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        let stdout = '', stderr = '';
+        child.stdout.on('data', d => { stdout += d; });
+        child.stderr.on('data', d => { stderr += d; });
+        child.on('close', code => resolve({ code, stdout, stderr }));
+      });
+    }
+
+    test('(a) MANDATORY: two real concurrent processes against the same tenant — exactly one acquires the lock, the other is rejected before opening the backup file', async () => {
+      await seedActiveTenant('h-concurrent');
+      const file = latestBackupOrCreate('h-concurrent', mongoEnv);
+      const args = [file, '--tenant=h-concurrent', '--target=t1'];
+
+      const [r1, r2] = await Promise.all([spawnRestore(args), spawnRestore(args)]);
+      const results = [r1, r2];
+      const winners = results.filter(r => r.code === 0);
+      const losers = results.filter(r => r.code !== 0);
+      expect(winners.length).toBe(1);
+      expect(losers.length).toBe(1);
+      expect(losers[0].stderr).toContain('قفل استعادة موجود بالفعل');
+    });
+
+    test('(d) MANDATORY: resuming with a DIFFERENT backup file than the one that partially applied is rejected before any further write', async () => {
+      await seedActiveTenant('h-diff-file');
+      await EntityChunk.create({ tenantId: 'h-diff-file', key: 'vendors', data: [{ id: 'V1' }] });
+      const file1 = latestBackupOrCreate('h-diff-file', mongoEnv);
+
+      const failRes = runRestore(`"${file1}" --tenant=h-diff-file --target=t1`, {
+        ...mongoEnv, __TENANT_RESTORE_TEST_FAIL_AFTER__: 'users',
+      });
+      expect(failRes.status).not.toBe(0); // clean failure — lock released, checkpoint left at 'failed'
+
+      waitPastSecondBoundary();
+      await EntityChunk.updateOne({ tenantId: 'h-diff-file', key: 'vendors' }, { $set: { data: [{ id: 'V1', changed: true }] } });
+      const file2 = latestBackupOrCreate('h-diff-file', mongoEnv);
+      expect(file2).not.toBe(file1);
+
+      const resumeRes = runRestore(`"${file2}" --tenant=h-diff-file --target=t1 --force-unlock`, mongoEnv);
+      expect(resumeRes.status).not.toBe(0);
+      expect(resumeRes.stderr).toContain('بصمة');
+    });
+
+    test('(e) NEW MANDATORY: --force-unlock atomicity — two near-simultaneous force-unlock invocations against the same stale lock, exactly one succeeds', async () => {
+      await seedActiveTenant('h-force-race');
+      const file = latestBackupOrCreate('h-force-race', mongoEnv);
+      // A stale lock, as a killed prior run would leave behind.
+      await EntityChunk.create({ tenantId: 'h-force-race', key: '__restoreLock__', data: { runId: 'stale-run', pid: 1, acquiredAt: new Date().toISOString() } });
+
+      const args = [file, '--tenant=h-force-race', '--target=t1', '--force-unlock'];
+      const [r1, r2] = await Promise.all([spawnRestore(args), spawnRestore(args)]);
+      const results = [r1, r2];
+      const winners = results.filter(r => r.code === 0);
+      const losers = results.filter(r => r.code !== 0);
+      expect(winners.length).toBe(1);
+      expect(losers.length).toBe(1);
+      expect(losers[0].stderr).toContain('قفل استعادة موجود بالفعل');
+
+      // Exactly one lock survives contention, and it belongs to whichever
+      // process actually completed the run (a completed run releases its
+      // own lock in the finally block) — no lock left behind.
+      const lockDoc = await EntityChunk.findOne({ tenantId: 'h-force-race', key: '__restoreLock__' }).lean();
+      expect(lockDoc).toBeNull();
+    });
+
+    test('(f) NEW: a prior fully-completed checkpoint does not block a new restore using a different, later, valid backup', async () => {
+      await seedActiveTenant('h-completed-ok');
+      await EntityChunk.create({ tenantId: 'h-completed-ok', key: 'vendors', data: [{ id: 'V1' }] });
+      const file1 = latestBackupOrCreate('h-completed-ok', mongoEnv);
+
+      const res1 = runRestore(`"${file1}" --tenant=h-completed-ok --target=t1`, mongoEnv);
+      expect(res1.status).toBe(0);
+      expect(readCheckpoint('h-completed-ok').stage).toBe('completed');
+
+      waitPastSecondBoundary();
+      await EntityChunk.updateOne({ tenantId: 'h-completed-ok', key: 'vendors' }, { $set: { data: [{ id: 'V1', v: 2 }] } });
+      const file2 = latestBackupOrCreate('h-completed-ok', mongoEnv);
+      expect(file2).not.toBe(file1);
+
+      // No --force-unlock needed — the prior run completed cleanly and
+      // released its own lock; a completed checkpoint is never compared
+      // against Step 1.8's fingerprint check (only a non-completed one is).
+      const res2 = runRestore(`"${file2}" --tenant=h-completed-ok --target=t1`, mongoEnv);
+      expect(res2.status).toBe(0);
+    });
   });
 });
