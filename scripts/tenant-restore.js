@@ -9,9 +9,9 @@
  * ⚠️ خطير: يستبدل بيانات هذا المستأجر فقط. لا يمسّ أي مستأجر آخر، ولا يمسّ
  *    scripts/restore.js أو npm run restore بأي شكل.
  *
- * حالة هذا الملف: يطبّق حتى نهاية Step 3 (التجهيز غير المتصل بدون أي كتابة
- * حية على Mongo) — specs/002.../tasks.md Phases E+F. مراحل G/H (نقطة الحفظ،
- * تأكيد الكتابة، التطبيق الفعلي) تُبنى لاحقاً على نفس هذا الملف.
+ * حالة هذا الملف: يطبّق كامل السلسلة Steps -1 إلى 6 (القفل، التحقق، فحص
+ * التكرار، التجهيز غير المتصل، نقطة الحفظ، تأكيد الكتابة، التطبيق الفعلي،
+ * الإنهاء) — specs/002.../tasks.md Phases E-G.
  */
 require('dotenv').config();
 const fs = require('fs');
@@ -21,10 +21,11 @@ const mongoose = require('mongoose');
 const readline = require('readline');
 const { validateTenantBackupFile, stripMongoMeta, computeCategoryDigest } = require('../lib/backupValidation');
 const { appendAuditEvent } = require('../lib/auditLog');
-const { _atomicWriteJsonSync } = require('../lib/database');
+const { _atomicWriteJsonSync, _tenantFilePath, _setDataFileForTooling, TENANT_BACKUP_ENTITY_KEYS } = require('../lib/database');
 const User = require('../models/User');
 const EntityChunk = require('../models/EntityChunk');
 const AppConfig = require('../models/AppConfig');
+const IdempotencyRecord = require('../models/IdempotencyRecord');
 
 const ROOT = path.join(__dirname, '..');
 const MONGO_URI = process.env.MONGO_URI;
@@ -34,6 +35,11 @@ const MONGO_URI = process.env.MONGO_URI;
 // real project's backups/ directory regardless.
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, 'backups');
 const CHECKPOINTS_DIR = path.join(BACKUP_DIR, '.restore-checkpoints');
+const DATA_FILE = process.env.DATA_FILE || path.join(ROOT, 'data', 'database.json');
+// Lets _tenantFilePath() (from lib/database.js) resolve a non-default
+// tenant's file-mode blob path — see scripts/tenant-backup.js's identical
+// call for why this is needed instead of running the full initDB().
+_setDataFileForTooling(DATA_FILE);
 
 // Mirrors lib/database.js:427-429's own _defaultTenantFilter verbatim — see
 // scripts/tenant-backup.js's identical comment for why this is reproduced
@@ -139,6 +145,113 @@ function readJsonSafe(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return null;
   try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return null; }
 }
+
+// Step 4 — checkpoint (research.md Decisions 14/15, tasks.md T053). Always
+// written via _atomicWriteJsonSync (tmp-file + rename), never a plain
+// fs.writeFileSync — the same crash-safety primitive this codebase already
+// trusts for data/database.json.
+function writeCheckpoint(tenantId, checkpoint) {
+  fs.mkdirSync(CHECKPOINTS_DIR, { recursive: true });
+  checkpoint.updatedAt = new Date().toISOString();
+  _atomicWriteJsonSync(checkpointPath(tenantId), checkpoint);
+  return checkpoint;
+}
+
+// Step 4a — explicit typed confirmation (research.md Decision 25, tasks.md
+// T053a), mirroring scripts/restore.js:104-107's own gate exactly.
+async function confirmApply(target, targetLabel, yes) {
+  if (yes) return true;
+  const ans = await ask(`اكتب "نعم" للتأكيد أنك تريد استعادة المستأجر "${target}" إلى "${targetLabel}": `);
+  return ans === 'نعم';
+}
+
+const CATEGORY_ORDER = ['users', 'entityChunks', 'appConfigs'];
+const CATEGORY_MODELS = { users: User, entityChunks: EntityChunk, appConfigs: AppConfig };
+
+// Step 5, point 1/2 (research.md Decision 12): the SAME filter is used for
+// both the live digest re-check and the destructive delete, for every
+// category — entityChunks additionally scoped by key so it can never touch
+// the restore lock or the tenant's own live idempotencyRecords document
+// (both live in this same collection, under this same tenantId); for
+// 'default', every category substitutes _defaultTenantFilter so legacy
+// no-tenantId-field documents are correctly counted and cleared.
+function categoryLiveFilter(category, target) {
+  const base = target === 'default' ? _defaultTenantFilter : { tenantId: target };
+  if (category === 'entityChunks') return { ...base, key: { $in: TENANT_BACKUP_ENTITY_KEYS } };
+  if (category === 'appConfigs') return { ...base, key: 'config' };
+  return base;
+}
+
+async function liveCategoryDigest(category, target) {
+  const docs = await CATEGORY_MODELS[category].find(categoryLiveFilter(category, target)).lean();
+  return { count: docs.length, digest: computeCategoryDigest(docs) };
+}
+
+// Step 5, point 2: tenant-scoped delete, never a bare deleteMany({}), then
+// insert the staged records with the REAL target tenantId (no synthetic
+// identity — there is nothing to repoint anymore). {ordered:false} on
+// entityChunks specifically (mirrors scripts/restore.js:41's precedent) so
+// one unexpected record can never abort unrelated ones in the same batch.
+async function applyCategory(category, target, records) {
+  const Model = CATEGORY_MODELS[category];
+  await Model.deleteMany(categoryLiveFilter(category, target));
+  if (records.length) {
+    const withRealTenant = records.map(r => ({ ...r, tenantId: target }));
+    await Model.insertMany(withRealTenant, category === 'entityChunks' ? { ordered: false } : {});
+  }
+}
+
+// Documented, test-only crash/failure-injection hooks (tasks.md T057/T058)
+// — both are no-ops unless their specific env var is set, which real
+// operator invocations never do. Two DISTINCT windows, deliberately:
+//
+// T058 needs the genuine crash window Decision 12's digest-based resume
+// exists to close — between a category's DB write SUCCEEDING and its OWN
+// checkpoint entry being written — so this hook runs right after the DB
+// write, before that category is pushed to categoriesApplied/the
+// checkpoint is rewritten. It first writes a marker file so an external
+// test harness can detect the exact moment and send a real SIGKILL,
+// deterministically rather than via a flaky wall-clock guess.
+async function _testCrashWindowHook(category) {
+  if (process.env.__TENANT_RESTORE_TEST_KILL_AFTER__ === category && process.env.__TENANT_RESTORE_TEST_KILL_MARKER__) {
+    fs.writeFileSync(process.env.__TENANT_RESTORE_TEST_KILL_MARKER__, String(process.pid));
+    await new Promise(r => setTimeout(r, 5000));
+  }
+}
+
+// T057 needs a clean, catchable failure BETWEEN two categories — after the
+// first one's DB write AND checkpoint write have both already landed, but
+// before the next category's own apply begins — so this hook runs after
+// the checkpoint rewrite for the named category.
+async function _testBetweenCategoriesFailHook(category) {
+  if (process.env.__TENANT_RESTORE_TEST_FAIL_AFTER__ === category) {
+    throw new RestoreFailure(`test-only forced failure after category "${category}" completed`);
+  }
+}
+
+function loadTenantFileBlob(target) {
+  if (target === 'default') {
+    return readJsonSafe(DATA_FILE) || {};
+  }
+  return readJsonSafe(_tenantFilePath(target)) || {};
+}
+
+// Step 6 — idempotency-staleness count (research.md Decision 20, sixth
+// pass, tasks.md T056b): Mongo mode queries the DEDICATED IdempotencyRecord
+// collection specifically, never the EntityChunk{key:'idempotencyRecords'}-
+// embedded array (the two can briefly disagree — see the decision). File
+// mode has no dedicated collection, so the embedded array is the only
+// representation that backend has.
+async function countStaleIdempotency(target, backupCreatedAt, isMongoMode) {
+  if (isMongoMode) {
+    return IdempotencyRecord.countDocuments({ tenantId: target, status: 'COMPLETED', completedAt: { $gt: new Date(backupCreatedAt) } });
+  }
+  const blob = loadTenantFileBlob(target);
+  const records = blob.idempotencyRecords || [];
+  return records.filter(r => r.status === 'COMPLETED' && r.completedAt && new Date(r.completedAt) > new Date(backupCreatedAt)).length;
+}
+
+const RECOVERY_MESSAGE = '↻ الاستئناف: أعد تشغيل نفس الأمر بنفس ملف النسخة. إذا كانت هذه العملية أُوقفت قسراً لا بخطأ عادي، فقفل الاستعادة لهذا المستأجر لا يزال محجوزاً — إعادة التشغيل تتطلب --force-unlock، ولا تستخدمه إلا بعد التأكد أن لا استعادة أخرى لهذا المستأجر تعمل فعلياً الآن. لا يوجد تراجع تلقائي (rollback) عن فئة سبق تطبيقها — أعد الاستعادة من نسخة أقدم عند الحاجة.';
 
 // Step 0 — Restore Lock (research.md Decision 11, tasks.md T041). Reuses
 // EntityChunk's existing {tenantId,key} compound unique index — a plain
@@ -249,12 +362,11 @@ async function recordAuditEvent(target, isMongoMode, outcome, metadata) {
         { upsert: true },
       );
     } else {
-      const dataFile = process.env.DATA_FILE || path.join(ROOT, 'data', 'database.json');
-      const db = readJsonSafe(dataFile) || {};
+      const db = readJsonSafe(DATA_FILE) || {};
       db.auditLog = db.auditLog || [];
       appendAuditEvent(db, opts);
-      fs.mkdirSync(path.dirname(dataFile), { recursive: true });
-      fs.writeFileSync(dataFile, JSON.stringify(db, null, 2), 'utf8');
+      fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+      fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), 'utf8');
     }
   } catch (e) {
     console.warn(`⚠️ تعذّر تسجيل حدث التدقيق: ${e.message}`);
@@ -303,20 +415,25 @@ async function run() {
     if (!validation.ok) {
       console.error(`❌ ملف النسخة غير صالح للاستعادة — رُفضت العملية (لم تُكتب أي بيانات):`);
       for (const p of validation.problems) console.error(`   - ${p}`);
-      await recordAuditEvent(target, isMongoMode, 'failure', { reason: 'validation_failed', problems: validation.problems });
+      await recordAuditEvent(target, isMongoMode, 'failure', {
+        backupFingerprint: validation.checksum, createdAt: validation.backup?.createdAt, categoriesApplied: [],
+        reason: 'validation_failed', problems: validation.problems,
+      });
       process.exitCode = 1;
       return;
     }
+    const backup = validation.backup;
 
     // Step 1.8 — backup-fingerprint check against any existing, non-completed
     // checkpoint for this tenant (research.md Decision 13, last sub-step,
-    // deliberately). No checkpoint exists yet until Phase F/G writes one —
-    // this is forward-looking-correct plumbing for those phases.
+    // deliberately).
     const existingCheckpoint = readJsonSafe(checkpointPath(target));
     if (existingCheckpoint && existingCheckpoint.stage !== 'completed') {
       if (existingCheckpoint.backupFingerprint !== validation.checksum) {
         console.error(`❌ عدم تطابق بصمة النسخة الاحتياطية عند الاستئناف — الملف الحالي "${path.basename(file)}" لا يطابق النسخة التي بدأ بها التشغيل السابق (checkpoint: ${checkpointPath(target)}).`);
-        await recordAuditEvent(target, isMongoMode, 'failure', { reason: 'fingerprint_mismatch' });
+        await recordAuditEvent(target, isMongoMode, 'failure', {
+          backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: [], reason: 'fingerprint_mismatch',
+        });
         process.exitCode = 1;
         return;
       }
@@ -333,31 +450,105 @@ async function run() {
           console.error(`❌ هوية مكرّرة (${d.category}): "${d.identity}" — مستندات: ${d.ids.join(', ')}`);
         }
         console.error('❌ توجد هويات مكرّرة للعيادة الافتراضية في قاعدة البيانات الحية — رُفضت الاستعادة، لم تُكتب أي بيانات.');
-        await recordAuditEvent(target, isMongoMode, 'failure', { reason: 'default_duplicate_identity', duplicates: dupes });
+        await recordAuditEvent(target, isMongoMode, 'failure', {
+          backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: [],
+          reason: 'default_duplicate_identity', duplicates: dupes,
+        });
         process.exitCode = 1;
         return;
       }
     }
 
-    // Step 3 — offline/logical staging (tasks.md T047-T050, Phase F). No
-    // live-Mongo write happens in this step or anything before it.
-    stageBackup(validation.backup, target);
+    // Step 3 — offline/logical staging (tasks.md T047-T050). No live-Mongo
+    // write happens in this step or anything before it.
+    const staged = stageBackup(backup, target);
 
-    // Phase F's own scope ends here (tasks.md T051 checkpoint). Steps 4
-    // (checkpoint write), 4a (typed confirmation), 5 (apply), 6 (finalize)
-    // attach here in Phase G, built on this same staged file.
-    console.log(`🎯 الوجهة المُعلَنة: ${targetLabel}`);
-    console.log(`✅ اكتمل التجهيز غير المتصل (Step 3) للمستأجر "${target}" — لم تُطبَّق أي بيانات على قاعدة البيانات الحية بعد (نقطة الحفظ والتطبيق الفعلي في مرحلة لاحقة).`);
-    void yes; // consumed by Step 4a in a later phase — parsed now per tasks.md T040
+    // Step 4 — checkpoint (tasks.md T053).
+    const checkpoint = writeCheckpoint(target, {
+      runId, targetTenantId: target, backupFile: file, backupFingerprint: validation.checksum,
+      expected: {
+        users: { count: backup.recordCounts.users, digest: backup.categoryDigests.users },
+        entityChunks: { count: backup.recordCounts.entityChunks, digest: backup.categoryDigests.entityChunks },
+        appConfigs: { count: backup.recordCounts.appConfigs, digest: backup.categoryDigests.appConfigs },
+      },
+      startedAt: new Date().toISOString(),
+      stage: 'staged',
+      categoriesApplied: [],
+      error: null,
+    });
+
+    console.log(`🎯 الوجهة المُعلَنة: ${targetLabel} (المستأجر: ${target})`);
+
+    // Step 4a — explicit typed confirmation (tasks.md T053a). MUST NOT be
+    // defaulted, weakened, or bypassed by anything other than --yes/RESTORE_YES=1.
+    const confirmed = await confirmApply(target, targetLabel, yes);
+    if (!confirmed) {
+      console.log('أُلغيت الاستعادة.');
+      await recordAuditEvent(target, isMongoMode, 'cancelled', {
+        backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: [],
+      });
+      return; // exit 0 — nothing destructive was attempted; checkpoint stays at 'staged'
+    }
+
+    // Step 5 — apply, fixed order users -> entityChunks -> appConfigs. The
+    // ONLY step that writes to the real target tenant.
+    checkpoint.stage = 'applying';
+    writeCheckpoint(target, checkpoint);
+
+    try {
+      for (const category of CATEGORY_ORDER) {
+        const live = await liveCategoryDigest(category, target);
+        const exp = checkpoint.expected[category];
+        if (live.count !== exp.count || live.digest !== exp.digest) {
+          await applyCategory(category, target, staged[category]);
+        } // else: already correct — no destructive operation performed, regardless of prior checkpoint state
+        await _testCrashWindowHook(category); // test-only (T058), no-op in real operation
+        checkpoint.categoriesApplied.push(category);
+        writeCheckpoint(target, checkpoint);
+        await _testBetweenCategoriesFailHook(category); // test-only (T057), no-op in real operation
+      }
+    } catch (applyErr) {
+      checkpoint.stage = 'failed';
+      checkpoint.error = applyErr.message;
+      writeCheckpoint(target, checkpoint);
+      console.error('❌ فشل التطبيق:', applyErr.message);
+      console.log(RECOVERY_MESSAGE);
+      await recordAuditEvent(target, isMongoMode, 'failure', {
+        backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: checkpoint.categoriesApplied,
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    // Step 6 — finalize.
+    checkpoint.stage = 'completed';
+    writeCheckpoint(target, checkpoint);
+
+    const staleCount = await countStaleIdempotency(target, backup.createdAt, isMongoMode);
+    try { fs.unlinkSync(stagingFilePath(target)); } catch (e) { if (e.code !== 'ENOENT') console.warn(`⚠️ تعذّر حذف ملف التجهيز المؤقت: ${e.message}`); }
+
+    console.log(`✅ اكتملت استعادة المستأجر "${target}" فقط، عبر فلاتر مخصّصة لهذا المستأجر — لم تُكتب بيانات أي مستأجر آخر في هذه العملية.`);
+    console.log('⚠️ مهم: أي عملية سيرفر تخدم هذا المستأجر حالياً تحتفظ بذاكرة مؤقتة (cache) قديمة ويجب إعادة تشغيلها الآن، قبل أي كتابة أخرى لهذا المستأجر، وإلا فقد تُلغى هذه الاستعادة صمتاً.');
+    if (staleCount > 0) {
+      console.log(`ℹ️ ملاحظة: يوجد ${staleCount} سجل(ات) idempotency لهذا المستأجر اكتملت بعد وقت أخذ النسخة المستعادة. أي طلب متكرر يطابق أحدها سيُعاد له نفس النتيجة المخزّنة (عبر sourceId أو journalId) حتى لو لم يعد الكيان الأصلي موجوداً بعد الاستعادة. هذا خطر متبقٍّ معروف ومُبلَّغ عنه فقط (بدون إصلاح تلقائي) — راجع docs/PRODUCTION_RUNBOOK.md.`);
+    } else {
+      console.log('ℹ️ لا يوجد أي سجل idempotency معرّض للخطر (0).');
+    }
+
+    await recordAuditEvent(target, isMongoMode, 'success', {
+      backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: checkpoint.categoriesApplied,
+    });
   } catch (e) {
-    // Staging (Step 3) is a defense-in-depth double-check that should never
-    // actually fire for any backup that already passed Step 1 — its own
-    // digest recompute is a no-op re-strip of the same content Step 1 just
-    // verified — so a RestoreFailure reaching here means something is
-    // genuinely, unexpectedly wrong. Not one of the four audited terminal-
-    // outcome families the contract names (Step 1/2/4a/5-6), so no
-    // dedicated audit call here — just a clean, non-zero exit.
-    console.error('❌ فشل التجهيز:', e.message);
+    // Genuinely unexpected failures only reach here — every named terminal
+    // outcome the contract audits (Step 1, Step 2, Step 4a's decline, Step
+    // 5/6's own success-or-failure) already returns from inside the try
+    // block above with its own audit call. Step 3's own digest/ownership
+    // checks are a defense-in-depth double-check that should never actually
+    // fire for any backup that already passed Step 1 (its recompute is a
+    // no-op re-strip of the same content Step 1 just verified) — a
+    // RestoreFailure reaching here means something is genuinely wrong and
+    // isn't one of the four audited families, so no dedicated audit call.
+    console.error('❌ فشل غير متوقع:', e.message);
     process.exitCode = 1;
   } finally {
     if (lockAcquired) {
@@ -380,5 +571,6 @@ module.exports = {
   // that already passed Step 1's identical checks, so testing them through
   // the full file/CLI pipeline can never actually exercise their own
   // rejection branch.
-  stageBackup, ownershipConsistent, stagingFilePath,
+  stageBackup, ownershipConsistent, stagingFilePath, checkpointPath,
+  applyCategory, liveCategoryDigest, categoryLiveFilter, CATEGORY_ORDER,
 };
