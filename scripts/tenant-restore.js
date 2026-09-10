@@ -366,7 +366,15 @@ async function recordAuditEvent(target, isMongoMode, outcome, metadata) {
       db.auditLog = db.auditLog || [];
       appendAuditEvent(db, opts);
       fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-      fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), 'utf8');
+      // Owner-review finding (lean review, post-implementation): this
+      // rewrites default's ENTIRE live database.json, not just the audit
+      // log — a plain fs.writeFileSync here (unlike everywhere else in
+      // this feature, including the identical call site in
+      // scripts/tenant-backup.js) risked a truncated/corrupt file if the
+      // process were killed mid-write. _atomicWriteJsonSync (tmp-file +
+      // rename) is already imported and used for the checkpoint/staging
+      // writes below — this call site must use the same primitive.
+      _atomicWriteJsonSync(DATA_FILE, db);
     }
   } catch (e) {
     console.warn(`⚠️ تعذّر تسجيل حدث التدقيق: ${e.message}`);
@@ -389,6 +397,25 @@ async function run() {
   const { file, tenantId: target, target: targetLabel, yes, forceUnlock } = args;
   const isMongoMode = !!MONGO_URI;
   const runId = crypto.randomBytes(8).toString('hex');
+
+  // Owner-review finding (lean review, post-implementation): Step 5's apply
+  // (categoryLiveFilter/liveCategoryDigest/applyCategory) always queries the
+  // raw Mongoose User/EntityChunk/AppConfig models — there is no file-mode
+  // equivalent, unlike Step 0's lock and Step 6's idempotency count, which
+  // both correctly branch on backend. scripts/tenant-backup.js DOES support
+  // file-mode backup for any tenant (tested), so a file-mode backup could
+  // otherwise be created successfully and then be impossible to ever
+  // restore — silently hanging for ~10s on a Mongoose command-buffering
+  // timeout instead of failing immediately and honestly. Rejecting here,
+  // before Step 0's lock is even acquired, turns that into an instant,
+  // clear, audited-free (nothing was attempted) rejection. File-mode tenant
+  // restore is a real, currently out-of-scope gap — see
+  // docs/PRODUCTION_RUNBOOK.md §7.1.
+  if (!isMongoMode) {
+    console.error('❌ الاستعادة الخاصة بمستأجر واحد غير مدعومة في وضع الملفات (بدون MONGO_URI) — التطبيق الفعلي (Step 5) لهذه الأداة يعمل على MongoDB فقط حالياً. استخدم اتصال MongoDB حقيقي، أو راجع docs/PRODUCTION_RUNBOOK.md.');
+    process.exitCode = 1;
+    return;
+  }
 
   if (isMongoMode) await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 8000 });
 

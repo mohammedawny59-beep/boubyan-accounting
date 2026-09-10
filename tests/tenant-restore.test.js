@@ -155,6 +155,37 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
     return latestTenantBackupFile(tenantId);
   }
 
+  // Owner-review finding (lean review, post-implementation): Step 5's apply
+  // has no file-mode implementation — a file-mode tenant backup (fully
+  // supported and tested by tenant-backup.js) could otherwise never be
+  // restored, hanging on a raw Mongoose command-buffering timeout instead
+  // of failing immediately and honestly. tenant-restore.js now rejects a
+  // file-mode invocation (no MONGO_URI) instantly, before Step 0's lock is
+  // even acquired.
+  describe('File-mode restore is rejected immediately, not left to hang on a Mongoose timeout', () => {
+    test('a file-mode invocation (no MONGO_URI) is rejected instantly, before any lock is acquired, with a clear Arabic message', async () => {
+      await seedActiveTenant('j-file-mode-guard');
+      const file = latestBackupOrCreate('j-file-mode-guard', mongoEnv);
+
+      const fileModeEnv = { ...mongoEnv };
+      delete fileModeEnv.MONGO_URI;
+
+      const start = Date.now();
+      const res = runRestore(`"${file}" --tenant=j-file-mode-guard --target=t1`, fileModeEnv);
+      const elapsedMs = Date.now() - start;
+
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toContain('وضع الملفات');
+      expect(elapsedMs).toBeLessThan(5000); // instant rejection, not the ~10s Mongoose buffering timeout
+
+      // No lock was ever acquired for this rejected, file-mode attempt —
+      // confirmed against the REAL (Mongo-mode) tenant, since a file-mode
+      // run never even connects to it.
+      const lockDoc = await EntityChunk.findOne({ tenantId: 'j-file-mode-guard', key: '__restoreLock__' }).lean();
+      expect(lockDoc).toBeNull();
+    });
+  });
+
   // ── T041: Step 0 restore lock ───────────────────────────────────────────
   describe('Step 0: restore lock', () => {
     test('acquires cleanly when no lock is held, and releases it on completion', async () => {
