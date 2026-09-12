@@ -57,7 +57,16 @@ describe('P4 Phase J — whole-instance separation (T069)', () => {
     expect(dataAfter.users).toEqual([{ id: 'u1', username: 'x' }]);
   });
 
-  test('a whole-instance backup file fed into tenant-restore.js is rejected at Step 1.2 (format/scope)', () => {
+  // Owner-review finding (final PR review, LOW): this test runs in file
+  // mode (this file's own `run()` always sets MONGO_URI:''), so it
+  // actually exercises tenant-restore.js's earlier file-mode-unsupported
+  // gate, not Step 1.2 itself — the real Step 1.2 rejection is covered
+  // under Mongo mode by tests/tenant-restore.test.js's own "whole-instance
+  // separation" test. Retitled to describe what this test actually proves
+  // (still a genuine, valid assertion: a whole-instance file is rejected
+  // one way or another, never silently accepted) rather than misclaim Step
+  // 1.2 specifically.
+  test('a whole-instance backup file fed into tenant-restore.js is rejected (file mode: via the earlier file-mode-unsupported gate)', () => {
     fs.writeJsonSync(DATA_FILE, { users: [{ id: 'u1', username: 'x' }], vendors: [] });
     fs.writeJsonSync(CONFIG_FILE, {});
 

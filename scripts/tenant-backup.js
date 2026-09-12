@@ -37,6 +37,18 @@ const CONFIG_FILE = process.env.CONFIG_FILE || path.join(ROOT, 'data', 'config.j
 
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
+// Owner-review finding (final PR review, LOW): --tenant= is operator-
+// supplied CLI input, not network-reachable, but was interpolated
+// unsanitized into the generated backup filename — unlike
+// lib/database.js's own _tenantFilePath(), which already sanitizes for
+// exactly this reason. A value containing path separators could otherwise
+// write outside BACKUP_DIR. Applied ONLY to the filesystem-path form of
+// the tenantId — the real, unsanitized tenantId is still what every Mongo
+// query/backup-content field/audit event uses.
+function sanitizeTenantIdForPath(tenantId) {
+  return String(tenantId).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 // Mirrors lib/database.js:427-429's own _defaultTenantFilter exactly — not
 // exported by that module (only _tenantFilePath/_tenantConfigFilePath are,
 // per tasks.md T027), reproduced here verbatim rather than widening that
@@ -184,7 +196,7 @@ function rotateTenantBackups(tenantId) {
       const withoutWrapper = f.slice('tenant-'.length, f.length - '.json'.length);
       if (withoutWrapper.length <= STAMP_AND_SEP_LEN) continue;
       const extractedTenantId = withoutWrapper.slice(0, withoutWrapper.length - STAMP_AND_SEP_LEN);
-      if (extractedTenantId === tenantId) matching.push(f);
+      if (extractedTenantId === sanitizeTenantIdForPath(tenantId)) matching.push(f);
     }
     matching.sort();
     const excess = matching.slice(0, Math.max(0, matching.length - TENANT_BACKUP_KEEP));
@@ -262,7 +274,7 @@ async function run() {
       recordCounts, categoryDigests, collections,
     };
     const json = JSON.stringify(backup, null, 2);
-    const file = path.join(BACKUP_DIR, `tenant-${tenantId}-${stamp()}.json`);
+    const file = path.join(BACKUP_DIR, `tenant-${sanitizeTenantIdForPath(tenantId)}-${stamp()}.json`);
     fs.writeFileSync(file, json, 'utf8');
     const checksum = computeChecksum(json);
     fs.writeFileSync(file + '.sha256', `${checksum}  ${path.basename(file)}\n`, 'utf8');
