@@ -34,7 +34,7 @@ const AppConfig = require('../models/AppConfig');
 const Tenant = require('../models/Tenant');
 const Subscription = require('../models/Subscription');
 const IdempotencyRecord = require('../models/IdempotencyRecord');
-const { startIsolatedMongo } = require('./helpers/mongoTestHarness');
+const { startIsolatedMongo, withRetryOnTransientMongoError } = require('./helpers/mongoTestHarness');
 
 _setDataFileForTooling(DATA_FILE); // lets this process's own _tenantFilePath() calls resolve, for file-mode fixture seeding
 
@@ -45,7 +45,7 @@ async function seedActiveTenant(tenantId) {
   await Tenant.create({ tenantId, name: tenantId, slug: tenantId, email: `${tenantId}@example.com`, status: 'active' });
 }
 
-function runBackup(tenantId, envOverrides) {
+function runBackupOnce(tenantId, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-backup.js --tenant=${tenantId}`, {
       cwd: ROOT, env: { ...process.env, ...envOverrides }, stdio: 'pipe',
@@ -56,7 +56,16 @@ function runBackup(tenantId, envOverrides) {
   }
 }
 
-function runBackupRaw(argsString, envOverrides) {
+// CI reliability pass: retries ONLY the diagnosed transient-infrastructure
+// signature (a real "Server selection timed out" under CI host contention,
+// confirmed from an actual CI failure log) — every call site is unaffected,
+// no test needed to change. A genuine application-level failure still
+// returns on the very first attempt, unmasked.
+function runBackup(tenantId, envOverrides) {
+  return withRetryOnTransientMongoError(() => runBackupOnce(tenantId, envOverrides));
+}
+
+function runBackupRawOnce(argsString, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-backup.js ${argsString}`, {
       cwd: ROOT, env: { ...process.env, ...envOverrides }, stdio: 'pipe',
@@ -65,6 +74,10 @@ function runBackupRaw(argsString, envOverrides) {
   } catch (e) {
     return { status: e.status, stdout: e.stdout?.toString() || '', stderr: e.stderr?.toString() || '' };
   }
+}
+
+function runBackupRaw(argsString, envOverrides) {
+  return withRetryOnTransientMongoError(() => runBackupRawOnce(argsString, envOverrides));
 }
 
 function latestTenantBackupFile(dir, tenantId) {

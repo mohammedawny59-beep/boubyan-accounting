@@ -34,7 +34,7 @@ const User = require('../models/User');
 const EntityChunk = require('../models/EntityChunk');
 const AppConfig = require('../models/AppConfig');
 const Tenant = require('../models/Tenant');
-const { startIsolatedMongo } = require('./helpers/mongoTestHarness');
+const { startIsolatedMongo, withRetryOnTransientMongoError } = require('./helpers/mongoTestHarness');
 
 _setDataFileForTooling(DATA_FILE);
 
@@ -42,10 +42,27 @@ async function seedActiveTenant(tenantId) {
   await Tenant.create({ tenantId, name: tenantId, slug: tenantId, email: `${tenantId}@example.com`, status: 'active' });
 }
 
+function runBackupOnce(tenantId, envOverrides) {
+  try {
+    const out = execSync(`node scripts/tenant-backup.js --tenant=${tenantId}`, {
+      cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe',
+    });
+    return { status: 0, stdout: out.toString() };
+  } catch (e) {
+    return { status: e.status, stdout: e.stdout?.toString() || '', stderr: e.stderr?.toString() || '' };
+  }
+}
+
+// CI reliability pass: retries ONLY the diagnosed transient-infrastructure
+// signature (a real "Server selection timed out" under CI host contention,
+// confirmed from an actual CI failure log). This helper is used purely for
+// fixture setup (producing a backup file for a subsequent restore test),
+// never for a lock/concurrency assertion — safe to retry unconditionally
+// here without affecting any timing-sensitive test elsewhere in this file.
 function runBackup(tenantId, envOverrides) {
-  return execSync(`node scripts/tenant-backup.js --tenant=${tenantId}`, {
-    cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe',
-  }).toString();
+  const r = withRetryOnTransientMongoError(() => runBackupOnce(tenantId, envOverrides));
+  if (r.status !== 0) throw new Error(`runBackup('${tenantId}') failed (status ${r.status}): ${r.stderr}`);
+  return r.stdout;
 }
 
 function latestTenantBackupFile(tenantId) {
@@ -53,7 +70,7 @@ function latestTenantBackupFile(tenantId) {
   return files.length ? path.join(backupDir, files[files.length - 1]) : null;
 }
 
-function runRestore(argsString, envOverrides) {
+function runRestoreOnce(argsString, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
       cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe',
@@ -62,6 +79,15 @@ function runRestore(argsString, envOverrides) {
   } catch (e) {
     return { status: e.status, stdout: e.stdout?.toString() || '', stderr: e.stderr?.toString() || '' };
   }
+}
+
+// CI reliability pass: same diagnosed transient-infrastructure retry as
+// runBackup() above. Never used by the Phase H concurrency tests (those
+// spawn via spawnRestore() below, deliberately NOT wrapped here — retrying
+// one side of a deliberate two-process race would change the very
+// interleaving those tests exist to exercise).
+function runRestore(argsString, envOverrides) {
+  return withRetryOnTransientMongoError(() => runRestoreOnce(argsString, envOverrides));
 }
 
 // Backup filenames carry a second-precision stamp — two backups for the

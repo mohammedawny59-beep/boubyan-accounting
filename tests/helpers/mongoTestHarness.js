@@ -72,4 +72,48 @@ async function startIsolatedMongo(label) {
   };
 }
 
-module.exports = { startIsolatedMongo, assertSafeTestDbName, randomTestDbName, TEST_DB_MARKER };
+// CI reliability pass: a spawned child process (tenant-backup.js /
+// tenant-restore.js under test) connecting to this file's own
+// mongodb-memory-server instance can occasionally exceed even a generous
+// connection timeout under REAL CI host contention — dozens of test files
+// each running their own mongod, all competing for a resource-constrained
+// runner's limited CPU. Diagnosed directly from an actual CI failure:
+// "Server selection timed out after 20000 ms", a clean, narrowly-matched
+// infrastructure signature — never a stand-in for a genuine application
+// error, which would fail with a DIFFERENT message and must still fail
+// the test immediately, on the first attempt, with no retry.
+const TRANSIENT_MONGO_ERROR_RE = /Server selection timed out|MongooseServerSelectionError|ECONNREFUSED|connection \d+ to .* timed out/i;
+
+function isTransientMongoConnectionError(result) {
+  return !!(result && result.status !== 0 && TRANSIENT_MONGO_ERROR_RE.test(result.stderr || ''));
+}
+
+// Synchronous real-time delay between retries, matching this test suite's
+// own established busy-wait precedent (tests/tenant-backup.test.js and
+// tests/tenant-restore.test.js's own waitPastSecondBoundary()) — kept
+// synchronous deliberately so callers of a plain execSync-based spawn
+// helper need no async/await conversion at any call site.
+function sleepSyncMs(ms) {
+  const now = Date.now();
+  while (Date.now() - now < ms) { /* busy-wait */ }
+}
+
+// Wraps a synchronous spawn function (must return {status, stdout, stderr})
+// and retries it, WITH NO CALL-SITE CHANGES REQUIRED, only when the failure
+// exactly matches the diagnosed transient-infrastructure signature above.
+// Any other failure (a real assertion-worthy bug) returns immediately on
+// the first attempt, unmasked.
+function withRetryOnTransientMongoError(spawnFn, attempts = 3, delayMs = 1000) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    last = spawnFn();
+    if (!isTransientMongoConnectionError(last)) return last;
+    if (i < attempts - 1) sleepSyncMs(delayMs);
+  }
+  return last;
+}
+
+module.exports = {
+  startIsolatedMongo, assertSafeTestDbName, randomTestDbName, TEST_DB_MARKER,
+  isTransientMongoConnectionError, withRetryOnTransientMongoError,
+};
