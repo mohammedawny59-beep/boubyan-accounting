@@ -235,15 +235,23 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       await EntityChunk.deleteOne({ tenantId: 'e-lock-contend', key: '__restoreLock__' });
     });
 
-    test('--force-unlock recovers a stale lock via compare-and-delete, then proceeds', async () => {
+    test('--force-unlock, given the exact reported lock identity, recovers a stale lock via an identity-bound compare-and-swap, then proceeds', async () => {
       await seedActiveTenant('e-lock-force');
       const file = latestBackupOrCreate('e-lock-force', mongoEnv);
       await EntityChunk.create({ tenantId: 'e-lock-force', key: '__restoreLock__', data: { runId: 'stale-crashed-run', pid: 1, acquiredAt: new Date().toISOString() } });
 
       const withoutForce = runRestore(`"${file}" --tenant=e-lock-force --target=t1`, mongoEnv);
       expect(withoutForce.status).not.toBe(0); // plain re-run still rejected — no silent auto-recovery
+      expect(withoutForce.stderr).toContain('runId=stale-crashed-run'); // the exact identity to force is reported, never left to guesswork
 
-      const withForce = runRestore(`"${file}" --tenant=e-lock-force --target=t1 --force-unlock`, mongoEnv);
+      // A bare --force-unlock (no expected identity) must be rejected before Step 0.
+      const bareForce = runRestore(`"${file}" --tenant=e-lock-force --target=t1 --force-unlock`, mongoEnv);
+      expect(bareForce.status).not.toBe(0);
+      expect(bareForce.stderr).toContain('--expected-lock-run-id=');
+      const lockDocStillStale = await EntityChunk.findOne({ tenantId: 'e-lock-force', key: '__restoreLock__' }).lean();
+      expect(lockDocStillStale.data.runId).toBe('stale-crashed-run'); // untouched by the rejected bare attempt
+
+      const withForce = runRestore(`"${file}" --tenant=e-lock-force --target=t1 --force-unlock --expected-lock-run-id=stale-crashed-run`, mongoEnv);
       expect(withForce.status).toBe(0);
       const lockDoc = await EntityChunk.findOne({ tenantId: 'e-lock-force', key: '__restoreLock__' }).lean();
       expect(lockDoc).toBeNull(); // released again after the forced run completed cleanly
@@ -799,16 +807,22 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       expect(userMidCrash.username).toBe('orig');
 
       // The lock was never released (a real kill, not a clean exit) — a
-      // plain re-run must be rejected at Step 0.
+      // plain re-run must be rejected at Step 0, and must report the
+      // crashed run's own lock identity so the operator can force-unlock
+      // it EXACTLY (never by guessing/inferring).
       const plainRerun = runRestore(`"${file}" --tenant=g-t058 --target=t1`, mongoEnv);
       expect(plainRerun.status).not.toBe(0);
       expect(plainRerun.stderr).toContain('قفل استعادة موجود');
+      const staleRunIdMatch = plainRerun.stderr.match(/runId=([0-9a-f]+)/);
+      expect(staleRunIdMatch).not.toBeNull();
+      const staleRunId = staleRunIdMatch[1];
 
-      // --force-unlock resumes correctly: users is NOT redundantly re-applied
-      // (its _id stays the one the pre-kill write produced), entityChunks
-      // proceeds and the whole run completes.
+      // --force-unlock, given the EXACT crashed runId, resumes correctly:
+      // users is NOT redundantly re-applied (its _id stays the one the
+      // pre-kill write produced), entityChunks proceeds and the whole run
+      // completes.
       const userBeforeResume = await User.findOne({ tenantId: 'g-t058', id: 'u1' }).lean();
-      const resumed = runRestore(`"${file}" --tenant=g-t058 --target=t1 --force-unlock`, mongoEnv);
+      const resumed = runRestore(`"${file}" --tenant=g-t058 --target=t1 --force-unlock --expected-lock-run-id=${staleRunId}`, mongoEnv);
       expect(resumed.status).toBe(0);
 
       const userAfterResume = await User.findOne({ tenantId: 'g-t058', id: 'u1' }).lean();
@@ -854,6 +868,25 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       expect(losers[0].stderr).toContain('قفل استعادة موجود بالفعل');
     });
 
+    // Test F (owner-mandated deterministic-lock redesign): a bare
+    // --force-unlock, with no explicit --expected-lock-run-id=, must fail
+    // BEFORE Step 0 — before the lock is even touched, let alone the
+    // backup file opened or anything applied.
+    test('Test F (redesign-mandated): a bare --force-unlock without an explicit --expected-lock-run-id= is rejected before Step 0', async () => {
+      await seedActiveTenant('h-bare-force');
+      const file = latestBackupOrCreate('h-bare-force', mongoEnv);
+      await EntityChunk.create({ tenantId: 'h-bare-force', key: '__restoreLock__', data: { runId: 'whatever-is-there', pid: 1, acquiredAt: new Date().toISOString() } });
+
+      const res = runRestore(`"${file}" --tenant=h-bare-force --target=t1 --force-unlock`, mongoEnv);
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toContain('--expected-lock-run-id=');
+
+      // Never touched — rejected before Step 0 ever ran.
+      const lockDoc = await EntityChunk.findOne({ tenantId: 'h-bare-force', key: '__restoreLock__' }).lean();
+      expect(lockDoc.data.runId).toBe('whatever-is-there');
+      await EntityChunk.deleteOne({ tenantId: 'h-bare-force', key: '__restoreLock__' });
+    });
+
     test('(d) MANDATORY: resuming with a DIFFERENT backup file than the one that partially applied is rejected before any further write', async () => {
       await seedActiveTenant('h-diff-file');
       await EntityChunk.create({ tenantId: 'h-diff-file', key: 'vendors', data: [{ id: 'V1' }] });
@@ -869,63 +902,54 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       const file2 = latestBackupOrCreate('h-diff-file', mongoEnv);
       expect(file2).not.toBe(file1);
 
-      const resumeRes = runRestore(`"${file2}" --tenant=h-diff-file --target=t1 --force-unlock`, mongoEnv);
+      // No --force-unlock needed here: the prior run's clean (caught)
+      // failure already released the lock in its own finally block — this
+      // resume attempt is rejected by Step 1.8's fingerprint check alone.
+      const resumeRes = runRestore(`"${file2}" --tenant=h-diff-file --target=t1`, mongoEnv);
       expect(resumeRes.status).not.toBe(0);
       expect(resumeRes.stderr).toContain('بصمة');
     });
 
-    // Owner-review finding (final PR review, CRITICAL, confirmed empirically
-    // — 8/12 failures in a tight local loop, and reproduced on this PR's own
-    // CI run): the OLD acquireLockMongo() force-unlock path (findOne() then
-    // a separately-conditioned deleteOne()+create()) was not atomic across
-    // two concurrent invocations — see the fix's own comment at
-    // acquireLockMongo() for the exact race. Fixed via a minimum-age guard
-    // plus a single atomic findOneAndUpdate() compare-and-swap. This test is
-    // now run in a STRESS LOOP (not once) specifically because the original
-    // bug was probabilistic, not deterministic — a single passing run proves
-    // nothing on its own; this loop is the actual regression guard.
+    // Owner-review history — this test went through the same three lock
+    // designs documented at scripts/tenant-restore.js's own
+    // _forceUnlockTakeover comment: (1) a non-atomic delete-then-create
+    // (empirically 8/12 failures locally and on CI), (2) a CAS-only fix
+    // that spawned two full CLI processes and asserted "exactly one exits
+    // 0" — which turned out to be a flaky TEST ASSUMPTION, not a
+    // concurrency defect: a fast-completing winner could finish and
+    // release its lock before the loser even finished deciding, so both
+    // legitimately exited 0 with no lock ever actually stolen, and (3) a
+    // wall-clock age-gate fix that an independent owner re-review rejected
+    // as TIMING_DEPENDENT_UNSAFE (mutual exclusion must not depend on
+    // process timing).
     //
-    // Post-fix re-diagnosis (bounded, timeout-guarded local runs): the
-    // earlier version of this test spawned TWO FULL CLI processes racing
-    // `--force-unlock` and asserted "exactly one process exits 0". That
-    // assumption is false in general — it does not test lock atomicity, it
-    // tests full end-to-end run() timing. Captured failure (iteration 10 of
-    // 20, reproduced via a __LOCK_DEBUG__-instrumented run): process A
-    // legitimately observed the genuinely-stale lock, atomically took it
-    // over via _forceUnlockTakeover, ran its ENTIRE restore to completion,
-    // and released its own lock in the finally block — ALL before process
-    // B's create()-then-findOne() pair even completed. B therefore correctly
-    // observed NO lock at all (not a stolen one) and legitimately started
-    // its own fresh, safe restore, so BOTH processes exited 0. No lock was
-    // ever held by two processes at once and no lock was ever stolen — this
-    // was a flaky TEST ASSUMPTION, not a concurrency defect in
-    // acquireLockMongo/_forceUnlockTakeover (those remain independently
-    // proven atomic and ownership-safe by tests (c) and (d2) below).
-    //
-    // Fixed by racing the lock primitive itself — acquireLockMongo() called
-    // twice concurrently in-process — which is what the required property
-    // ("two simultaneous force-unlock attempts against one stale lock,
-    // exactly one wins, loser cannot delete winner's lock") actually is.
-    // This still exercises genuine concurrency (two real, independent
-    // round trips to the real mongod process, racing at the Mongo server
-    // itself), it just removes the unrelated confound of an entire CLI
-    // process's worth of extra work landing in between.
-    test('(e) NEW MANDATORY: --force-unlock atomicity — two near-simultaneous force-unlock invocations against the same stale lock, exactly one succeeds (stress-tested, 20 iterations)', async () => {
-      const { acquireLockMongo, releaseLockMongo } = require('../scripts/tenant-restore');
+    // FINAL DESIGN under test below: force-takeover requires the caller to
+    // name the EXACT lock identity to replace (forceTakeoverLockMongo's
+    // expectedOldRunId) — never a self-observed "current lock". Tests B-E
+    // below are the redesign's own required regression suite.
+
+    // Test B (redesign-mandated): same stale token race — A and B both
+    // force-takeover using the IDENTICAL expected old runId, racing at the
+    // real Mongo server. Exactly one succeeds, purely via MongoDB's own
+    // per-document atomicity — no wall-clock reasoning anywhere in this
+    // path. Stress-tested (not run once) since a single pass proves
+    // nothing about a race.
+    test('Test B (redesign-mandated): same stale token race — A and B both force-takeover with the identical expected old runId, exactly one succeeds (stress-tested, 20 iterations)', async () => {
+      const { forceTakeoverLockMongo, releaseLockMongo } = require('../scripts/tenant-restore');
       const ITERATIONS = 20;
       for (let i = 0; i < ITERATIONS; i++) {
         const tenantId = `h-force-race-${i}`;
         // A genuinely stale lock — acquired well in the past, not "just now".
         await EntityChunk.create({
           tenantId, key: '__restoreLock__',
-          data: { runId: 'stale-run', pid: 1, acquiredAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
+          data: { runId: 'OLD', pid: 1, acquiredAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
         });
 
         const runIdA = `race-a-${i}`;
         const runIdB = `race-b-${i}`;
         const [rA, rB] = await Promise.all([
-          acquireLockMongo(tenantId, runIdA, true),
-          acquireLockMongo(tenantId, runIdB, true),
+          forceTakeoverLockMongo(tenantId, runIdA, 'OLD'),
+          forceTakeoverLockMongo(tenantId, runIdB, 'OLD'),
         ]);
         const results = [rA, rB];
         const winners = results.filter(r => r.acquired === true);
@@ -933,8 +957,9 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
         expect(winners.length).toBe(1); // iteration ${i}
         expect(losers.length).toBe(1);
 
-        // The loser must never have deleted or overwritten the winner's
-        // lock — exactly one lock survives, and it is the winner's own.
+        // The final lock belongs to exactly the winner — the loser never
+        // deleted or overwrote it, and never got a second, different
+        // "stale" lock to fall back on.
         const winnerRunId = rA.acquired ? runIdA : runIdB;
         const lockDoc = await EntityChunk.findOne({ tenantId, key: '__restoreLock__' }).lean();
         expect(lockDoc).not.toBeNull();
@@ -946,11 +971,71 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       }
     }, 60000);
 
-    test('(c) NEW MANDATORY: release is ownership-protected — a wrong runId can never release another process\'s lock (direct unit call)', async () => {
+    // Test C (redesign-mandated): the deterministic regression test for the
+    // previously-unsafe "Case 2" (see _forceUnlockTakeover's own comment).
+    // A already replaced the stale lock with a fresh one; B, holding the
+    // OLD expected identity it always intended to replace, attempts force
+    // ONLY AFTER A has completed. B must fail, and A's fresh lock must
+    // remain completely untouched. No artificial delay or timing is used
+    // or needed — simply sequencing the two calls IS the test,
+    // deterministically, on every run.
+    test('Test C (redesign-mandated): delayed second process — a force-takeover using an old expected runId cannot touch a lock someone else already replaced', async () => {
+      const { forceTakeoverLockMongo, releaseLockMongo } = require('../scripts/tenant-restore');
+      const tenantId = 'h-delayed-second';
+
+      await EntityChunk.create({
+        tenantId, key: '__restoreLock__',
+        data: { runId: 'OLD', pid: 1, acquiredAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
+      });
+
+      // A successfully replaces OLD with NEW-A.
+      const resultA = await forceTakeoverLockMongo(tenantId, 'NEW-A', 'OLD');
+      expect(resultA.acquired).toBe(true);
+
+      // ONLY AFTER A has completed, B attempts force using the SAME OLD
+      // expected identity it always held (it never re-read the lock in
+      // between) — this must fail, and NEW-A must remain untouched.
+      const resultB = await forceTakeoverLockMongo(tenantId, 'NEW-B', 'OLD');
+      expect(resultB.acquired).toBe(false);
+
+      const lockDoc = await EntityChunk.findOne({ tenantId, key: '__restoreLock__' }).lean();
+      expect(lockDoc.data.runId).toBe('NEW-A'); // completely untouched by B's failed attempt
+
+      await releaseLockMongo(tenantId, 'NEW-A');
+    });
+
+    // Test D (redesign-mandated): wrong expected token — the current lock
+    // is REAL; a force-takeover naming a WRONG expected identity must fail
+    // without mutating anything, purely via the CAS filter's own identity
+    // match (no age/timing signal involved at all).
+    test('Test D (redesign-mandated): force-takeover with a wrong expected runId fails without mutation', async () => {
+      const { forceTakeoverLockMongo, releaseLockMongo } = require('../scripts/tenant-restore');
+      const tenantId = 'h-wrong-token';
+
+      await EntityChunk.create({
+        tenantId, key: '__restoreLock__',
+        data: { runId: 'REAL', pid: 1, acquiredAt: new Date().toISOString() },
+      });
+
+      const result = await forceTakeoverLockMongo(tenantId, 'attacker-run', 'WRONG');
+      expect(result.acquired).toBe(false);
+
+      const lockDoc = await EntityChunk.findOne({ tenantId, key: '__restoreLock__' }).lean();
+      expect(lockDoc.data.runId).toBe('REAL'); // untouched
+
+      await releaseLockMongo(tenantId, 'REAL');
+    });
+
+    // Test E (redesign-mandated, = former (c)): release is ownership-
+    // protected — a wrong runId can never release another process's lock.
+    // Unaffected by the redesign (releaseLockMongo's own signature/logic
+    // never changed) — re-verified here against the new acquireLockMongo()
+    // 2-arg signature.
+    test('Test E (redesign-mandated): release is ownership-protected — a wrong runId can never release another process\'s lock (direct unit call)', async () => {
       const { acquireLockMongo, releaseLockMongo } = require('../scripts/tenant-restore');
       const tenantId = 'h-release-protect';
 
-      const resultA = await acquireLockMongo(tenantId, 'runId-A', false);
+      const resultA = await acquireLockMongo(tenantId, 'runId-A');
       expect(resultA.acquired).toBe(true);
 
       // Process B, holding a DIFFERENT (wrong) ownership token, attempts to
@@ -964,49 +1049,6 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       await releaseLockMongo(tenantId, 'runId-A'); // correct token — cleans up
       const afterCleanup = await EntityChunk.findOne({ tenantId, key: '__restoreLock__' }).lean();
       expect(afterCleanup).toBeNull();
-    });
-
-    // Deterministic, timing-independent version of "stale vs fresh race":
-    // rather than trying to force two real acquireLockMongo() calls to
-    // interleave in a specific order (which, without artificial delays,
-    // cannot be reliably controlled — and artificial delays are exactly
-    // what broke T058's legitimate fast-resume scenario in an earlier,
-    // reverted version of this fix, see acquireLockMongo()'s own comment),
-    // this directly tests the atomic compare-and-swap primitive
-    // (_forceUnlockTakeover) with a DELIBERATELY outdated expected runId —
-    // simulating a process/operator that captured the lock's identity
-    // before a DIFFERENT process already took it over.
-    test('(d2) NEW MANDATORY: stale-vs-fresh race — a compare-and-swap against an outdated observation can never steal a lock someone else has already freshly re-acquired (direct unit call, deterministic)', async () => {
-      const { acquireLockMongo, releaseLockMongo, _forceUnlockTakeover } = require('../scripts/tenant-restore');
-      const tenantId = 'h-stale-vs-fresh';
-
-      // A genuinely stale lock exists.
-      await EntityChunk.create({
-        tenantId, key: '__restoreLock__',
-        data: { runId: 'stale-run', pid: 1, acquiredAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
-      });
-
-      // B independently observes this SAME stale lock's identity first —
-      // e.g. a second operator who separately noticed it a moment before A
-      // acted. Capture exactly what B "knows" at this point.
-      const bObserved = await EntityChunk.findOne({ tenantId, key: '__restoreLock__' }).lean();
-      expect(bObserved.data.runId).toBe('stale-run');
-
-      // A force-unlocks and fully completes its own takeover first.
-      const resultA = await acquireLockMongo(tenantId, 'runId-A', true);
-      expect(resultA.acquired).toBe(true);
-
-      // B now attempts its OWN takeover using the OUTDATED identity it
-      // captured earlier — the exact primitive acquireLockMongo() itself
-      // uses internally. This must fail (no match any more) and must never
-      // touch A's real lock.
-      const bTakeover = await _forceUnlockTakeover(tenantId, bObserved.data.runId, { runId: 'runId-B', pid: 2, acquiredAt: new Date().toISOString() });
-      expect(bTakeover).toBeNull();
-
-      const lockDoc = await EntityChunk.findOne({ tenantId, key: '__restoreLock__' }).lean();
-      expect(lockDoc.data.runId).toBe('runId-A'); // A's lock is completely untouched
-
-      await releaseLockMongo(tenantId, 'runId-A');
     });
 
     test('(f) NEW: a prior fully-completed checkpoint does not block a new restore using a different, later, valid backup', async () => {

@@ -23,6 +23,7 @@ const {
   TENANT_BACKUP_ENTITY_KEYS, _tenantFilePath, _tenantConfigFilePath,
   _setDataFileForTooling, _atomicWriteJsonSync,
 } = require('../lib/database');
+const { sanitizeTenantIdForPath } = require('../lib/tenantIdPathSanitizer');
 const User = require('../models/User');
 const EntityChunk = require('../models/EntityChunk');
 const AppConfig = require('../models/AppConfig');
@@ -36,18 +37,6 @@ const DATA_FILE   = process.env.DATA_FILE   || path.join(ROOT, 'data', 'database
 const CONFIG_FILE = process.env.CONFIG_FILE || path.join(ROOT, 'data', 'config.json');
 
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-
-// Owner-review finding (final PR review, LOW): --tenant= is operator-
-// supplied CLI input, not network-reachable, but was interpolated
-// unsanitized into the generated backup filename — unlike
-// lib/database.js's own _tenantFilePath(), which already sanitizes for
-// exactly this reason. A value containing path separators could otherwise
-// write outside BACKUP_DIR. Applied ONLY to the filesystem-path form of
-// the tenantId — the real, unsanitized tenantId is still what every Mongo
-// query/backup-content field/audit event uses.
-function sanitizeTenantIdForPath(tenantId) {
-  return String(tenantId).replace(/[^a-zA-Z0-9_-]/g, '_');
-}
 
 // Mirrors lib/database.js:427-429's own _defaultTenantFilter exactly — not
 // exported by that module (only _tenantFilePath/_tenantConfigFilePath are,

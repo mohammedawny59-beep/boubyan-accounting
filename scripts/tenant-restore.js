@@ -4,7 +4,12 @@
  * استعادة نسخة احتياطية لمستأجر واحد فقط — Tenant-Scoped Restore
  *
  * التشغيل:
- *   node scripts/tenant-restore.js <ملف النسخة> --tenant=<المعرّف> --target=<اسم الوجهة> [--yes] [--force-unlock]
+ *   node scripts/tenant-restore.js <ملف النسخة> --tenant=<المعرّف> --target=<اسم الوجهة> [--yes] [--force-unlock --expected-lock-run-id=<RUN_ID>]
+ *
+ * --force-unlock يتطلب دائماً --expected-lock-run-id=<RUN_ID> صراحةً — هوية
+ * القفل المحدد الذي تنوي استبداله بالضبط (تحصل عليها من رسالة رفض محاولة
+ * عادية سابقة). لا تخمين، ولا إعادة قراءة القفل الحالي واستبدال أياً كان
+ * موجوداً فعلاً وقت التنفيذ.
  *
  * ⚠️ خطير: يستبدل بيانات هذا المستأجر فقط. لا يمسّ أي مستأجر آخر، ولا يمسّ
  *    scripts/restore.js أو npm run restore بأي شكل.
@@ -22,6 +27,7 @@ const readline = require('readline');
 const { validateTenantBackupFile, stripMongoMeta, computeCategoryDigest } = require('../lib/backupValidation');
 const { appendAuditEvent } = require('../lib/auditLog');
 const { _atomicWriteJsonSync, _tenantFilePath, _setDataFileForTooling, TENANT_BACKUP_ENTITY_KEYS } = require('../lib/database');
+const { sanitizeTenantIdForPath } = require('../lib/tenantIdPathSanitizer');
 const User = require('../models/User');
 const EntityChunk = require('../models/EntityChunk');
 const AppConfig = require('../models/AppConfig');
@@ -61,12 +67,19 @@ function parseArgs(argv) {
   const positional = argv.find(a => !a.startsWith('--'));
   const tenantArg = argv.find(a => a.startsWith('--tenant='));
   const targetArg = argv.find(a => a.startsWith('--target='));
+  const expectedLockRunIdArg = argv.find(a => a.startsWith('--expected-lock-run-id='));
   return {
     file: positional || null,
     tenantId: tenantArg ? tenantArg.slice('--tenant='.length).trim() || null : null,
     target: targetArg ? targetArg.slice('--target='.length).trim() || null : null,
     yes: argv.includes('--yes') || process.env.RESTORE_YES === '1',
     forceUnlock: argv.includes('--force-unlock'),
+    // The ONLY input that may ever authorize a force-takeover — the exact
+    // lock identity the operator intends to replace, normally copied from
+    // a plain (non-force) attempt's own rejection message a moment
+    // earlier. There is deliberately no way to force-unlock "whatever
+    // lock currently exists" without naming it.
+    expectedLockRunId: expectedLockRunIdArg ? expectedLockRunIdArg.slice('--expected-lock-run-id='.length).trim() || null : null,
   };
 }
 
@@ -77,16 +90,6 @@ function parseArgs(argv) {
 function printQuiesceWarning(tenantId) {
   const label = tenantId || '(غير محدد بعد)';
   console.warn(`⚠️ تحذير قبل البدء: أوقف حركة الطلبات الحية للمستأجر "${label}" الآن (أو أوقف السيرفر الذي يخدمه) قبل متابعة هذه الاستعادة. أي كتابة تصل أثناء التطبيق قد تُفسد الاستعادة نفسها، لا أن تُلغيها لاحقاً فقط.`);
-}
-
-// Owner-review finding (final PR review, LOW): --tenant= is operator-
-// supplied CLI input, not network-reachable, but was interpolated
-// unsanitized into these three generated file paths — unlike
-// lib/database.js's own _tenantFilePath(), which already sanitizes for
-// exactly this reason. Applied ONLY to the filesystem-path form — the real,
-// unsanitized tenantId is still what every Mongo query/audit event uses.
-function sanitizeTenantIdForPath(tenantId) {
-  return String(tenantId).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function checkpointPath(tenantId) {
@@ -261,96 +264,97 @@ async function countStaleIdempotency(target, backupCreatedAt, isMongoMode) {
   return records.filter(r => r.status === 'COMPLETED' && r.completedAt && new Date(r.completedAt) > new Date(backupCreatedAt)).length;
 }
 
-const RECOVERY_MESSAGE = '↻ الاستئناف: أعد تشغيل نفس الأمر بنفس ملف النسخة. إذا كانت هذه العملية أُوقفت قسراً لا بخطأ عادي، فقفل الاستعادة لهذا المستأجر لا يزال محجوزاً — إعادة التشغيل تتطلب --force-unlock، ولا تستخدمه إلا بعد التأكد أن لا استعادة أخرى لهذا المستأجر تعمل فعلياً الآن. لا يوجد تراجع تلقائي (rollback) عن فئة سبق تطبيقها — أعد الاستعادة من نسخة أقدم عند الحاجة.';
+const RECOVERY_MESSAGE = '↻ الاستئناف: أعد تشغيل نفس الأمر بنفس ملف النسخة. إذا كانت هذه العملية أُوقفت قسراً لا بخطأ عادي، فقفل الاستعادة لهذا المستأجر لا يزال محجوزاً — ستُرفض إعادة التشغيل العادية وتُخبرك برسالة الرفض بهوية القفل الحالي (runId)؛ أعد التشغيل بإضافة --force-unlock --expected-lock-run-id=<runId الذي ظهر> فقط بعد التأكد أن لا استعادة أخرى لهذا المستأجر تعمل فعلياً الآن. لا يوجد تراجع تلقائي (rollback) عن فئة سبق تطبيقها — أعد الاستعادة من نسخة أقدم عند الحاجة.';
 
-// Owner-review finding (final PR review, CRITICAL — confirmed empirically:
-// the sequence below this comment used to be findOne() -> conditioned
-// deleteOne() -> create(), which is NOT atomic across two concurrent
-// --force-unlock invocations. Trace of the actual failure: both processes'
-// findOne() can observe the SAME original stale lock and both proceed;
-// MongoDB's own unique index still guarantees only one deleteOne()+create()
-// pair lands — but if process A's ENTIRE sequence (including its own
-// create()) completes before process B's findOne() ever runs, B observes
-// A's BRAND-NEW legitimate lock (not the original stale one), and B's own
-// conditioned delete matches and removes A's real lock, letting B's
-// create() steal it. Reproduced locally (8/12 failures in a tight,
-// non-parallel loop) and on this PR's own CI run.
+// Owner-review history — kept for traceability; read alongside research.md
+// Decision 11. The lock mechanism went through three designs before this
+// one:
 //
-// Fixed by replacing the two-step delete-then-create with a SINGLE atomic
-// findOneAndUpdate() compare-and-swap (_forceUnlockTakeover, below),
-// conditioned on the exact runId just observed — there is no longer any
-// read-then-act window between two separate WRITE operations for a racing
-// peer to land in between. This correctly closes the race for two
-// processes racing the SAME original stale lock (proven: 20-iteration
-// stress test, tests/tenant-restore.test.js "(e)"), which is the actual
-// "two operators force-unlocking near-simultaneously" scenario Decision 11
-// describes.
+// (1) ORIGINAL: findOne() -> a separately-conditioned deleteOne() ->
+//     create(). NOT atomic across two concurrent --force-unlock
+//     invocations: if process A's entire sequence (including its own
+//     create()) completed before process B's findOne() ever ran, B would
+//     observe A's BRAND-NEW legitimate lock, and B's own conditioned
+//     delete would match and remove A's real lock, letting B's create()
+//     steal it. Empirically reproduced (8/12 failures in a tight local
+//     loop, and on this PR's own CI run).
 //
-// An EARLIER version of this fix also added a minimum-age guard (refusing
-// to force-unlock a lock younger than a couple of seconds), reasoning that
-// a freshly-acquired lock is very likely a legitimate concurrent acquirer.
-// That guard is deliberately NOT present here: it directly contradicted
-// this feature's own mandatory crash-window recovery test (T058), where a
-// real SIGKILL followed immediately by --force-unlock is the EXPECTED,
-// correct operator/automation workflow — a lock only a moment old is
-// exactly as likely to be "just killed, needs reclaiming now" as "a
-// concurrent legitimate acquirer," and elapsed time alone cannot
-// distinguish the two. Age is not a reliable signal here, consistent with
-// research.md Decision 11's own broader "no automatic age-based expiry"
-// principle — this fix does not reintroduce a narrower version of exactly
-// what that principle already rejects.
-function _forceUnlockTakeover(target, expectedStaleRunId, newLockData) {
-  // The atomic compare-and-swap itself, factored out so it can be tested
-  // directly against a deliberately-outdated expectedStaleRunId (simulating
-  // an operator/process that captured the lock's identity before a DIFFERENT
-  // process already took it over) — independent of whichever findOne() read
-  // happens to supply that runId, and independent of real-process timing.
+// (2) CAS-ONLY: a single atomic findOneAndUpdate() compare-and-swap
+//     (_forceUnlockTakeover, below), conditioned on a runId the function
+//     itself had just read via its own findOne(). This closed the race for
+//     two processes racing the identical original stale lock, but was
+//     STILL not enough on its own: nothing distinguished "the stale lock
+//     both processes are trying to replace" from "a legitimate lock
+//     someone else acquired a moment ago" — both look identical to a bare
+//     read. If A's entire observe-then-CAS sequence completed before B's
+//     own findOne() ran, B would accurately observe A's fresh lock and its
+//     own CAS, conditioned on THAT runId, would succeed — silently
+//     stealing A's real, active lock. Empirically reproduced via direct
+//     instrumentation (a 7-millisecond-apart takeover chain).
+//
+// (3) CAS + wall-clock age gate: a minimum-age check on the self-observed
+//     `existing` lock before attempting the CAS, reasoning that a lock
+//     younger than some threshold is very likely a legitimate concurrent
+//     acquirer. REJECTED on independent owner re-review: this makes the
+//     mutual-exclusion guarantee depend on process/network timing rather
+//     than lock identity — no fixed millisecond threshold can be proven to
+//     separate "a genuine concurrent acquirer" from "a truly abandoned
+//     lock" under different latency/load conditions than whatever
+//     environment happened to calibrate it. Two independent reviews
+//     confirmed the property was TIMING_DEPENDENT_UNSAFE, not merely
+//     defense-in-depth on an already-safe primitive.
+//
+// FINAL DESIGN (this one): force-unlock never self-observes "the current
+// lock" and decides on its own that it looks stale/replaceable — no
+// findOne() result is ever fed into a CAS as its own expected value. The
+// caller (an operator, or automation acting on an operator's own decision)
+// must name the EXACT lock identity (runId) they intend to replace —
+// always the runId reported by a plain acquireLockMongo() rejection
+// moments earlier (see forceTakeoverLockMongo(), below). The
+// compare-and-swap can then ONLY ever replace that exact document state;
+// it is structurally incapable of "helpfully" reforcing whatever happens
+// to currently exist instead. This closes both race shapes with NO
+// wall-clock reasoning anywhere in the safety argument:
+//   - Two callers racing the SAME expected old runId (e.g. two operators
+//     force-unlocking near-simultaneously, both having read the same
+//     stale lock): MongoDB's per-document atomicity guarantees exactly one
+//     findOneAndUpdate() lands; the loser's identical filter no longer
+//     matches once the winner's write is applied, and it fails cleanly —
+//     see test (B) below.
+//   - A caller whose expected old runId is no longer current (someone
+//     else already replaced OR released the lock it names): the filter
+//     cannot match the document's current state under any timing, so the
+//     takeover fails closed — it can never touch a lock other than the
+//     exact one it named — see test (C) below.
+// `acquiredAt` is still recorded on every lock document and still
+// surfaced to the operator as a diagnostic aid ("does this look
+// abandoned?") — it is deliberately never read by any code path here to
+// make a replace/no-replace decision.
+function _forceUnlockTakeover(target, expectedOldRunId, newLockData) {
+  // Bare, identity-only compare-and-swap: replace the __restoreLock__
+  // document for this tenant ONLY if its CURRENT data.runId is still
+  // exactly expectedOldRunId — a value the CALLER supplies (an operator's
+  // own --expected-lock-run-id=, or a test's direct argument), never a
+  // value this function or its caller just observed for itself. No other
+  // signal (age, pid, or anything else) ever factors into this match.
   return EntityChunk.findOneAndUpdate(
-    { tenantId: target, key: '__restoreLock__', 'data.runId': expectedStaleRunId },
+    { tenantId: target, key: '__restoreLock__', 'data.runId': expectedOldRunId },
     { $set: { data: newLockData } },
     { new: true },
   ).lean();
 }
 
-// Owner-review finding (final PR review, CRITICAL — empirically confirmed
-// via direct instrumentation, not just theory): the single-round-trip
-// compare-and-swap above (_forceUnlockTakeover) is, on its own, NOT enough.
-// Trace of an actual captured failure: process B's create() fails (a lock
-// exists); B's findOne() happens to execute a few MILLISECONDS after
-// process A's ENTIRE observe-then-CAS sequence already completed; B
-// therefore observes A's BRAND-NEW, legitimate lock (not the original
-// stale one) and — since A's fresh lock genuinely still has the exact
-// runId B just read — B's own CAS, conditioned on that runId, matches and
-// succeeds, overwriting A's real lock. The CAS primitive is atomic and
-// correct in isolation; the problem is that nothing distinguishes "the
-// stale lock both processes are trying to replace" from "a legitimate
-// lock someone else acquired a moment ago" — both simply look like "some
-// lock document" from a bare read.
-//
-// Fixed with a minimum-age guard on `existing` before EVEN ATTEMPTING the
-// CAS. This is deliberately a SMALL threshold, calibrated against actual
-// measurements, not a guess: the empirically-observed race above resolves
-// within single-digit milliseconds (two child processes both racing to
-// reach Step 0 moments apart), while this feature's own mandatory crash-
-// recovery test (T058: a real SIGKILL, then an immediate --force-unlock
-// resume) has an observed real-world window of roughly one to two
-// *seconds* (dominated by the OS-reap wait and a full child-process
-// spawn+connect+reject round trip for the plain-re-run check that must
-// happen first) — comfortably two to three orders of magnitude apart. This
-// is NOT an automatic/silent reclaim policy: a lock of any age, however
-// old, is still NEVER touched without the operator explicitly passing
-// --force-unlock (research.md Decision 11's own "no automatic age-based
-// expiry" principle is about *whether* to reclaim at all, which remains
-// entirely manual and is unchanged here) — this is a narrower safety rail
-// *inside* that already-manual flow, refusing to CAS against a lock that
-// is still forming from a concurrent legitimate acquirer.
-const FORCE_UNLOCK_MIN_AGE_MS = 500;
-
 // Step 0 — Restore Lock (research.md Decision 11, tasks.md T041). Reuses
 // EntityChunk's existing {tenantId,key} compound unique index — a plain
 // create() that hits the index atomically on a concurrent attempt (Mongo
 // duplicate-key error 11000).
-async function acquireLockMongo(target, runId, forceUnlock) {
+//
+// This is a PLAIN acquisition attempt only — it NEVER replaces an existing
+// lock, however old it looks. If a lock already exists, this fails closed
+// and reports the existing lock's identity so a human (or automation
+// acting on a human's decision) can choose to call
+// forceTakeoverLockMongo() below with that EXACT identity.
+async function acquireLockMongo(target, runId) {
   const lockDoc = { tenantId: target, key: '__restoreLock__', data: { runId, pid: process.pid, acquiredAt: new Date().toISOString() } };
   try {
     await EntityChunk.create(lockDoc);
@@ -358,40 +362,29 @@ async function acquireLockMongo(target, runId, forceUnlock) {
   } catch (e) {
     if (e.code !== 11000) throw e;
     const existing = await EntityChunk.findOne({ tenantId: target, key: '__restoreLock__' }).lean();
-    if (!forceUnlock) return { acquired: false, existing };
-
-    if (!existing) {
-      // Vanished between our create() failing and this read (its own owner
-      // released it cleanly in between) — a plain create() is atomic and safe.
-      try {
-        await EntityChunk.create(lockDoc);
-        return { acquired: true };
-      } catch (e2) {
-        if (e2.code !== 11000) throw e2;
-        return { acquired: false, existing: await EntityChunk.findOne({ tenantId: target, key: '__restoreLock__' }).lean(), forceAttempted: true };
-      }
-    }
-
-    const acquiredAtMs = existing.data?.acquiredAt ? new Date(existing.data.acquiredAt).getTime() : NaN;
-    const ageMs = Date.now() - acquiredAtMs;
-    if (!Number.isFinite(ageMs) || ageMs < FORCE_UNLOCK_MIN_AGE_MS) {
-      return { acquired: false, existing, tooFreshToForce: true };
-    }
-
-    // Atomic compare-and-swap: replace the lock ONLY if it is still the
-    // EXACT document (by runId) we just observed — a single Mongo
-    // operation, so there is no separate read-then-act window a racing
-    // peer's own force-unlock attempt could land in between. If another
-    // process already took it over (or released and someone else acquired)
-    // since our read, this filter no longer matches, and findOneAndUpdate
-    // atomically does nothing and returns null — we never touch a document
-    // we did not ourselves just verify was there a moment ago.
-    const takeover = await _forceUnlockTakeover(target, existing.data?.runId, lockDoc.data);
-    if (takeover) {
-      return { acquired: true, forcedFrom: existing };
-    }
-    return { acquired: false, existing: await EntityChunk.findOne({ tenantId: target, key: '__restoreLock__' }).lean(), forceAttempted: true };
+    return { acquired: false, existing };
   }
+}
+
+// The ONLY way to override an existing lock. Requires the caller to name
+// the exact lock identity (expectedOldRunId) they intend to replace — see
+// the design note above _forceUnlockTakeover for why this, and never a
+// self-observed "current lock", is what makes this race-safe without any
+// wall-clock reasoning.
+async function forceTakeoverLockMongo(target, runId, expectedOldRunId) {
+  if (!expectedOldRunId) {
+    // Defensive: parseArgs()/run() already reject a bare --force-unlock
+    // (missing --expected-lock-run-id=) before Step 0 is ever reached —
+    // see run()'s own argument validation. This function is also called
+    // directly by tests and must refuse on its own rather than risk an
+    // undefined-valued Mongo query.
+    return { acquired: false, rejected: 'missing_expected_run_id' };
+  }
+  const newLockData = { runId, pid: process.pid, acquiredAt: new Date().toISOString() };
+  const takeover = await _forceUnlockTakeover(target, expectedOldRunId, newLockData);
+  if (takeover) return { acquired: true };
+  const existing = await EntityChunk.findOne({ tenantId: target, key: '__restoreLock__' }).lean();
+  return { acquired: false, existing };
 }
 
 async function releaseLockMongo(target, runId) {
@@ -501,12 +494,23 @@ async function run() {
   printQuiesceWarning(args.tenantId);
 
   if (!args.file || !args.tenantId || !args.target) {
-    console.error('الاستخدام: node scripts/tenant-restore.js <ملف النسخة> --tenant=<المعرّف> --target=<اسم الوجهة> [--yes] [--force-unlock]');
+    console.error('الاستخدام: node scripts/tenant-restore.js <ملف النسخة> --tenant=<المعرّف> --target=<اسم الوجهة> [--yes] [--force-unlock --expected-lock-run-id=<RUN_ID>]');
     process.exitCode = 1;
     return;
   }
 
-  const { file, tenantId: target, target: targetLabel, yes, forceUnlock } = args;
+  // Design decision (owner-mandated redesign, post-lean-review): --force-
+  // unlock must never silently infer which lock to replace by rereading
+  // whatever currently exists — it must always be paired with an explicit
+  // --expected-lock-run-id=, named by the operator, BEFORE Step 0 is ever
+  // reached (before any lock/backup-file work at all, let alone apply).
+  if (args.forceUnlock && !args.expectedLockRunId) {
+    console.error('❌ --force-unlock يتطلب تحديد هوية القفل المتوقع صراحةً: أضف --expected-lock-run-id=<RUN_ID> (احصل على RUN_ID من رسالة رفض محاولة عادية سابقة — لن يُخمَّن أو يُعاد قراءة القفل الحالي تلقائياً).');
+    process.exitCode = 1;
+    return;
+  }
+
+  const { file, tenantId: target, target: targetLabel, yes, forceUnlock, expectedLockRunId } = args;
   const isMongoMode = !!MONGO_URI;
   const runId = crypto.randomBytes(8).toString('hex');
 
@@ -551,20 +555,37 @@ async function run() {
   let lockAcquired = false;
   try {
     // Step 0 — restore lock, first state-changing action, before validation.
-    const lockResult = isMongoMode
-      ? await acquireLockMongo(target, runId, forceUnlock)
-      : acquireLockFile(target, runId, forceUnlock);
+    let lockResult;
+    if (isMongoMode) {
+      lockResult = await acquireLockMongo(target, runId);
+      if (!lockResult.acquired && forceUnlock) {
+        // expectedLockRunId is guaranteed non-empty here — validated above,
+        // before Step -1's warning even printed. This is the ONLY call
+        // site that may ever replace an existing lock, and it replaces
+        // ONLY the exact identity named — never "whatever is there now".
+        lockResult = await forceTakeoverLockMongo(target, runId, expectedLockRunId);
+      }
+    } else {
+      lockResult = acquireLockFile(target, runId, forceUnlock);
+    }
 
     if (!lockResult.acquired) {
       const existing = lockResult.existing;
-      const age = existing?.acquiredAt || existing?.data?.acquiredAt;
-      console.error(`❌ قفل استعادة موجود بالفعل للمستأجر "${target}" — runId=${existing?.data?.runId || existing?.runId || '?'} pid=${existing?.data?.pid || existing?.pid || '?'} منذ ${age || '?'}.`);
-      if (lockResult.tooFreshToForce) {
-        console.error('   ⚠️ القفل حديث جداً ليكون بثقة القفل المتروك — على الأرجح عملية استعادة أخرى بدأت فعلياً للتو. رُفض --force-unlock وقائياً؛ أعد المحاولة بعد قليل.');
-      } else if (lockResult.forceAttempted) {
-        console.error('   ⚠️ تعذّر --force-unlock: قفل آخر تم إنشاؤه للتو (على الأرجح عملية استعادة أخرى بدأت فعلياً بينما كنت تحاول) — لم تُلمس بياناته.');
+      const existingRunId = existing?.data?.runId || existing?.runId || null;
+      const existingPid = existing?.data?.pid ?? existing?.pid ?? '?';
+      const existingAcquiredAt = existing?.data?.acquiredAt || existing?.acquiredAt || '?';
+      console.error(`❌ قفل استعادة موجود بالفعل للمستأجر "${target}":`);
+      console.error(`   runId=${existingRunId || '?'} pid=${existingPid} acquiredAt=${existingAcquiredAt}`);
+      const existingCheckpoint = readJsonSafe(checkpointPath(target));
+      if (existingCheckpoint) {
+        console.error(`   آخر نقطة حفظ معروفة لهذا المستأجر: stage=${existingCheckpoint.stage || '?'} runId=${existingCheckpoint.runId || '?'} categoriesApplied=${(existingCheckpoint.categoriesApplied || []).join('،') || '(لا شيء)'}`);
+      }
+      if (forceUnlock) {
+        console.error(`   ⚠️ تعذّر --force-unlock: القفل الحالي (runId=${existingRunId || '?'}) لا يطابق الهوية المتوقعة (--expected-lock-run-id=${expectedLockRunId}) — تغيّر منذ آخر قراءة لك (استُبدل أو حُرِّر)، ولم تُلمس بياناته الحالية إطلاقاً. تحقق من الحالة أعلاه ثم قرّر مجدداً — لا تُعِد المحاولة بهوية مخمَّنة.`);
+      } else if (existingRunId) {
+        console.error(`   تأكد أولاً أن لا استعادة أخرى تعمل فعلياً الآن لهذا المستأجر، ثم لأخذ القفل عنوة بالضبط: أعد التشغيل بإضافة --force-unlock --expected-lock-run-id=${existingRunId}`);
       } else {
-        console.error('   استخدم --force-unlock فقط بعد التأكد أن لا استعادة أخرى تعمل فعلياً الآن.');
+        console.error('   تعذّرت قراءة هوية القفل الحالي بدقة — تحقق يدوياً من حالة قاعدة البيانات قبل أي محاولة عنوة.');
       }
       process.exitCode = 1;
       return;
@@ -736,11 +757,11 @@ module.exports = {
   stageBackup, ownershipConsistent, stagingFilePath, checkpointPath,
   applyCategory, liveCategoryDigest, categoryLiveFilter, CATEGORY_ORDER,
   // Exported for direct unit-testing of the lock's own ownership/atomicity
-  // guarantees (final-PR-review lock fix) — precise, fast, and independent
-  // of real-process spawn timing. _forceUnlockTakeover specifically lets a
-  // test simulate a stale-vs-fresh race deterministically: capture a
-  // runId before a takeover happens, then attempt the SAME compare-and-
-  // swap against it afterward, proving it correctly fails rather than
-  // stealing the new legitimate lock.
-  acquireLockMongo, releaseLockMongo, _forceUnlockTakeover,
+  // guarantees — precise, fast, and independent of real-process spawn
+  // timing. _forceUnlockTakeover specifically lets a test simulate a
+  // stale-vs-fresh race deterministically: capture a runId before a
+  // takeover happens, then attempt the SAME compare-and-swap against it
+  // afterward, proving it correctly fails rather than stealing the new
+  // legitimate lock.
+  acquireLockMongo, forceTakeoverLockMongo, releaseLockMongo, _forceUnlockTakeover,
 };
