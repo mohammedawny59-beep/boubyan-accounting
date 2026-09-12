@@ -267,10 +267,16 @@ describe('P4 Phase D — tenant-backup.js (T026, contract cases 1-12 + 8a/12a)',
 
     const retentionEnv = { ...mongoEnv, BACKUP_DIR: backupDirRetention, TENANT_BACKUP_KEEP: '3' };
     const otherRes = runBackup('c12-other-tenant', retentionEnv);
+    if (otherRes.status !== 0) console.error('case 12 setup backup failed:', otherRes.stderr);
     expect(otherRes.status).toBe(0);
 
     for (let i = 0; i < 5; i++) {
       const r = runBackup('c12-tenant', retentionEnv);
+      // CI reliability pass: surface the child process's own stderr on an
+      // unexpected failure — this assertion previously gave no visibility
+      // into WHY the spawned tenant-backup.js exited non-zero, making a
+      // CI-only failure impossible to root-cause from the Jest output alone.
+      if (r.status !== 0) console.error(`case 12 iteration ${i} backup failed:`, r.stderr);
       expect(r.status).toBe(0);
       waitPastSecondBoundary();
     }
@@ -293,10 +299,12 @@ describe('P4 Phase D — tenant-backup.js (T026, contract cases 1-12 + 8a/12a)',
 
     for (let i = 0; i < 5; i++) {
       const r = runBackup('c12a-acme-corp', env);
+      if (r.status !== 0) console.error(`case 12a iteration ${i} backup failed:`, r.stderr);
       expect(r.status).toBe(0);
       waitPastSecondBoundary();
     }
     const acmeRes = runBackup('c12a-acme', env);
+    if (acmeRes.status !== 0) console.error('case 12a final backup failed:', acmeRes.stderr);
     expect(acmeRes.status).toBe(0);
 
     const acmeCorpFiles = fs.readdirSync(dir).filter(f => f.startsWith('tenant-c12a-acme-corp-') && f.endsWith('.json'));

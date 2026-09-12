@@ -533,8 +533,23 @@ async function run() {
     return;
   }
 
-  if (isMongoMode) {
-    await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 8000 });
+  let lockAcquired = false;
+  try {
+    // Owner-review finding (CI reliability pass): mongoose.connect() used to
+    // run BEFORE this try block — a connection failure (e.g. a real-world
+    // slow/contended MongoDB under load) then threw as an unhandled promise
+    // rejection (run() is invoked fire-and-forget at module bottom, never
+    // awaited/caught), crashing with a raw Node stack trace instead of this
+    // script's own clean, reported failure path. Moved inside the try so
+    // every failure — connection included — is caught by the SAME handler
+    // below and reported/exits the same way. MONGO_CONNECT_TIMEOUT_MS is
+    // configurable (default 20000, raised from a prior 8000) because a real
+    // connection under genuine host contention (many concurrent test
+    // processes/CI runners sharing one constrained machine) can legitimately
+    // take longer than a tight default without indicating a real problem —
+    // this is an operational allowance, not a change to any correctness or
+    // safety check.
+    await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: Number(process.env.MONGO_CONNECT_TIMEOUT_MS) || 20000 });
     // Owner-review finding (final PR review, part of the CRITICAL lock fix):
     // Mongoose builds a schema's indexes in the BACKGROUND after first use
     // unless explicitly awaited (the same class of gap this codebase's own
@@ -550,10 +565,7 @@ async function run() {
     // a fast no-op — but it must never be skipped on the theoretical fresh-
     // database path either.
     await EntityChunk.init();
-  }
 
-  let lockAcquired = false;
-  try {
     // Step 0 — restore lock, first state-changing action, before validation.
     let lockResult;
     if (isMongoMode) {
