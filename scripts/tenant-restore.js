@@ -447,6 +447,30 @@ async function findDefaultDuplicatesLive() {
   return problems;
 }
 
+// Owner-review finding (product-correctness pass, traced from a real CI
+// failure — treated as a potential product bug, not dismissed as flake):
+// this function used to catch ANY failure and only console.warn — silently
+// continuing as though the MANDATORY audit event (this project's own
+// constitution, Principle XI — every terminal outcome of this privileged,
+// destructive tool gets exactly one durable record) had actually been
+// persisted, with no way for any caller, operator, or automated check to
+// ever learn otherwise. Now returns an explicit {ok, error} result that
+// EVERY call site below checks — persistence either genuinely succeeds, or
+// the failure is reported loudly and unambiguously; it is never silently
+// treated as recorded.
+//
+// Narrowly scoped retry (2 attempts total) for ONLY the already-diagnosed
+// transient condition (a real observed CI failure: "Server selection
+// timed out after 20000 ms" under host contention) — safe to retry the
+// WHOLE read-modify-write sequence unconditionally for this specific error
+// class, and this specific class only, because Mongo's "server selection"
+// phase fails BEFORE any operation is dispatched to the server at all —
+// neither the read nor the write for this attempt ever reached it, so a
+// retry can never produce a duplicate event. This must NEVER be broadened
+// to other Mongo error classes (e.g. a write timeout AFTER dispatch),
+// where a retry could double-append.
+const AUDIT_TRANSIENT_MONGO_ERROR_RE = /Server selection timed out|MongooseServerSelectionError/i;
+
 async function recordAuditEvent(target, isMongoMode, outcome, metadata) {
   const opts = {
     req: { tenantId: target },
@@ -456,34 +480,56 @@ async function recordAuditEvent(target, isMongoMode, outcome, metadata) {
     outcome,
     metadata,
   };
-  try {
-    if (isMongoMode) {
-      const doc = await EntityChunk.findOne({ tenantId: 'default', key: 'auditLog' }).lean();
-      const container = { auditLog: doc?.data || [] };
-      appendAuditEvent(container, opts);
-      await EntityChunk.findOneAndUpdate(
-        { tenantId: 'default', key: 'auditLog' },
-        { $set: { tenantId: 'default', data: container.auditLog, updatedAt: new Date() } },
-        { upsert: true },
-      );
-    } else {
-      const db = readJsonSafe(DATA_FILE) || {};
-      db.auditLog = db.auditLog || [];
-      appendAuditEvent(db, opts);
-      fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-      // Owner-review finding (lean review, post-implementation): this
-      // rewrites default's ENTIRE live database.json, not just the audit
-      // log — a plain fs.writeFileSync here (unlike everywhere else in
-      // this feature, including the identical call site in
-      // scripts/tenant-backup.js) risked a truncated/corrupt file if the
-      // process were killed mid-write. _atomicWriteJsonSync (tmp-file +
-      // rename) is already imported and used for the checkpoint/staging
-      // writes below — this call site must use the same primitive.
-      _atomicWriteJsonSync(DATA_FILE, db);
+  const ATTEMPTS = 2;
+  let lastError = null;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    try {
+      if (isMongoMode) {
+        const doc = await EntityChunk.findOne({ tenantId: 'default', key: 'auditLog' }).lean();
+        const container = { auditLog: doc?.data || [] };
+        appendAuditEvent(container, opts);
+        await EntityChunk.findOneAndUpdate(
+          { tenantId: 'default', key: 'auditLog' },
+          { $set: { tenantId: 'default', data: container.auditLog, updatedAt: new Date() } },
+          { upsert: true },
+        );
+      } else {
+        const db = readJsonSafe(DATA_FILE) || {};
+        db.auditLog = db.auditLog || [];
+        appendAuditEvent(db, opts);
+        fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+        // Owner-review finding (lean review, post-implementation): this
+        // rewrites default's ENTIRE live database.json, not just the audit
+        // log — a plain fs.writeFileSync here (unlike everywhere else in
+        // this feature, including the identical call site in
+        // scripts/tenant-backup.js) risked a truncated/corrupt file if the
+        // process were killed mid-write. _atomicWriteJsonSync (tmp-file +
+        // rename) is already imported and used for the checkpoint/staging
+        // writes below — this call site must use the same primitive.
+        _atomicWriteJsonSync(DATA_FILE, db);
+      }
+      return { ok: true };
+    } catch (e) {
+      lastError = e;
+      if (attempt < ATTEMPTS && AUDIT_TRANSIENT_MONGO_ERROR_RE.test(e.message || '')) {
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+      break;
     }
-  } catch (e) {
-    console.warn(`⚠️ تعذّر تسجيل حدث التدقيق: ${e.message}`);
   }
+  return { ok: false, error: lastError?.message || 'unknown error' };
+}
+
+// Every call site below MUST check recordAuditEvent()'s own result and
+// call this — never silently continue as though a failed persistence
+// attempt had succeeded. This is deliberately a separate, LOUD line (❌,
+// not the generic ⚠️ this codebase uses for genuinely best-effort
+// warnings) naming the specific outcome that could not be recorded, since
+// this project's own constitution treats this as mandatory, not optional.
+function reportIfAuditFailed(result, outcome, target) {
+  if (result.ok) return;
+  console.error(`❌ فشل إلزامي: تعذّر تسجيل حدث التدقيق الإلزامي (outcome="${outcome}", tenant="${target}") — ${result.error}. هذه العملية اكتملت لكن بلا سجل تدقيق موثّق لها.`);
 }
 
 async function run() {
@@ -610,10 +656,10 @@ async function run() {
     if (!validation.ok) {
       console.error(`❌ ملف النسخة غير صالح للاستعادة — رُفضت العملية (لم تُكتب أي بيانات):`);
       for (const p of validation.problems) console.error(`   - ${p}`);
-      await recordAuditEvent(target, isMongoMode, 'failure', {
+      reportIfAuditFailed(await recordAuditEvent(target, isMongoMode, 'failure', {
         backupFingerprint: validation.checksum, createdAt: validation.backup?.createdAt, categoriesApplied: [],
         reason: 'validation_failed', problems: validation.problems,
-      });
+      }), 'failure', target);
       process.exitCode = 1;
       return;
     }
@@ -626,9 +672,9 @@ async function run() {
     if (existingCheckpoint && existingCheckpoint.stage !== 'completed') {
       if (existingCheckpoint.backupFingerprint !== validation.checksum) {
         console.error(`❌ عدم تطابق بصمة النسخة الاحتياطية عند الاستئناف — الملف الحالي "${path.basename(file)}" لا يطابق النسخة التي بدأ بها التشغيل السابق (checkpoint: ${checkpointPath(target)}).`);
-        await recordAuditEvent(target, isMongoMode, 'failure', {
+        reportIfAuditFailed(await recordAuditEvent(target, isMongoMode, 'failure', {
           backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: [], reason: 'fingerprint_mismatch',
-        });
+        }), 'failure', target);
         process.exitCode = 1;
         return;
       }
@@ -645,10 +691,10 @@ async function run() {
           console.error(`❌ هوية مكرّرة (${d.category}): "${d.identity}" — مستندات: ${d.ids.join(', ')}`);
         }
         console.error('❌ توجد هويات مكرّرة للعيادة الافتراضية في قاعدة البيانات الحية — رُفضت الاستعادة، لم تُكتب أي بيانات.');
-        await recordAuditEvent(target, isMongoMode, 'failure', {
+        reportIfAuditFailed(await recordAuditEvent(target, isMongoMode, 'failure', {
           backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: [],
           reason: 'default_duplicate_identity', duplicates: dupes,
-        });
+        }), 'failure', target);
         process.exitCode = 1;
         return;
       }
@@ -679,9 +725,9 @@ async function run() {
     const confirmed = await confirmApply(target, targetLabel, yes);
     if (!confirmed) {
       console.log('أُلغيت الاستعادة.');
-      await recordAuditEvent(target, isMongoMode, 'cancelled', {
+      reportIfAuditFailed(await recordAuditEvent(target, isMongoMode, 'cancelled', {
         backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: [],
-      });
+      }), 'cancelled', target);
       return; // exit 0 — nothing destructive was attempted; checkpoint stays at 'staged'
     }
 
@@ -708,9 +754,9 @@ async function run() {
       writeCheckpoint(target, checkpoint);
       console.error('❌ فشل التطبيق:', applyErr.message);
       console.log(RECOVERY_MESSAGE);
-      await recordAuditEvent(target, isMongoMode, 'failure', {
+      reportIfAuditFailed(await recordAuditEvent(target, isMongoMode, 'failure', {
         backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: checkpoint.categoriesApplied,
-      });
+      }), 'failure', target);
       process.exitCode = 1;
       return;
     }
@@ -730,9 +776,9 @@ async function run() {
       console.log('ℹ️ لا يوجد أي سجل idempotency معرّض للخطر (0).');
     }
 
-    await recordAuditEvent(target, isMongoMode, 'success', {
+    reportIfAuditFailed(await recordAuditEvent(target, isMongoMode, 'success', {
       backupFingerprint: validation.checksum, createdAt: backup.createdAt, categoriesApplied: checkpoint.categoriesApplied,
-    });
+    }), 'success', target);
   } catch (e) {
     // Genuinely unexpected failures only reach here — every named terminal
     // outcome the contract audits (Step 1, Step 2, Step 4a's decline, Step
@@ -776,4 +822,10 @@ module.exports = {
   // afterward, proving it correctly fails rather than stealing the new
   // legitimate lock.
   acquireLockMongo, forceTakeoverLockMongo, releaseLockMongo, _forceUnlockTakeover,
+  // Exported for direct unit-testing of the mandatory-audit bounded-retry/
+  // explicit-failure-reporting fix — lets a test inject a mocked Mongo
+  // failure (transient vs. genuine) and assert the exact resulting
+  // {ok, error} without needing to actually break the shared test
+  // connection every other test in this file also depends on.
+  recordAuditEvent,
 };

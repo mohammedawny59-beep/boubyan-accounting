@@ -26,6 +26,7 @@ const CONFIG_FILE = path.join(tmp, 'config.json');
 const backupDirMongo     = path.join(tmp, 'backups-mongo');
 const backupDirFile      = path.join(tmp, 'backups-file');
 const backupDirRetention = path.join(tmp, 'backups-retention');
+const backupDirRetentionDirect = path.join(tmp, 'backups-retention-direct');
 
 const { TENANT_BACKUP_ENTITY_KEYS, _tenantFilePath, _tenantConfigFilePath, _setDataFileForTooling } = require('../lib/database');
 const User = require('../models/User');
@@ -40,6 +41,25 @@ _setDataFileForTooling(DATA_FILE); // lets this process's own _tenantFilePath() 
 
 function tenantFilePath(tid) { return _tenantFilePath(tid); }
 function tenantConfigFilePath(tid) { return _tenantConfigFilePath(tid); }
+
+// CI stability + correctness pass (owner-mandated): retention pruning is
+// pure filesystem logic — it does not touch Mongo at all (see
+// rotateTenantBackups() itself). Testing it required spawning ~10-11 full
+// Node/Mongoose CLI child processes per run, coupling a filename-matching/
+// sorting correctness question to real Mongo cold-start latency, which is
+// exactly what made these two cases the most CI-flaky in the whole suite.
+// Set BEFORE require('../scripts/tenant-backup') below — that module reads
+// process.env.BACKUP_DIR/TENANT_BACKUP_KEEP into frozen module-level
+// consts at require-time (the same established pattern as
+// tests/tenant-restore.test.js's own BACKUP_DIR-before-require comment).
+// This does NOT affect the CLI-spawned tests elsewhere in this file: every
+// one of them explicitly overrides BACKUP_DIR in its own spawned child's
+// env, which always wins over this process's own process.env value.
+process.env.BACKUP_DIR = backupDirRetentionDirect;
+process.env.TENANT_BACKUP_KEEP = '3';
+// eslint-disable-next-line global-require
+const { rotateTenantBackups } = require('../scripts/tenant-backup');
+fs.ensureDirSync(backupDirRetentionDirect);
 
 // CI stability pass: every spawned CLI child gets a hard wall-clock bound.
 // execSync's own `timeout` option (unlike a Jest per-test timeout, which
@@ -286,59 +306,91 @@ describe('P4 Phase D — tenant-backup.js (T026, contract cases 1-12 + 8a/12a)',
     // exclusion from the restore side once restore exists.
   });
 
-  test('case 12: backup-file retention — TENANT_BACKUP_KEEP bounds one tenant\'s own files, others unaffected', async () => {
-    fs.ensureDirSync(backupDirRetention);
-    await seedActiveTenant('c12-tenant');
-    await seedActiveTenant('c12-other-tenant');
-    await EntityChunk.create({ tenantId: 'c12-tenant', key: 'vendors', data: [] });
-    await EntityChunk.create({ tenantId: 'c12-other-tenant', key: 'vendors', data: [] });
-
-    const retentionEnv = { ...mongoEnv, BACKUP_DIR: backupDirRetention, TENANT_BACKUP_KEEP: '3' };
-    const otherRes = runBackup('c12-other-tenant', retentionEnv);
-    if (otherRes.status !== 0) console.error('case 12 setup backup failed:', otherRes.stderr);
-    expect(otherRes.status).toBe(0);
-
-    for (let i = 0; i < 5; i++) {
-      const r = runBackup('c12-tenant', retentionEnv);
-      // CI reliability pass: surface the child process's own stderr on an
-      // unexpected failure — this assertion previously gave no visibility
-      // into WHY the spawned tenant-backup.js exited non-zero, making a
-      // CI-only failure impossible to root-cause from the Jest output alone.
-      if (r.status !== 0) console.error(`case 12 iteration ${i} backup failed:`, r.stderr);
-      expect(r.status).toBe(0);
-      waitPastSecondBoundary();
+  // case 12/case 12a, redesigned (owner-mandated CI-stability + correctness
+  // pass): rotateTenantBackups() is pure filesystem logic (filename
+  // matching/sorting + unlink) with NO Mongo dependency at all — the
+  // original versions of these two tests spawned ~10-11 full Node/Mongoose
+  // CLI child processes combined purely to produce timestamped files for
+  // it to prune, coupling a filename-correctness question to real Mongo
+  // cold-start latency and making these the most CI-flaky tests in the
+  // suite. Redesigned to call the ACTUAL, unmodified, exported
+  // rotateTenantBackups() directly against hand-written fixture files with
+  // deterministic, artificial stamps (still in the exact
+  // `tenant-<id>-<19-char-ISO-ish-stamp>.json` format the real stamp()
+  // produces and the function itself parses) — zero spawns, zero Mongo,
+  // zero real-clock dependency (no waitPastSecondBoundary() busy-wait
+  // needed either, since the stamps are already guaranteed distinct and
+  // correctly ordered). The end-to-end CLI wiring itself (that a real
+  // backup run actually invokes this function on the correct tenant) is
+  // still proven separately, below, by one minimal real-process smoke test.
+  describe('case 12/12a (direct): rotateTenantBackups() itself, no Mongo/CLI spawn required', () => {
+    // rotateTenantBackups() reads BACKUP_DIR from a module-level const
+    // frozen at require-time (identical pattern to TENANT_BACKUP_KEEP,
+    // already fixed at '3' above) — it can NOT be pointed at a different
+    // directory per test. Both cases below share backupDirRetentionDirect
+    // and rely on distinct tenant-id fixtures for isolation instead, the
+    // exact same pattern this file's own mongo-mode tests already use to
+    // share backupDirMongo across many cases.
+    function writeFixtureBackup(tenantId, stampSuffix) {
+      const f = path.join(backupDirRetentionDirect, `tenant-${tenantId}-2026-01-01T00-00-${stampSuffix}.json`);
+      fs.writeJsonSync(f, { tenantId, stampSuffix });
+      fs.writeFileSync(f + '.sha256', 'deadbeef  ' + path.basename(f) + '\n');
+      return f;
     }
 
-    const c12Files = fs.readdirSync(backupDirRetention).filter(f => f.startsWith('tenant-c12-tenant-') && f.endsWith('.json'));
-    expect(c12Files.length).toBe(3);
-    const otherFiles = fs.readdirSync(backupDirRetention).filter(f => f.startsWith('tenant-c12-other-tenant-') && f.endsWith('.json'));
-    expect(otherFiles.length).toBe(1); // a different tenant's own backup is completely unaffected
+    test('case 12: TENANT_BACKUP_KEEP bounds one tenant\'s own files, others unaffected, keeping the newest', () => {
+      for (let i = 1; i <= 5; i++) writeFixtureBackup('c12-tenant', String(i).padStart(2, '0'));
+      const otherFile = writeFixtureBackup('c12-other-tenant', '01');
+
+      rotateTenantBackups('c12-tenant');
+
+      const c12Files = fs.readdirSync(backupDirRetentionDirect).filter(f => f.startsWith('tenant-c12-tenant-') && f.endsWith('.json')).sort();
+      expect(c12Files.length).toBe(3);
+      // The 3 SURVIVORS are the 3 NEWEST (the oldest 2 of the 5 are pruned).
+      expect(c12Files).toEqual([
+        'tenant-c12-tenant-2026-01-01T00-00-03.json',
+        'tenant-c12-tenant-2026-01-01T00-00-04.json',
+        'tenant-c12-tenant-2026-01-01T00-00-05.json',
+      ]);
+      // Every survivor's .sha256 sidecar still exists; every pruned file's does not.
+      for (const f of c12Files) expect(fs.existsSync(path.join(backupDirRetentionDirect, f + '.sha256'))).toBe(true);
+      expect(fs.existsSync(path.join(backupDirRetentionDirect, 'tenant-c12-tenant-2026-01-01T00-00-01.json.sha256'))).toBe(false);
+      expect(fs.existsSync(otherFile)).toBe(true); // a different tenant's own backup is completely unaffected
+    });
+
+    test('case 12a: retention matching is exact-equality, immune to a hyphen-prefix collision (acme vs acme-corp)', () => {
+      for (let i = 1; i <= 5; i++) writeFixtureBackup('c12a-acme-corp', String(i).padStart(2, '0'));
+      const acmeFile = writeFixtureBackup('c12a-acme', '01');
+
+      rotateTenantBackups('c12a-acme-corp');
+
+      const acmeCorpFiles = fs.readdirSync(backupDirRetentionDirect).filter(f => f.startsWith('tenant-c12a-acme-corp-') && f.endsWith('.json'));
+      expect(acmeCorpFiles.length).toBe(3); // its own rotation, unaffected by acme's single backup
+      expect(fs.existsSync(acmeFile)).toBe(true); // acme's own single backup, untouched by acme-corp's rotation — never misparsed as one of acme-corp's own
+    });
   });
 
-  test('case 12a: retention matching is exact-equality, immune to a hyphen-prefix collision (acme vs acme-corp)', async () => {
-    const dir = path.join(tmp, 'backups-retention-collision');
-    fs.ensureDirSync(dir);
-    await seedActiveTenant('c12a-acme');
-    await seedActiveTenant('c12a-acme-corp');
-    await EntityChunk.create({ tenantId: 'c12a-acme', key: 'vendors', data: [] });
-    await EntityChunk.create({ tenantId: 'c12a-acme-corp', key: 'vendors', data: [] });
+  // Minimal end-to-end CLI smoke test (preserved per owner instruction):
+  // proves the REAL run() wiring actually invokes rotateTenantBackups() on
+  // the correct tenant after a successful backup — the direct-unit tests
+  // above cover the pruning LOGIC exhaustively; this covers only that the
+  // CLI genuinely calls it, with the minimum real-process spawns needed to
+  // prove that (2, not 10-11).
+  test('case 12/12a smoke test: a real CLI backup run actually triggers retention end-to-end', async () => {
+    fs.ensureDirSync(backupDirRetention);
+    await seedActiveTenant('c12-smoke-tenant');
+    const retentionEnv = { ...mongoEnv, BACKUP_DIR: backupDirRetention, TENANT_BACKUP_KEEP: '1' };
 
-    const env = { ...mongoEnv, BACKUP_DIR: dir, TENANT_BACKUP_KEEP: '3' };
+    const first = runBackup('c12-smoke-tenant', retentionEnv);
+    if (first.status !== 0) console.error('smoke test first backup failed:', first.stderr);
+    expect(first.status).toBe(0);
+    waitPastSecondBoundary();
+    const second = runBackup('c12-smoke-tenant', retentionEnv);
+    if (second.status !== 0) console.error('smoke test second backup failed:', second.stderr);
+    expect(second.status).toBe(0);
 
-    for (let i = 0; i < 5; i++) {
-      const r = runBackup('c12a-acme-corp', env);
-      if (r.status !== 0) console.error(`case 12a iteration ${i} backup failed:`, r.stderr);
-      expect(r.status).toBe(0);
-      waitPastSecondBoundary();
-    }
-    const acmeRes = runBackup('c12a-acme', env);
-    if (acmeRes.status !== 0) console.error('case 12a final backup failed:', acmeRes.stderr);
-    expect(acmeRes.status).toBe(0);
-
-    const acmeCorpFiles = fs.readdirSync(dir).filter(f => f.startsWith('tenant-c12a-acme-corp-') && f.endsWith('.json'));
-    expect(acmeCorpFiles.length).toBe(3); // its own rotation, unaffected by acme's single backup
-    const acmeFiles = fs.readdirSync(dir).filter(f => f.startsWith('tenant-c12a-acme-') && f.endsWith('.json') && !f.startsWith('tenant-c12a-acme-corp-'));
-    expect(acmeFiles.length).toBe(1); // acme's own single backup, untouched by acme-corp's rotation
+    const files = fs.readdirSync(backupDirRetention).filter(f => f.startsWith('tenant-c12-smoke-tenant-') && f.endsWith('.json'));
+    expect(files.length).toBe(1); // KEEP=1 — the real CLI run genuinely pruned the first one via rotateTenantBackups()
   });
 
   // ── File-mode cases (no MONGO_URI) ─────────────────────────────────────

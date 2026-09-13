@@ -770,6 +770,65 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       expect(after[0].resourceId).toBe('default');
       expect(after[0].outcome).toBe('success');
     });
+
+    // Product-correctness fix (traced from a real, non-dismissed CI
+    // failure): recordAuditEvent() used to catch ANY failure and only
+    // console.warn, silently continuing as though the MANDATORY audit
+    // event had been persisted. These 3 tests exercise the fixed function
+    // directly, injecting a mocked Mongo failure (transient vs. genuine) —
+    // the shared test connection every other test in this file also
+    // depends on is never actually broken.
+    describe('recordAuditEvent() itself: bounded retry, explicit failure reporting (never silent)', () => {
+      test('a persistent transient (server-selection) error is retried exactly once more, then reported as failed — never silently treated as recorded', async () => {
+        const { recordAuditEvent } = require('../scripts/tenant-restore');
+        const spy = jest.spyOn(EntityChunk, 'findOne').mockImplementation(() => {
+          throw new Error('Server selection timed out after 20000 ms');
+        });
+        try {
+          const result = await recordAuditEvent('h-audit-persistent-fail', true, 'failure', {});
+          expect(result.ok).toBe(false);
+          expect(result.error).toContain('Server selection timed out');
+          expect(spy).toHaveBeenCalledTimes(2); // bounded — not more
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      test('a transient error that succeeds on retry returns ok:true, with exactly one event actually persisted — no duplicate from the retry', async () => {
+        const { recordAuditEvent } = require('../scripts/tenant-restore');
+        const originalFindOne = EntityChunk.findOne.bind(EntityChunk);
+        let calls = 0;
+        const spy = jest.spyOn(EntityChunk, 'findOne').mockImplementation((...args) => {
+          calls++;
+          if (calls === 1) throw new Error('Server selection timed out after 20000 ms');
+          return originalFindOne(...args);
+        });
+        try {
+          const result = await recordAuditEvent('h-audit-retry-success', true, 'success', {});
+          expect(result.ok).toBe(true);
+          expect(spy).toHaveBeenCalledTimes(2);
+          const events = await getDefaultAuditEvents();
+          const matching = events.filter(e => e.resourceId === 'h-audit-retry-success');
+          expect(matching.length).toBe(1); // exactly one — the retry did not double-append
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      test('a non-transient (genuine) error is reported as failed immediately, with no retry', async () => {
+        const { recordAuditEvent } = require('../scripts/tenant-restore');
+        const spy = jest.spyOn(EntityChunk, 'findOne').mockImplementation(() => {
+          throw new Error('some genuine, non-transient database error');
+        });
+        try {
+          const result = await recordAuditEvent('h-audit-genuine-fail', true, 'failure', {});
+          expect(result.ok).toBe(false);
+          expect(spy).toHaveBeenCalledTimes(1); // never retried — not the diagnosed transient signature
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
   });
 
   // ── T057: MANDATORY failure-injection, documented hook ──────────────────
