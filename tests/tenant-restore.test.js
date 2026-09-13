@@ -38,6 +38,19 @@ const { startIsolatedMongo, withRetryOnTransientMongoError } = require('./helper
 
 _setDataFileForTooling(DATA_FILE);
 
+// CI stability pass: every spawned CLI child below gets a hard wall-clock
+// bound. execSync's own `timeout` option (unlike a Jest per-test timeout,
+// which cannot interrupt a synchronous, event-loop-blocking call) actually
+// sends SIGTERM to the child and throws once exceeded — this is what
+// prevents a genuinely stuck child (e.g. a Mongo operation that itself
+// never resolves under severe host contention) from blocking the ENTIRE
+// Jest worker, and by extension the whole CI job, indefinitely (a real,
+// observed failure mode: one CI run hit GitHub Actions' own 6-hour job
+// ceiling). 30s is comfortably above the 20s Mongo connect timeout
+// (scripts/tenant-restore.js / scripts/tenant-backup.js) plus normal
+// operation time, while still being a genuine, finite bound.
+const EXEC_TIMEOUT_MS = 30000;
+
 async function seedActiveTenant(tenantId) {
   await Tenant.create({ tenantId, name: tenantId, slug: tenantId, email: `${tenantId}@example.com`, status: 'active' });
 }
@@ -45,7 +58,7 @@ async function seedActiveTenant(tenantId) {
 function runBackupOnce(tenantId, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-backup.js --tenant=${tenantId}`, {
-      cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe',
+      cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -73,7 +86,7 @@ function latestTenantBackupFile(tenantId) {
 function runRestoreOnce(argsString, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
-      cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe',
+      cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -105,7 +118,7 @@ function runRestoreInteractive(argsString, envOverrides, stdinInput) {
   delete env.RESTORE_YES;
   try {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
-      cwd: ROOT, env, stdio: 'pipe', input: stdinInput,
+      cwd: ROOT, env, stdio: 'pipe', input: stdinInput, timeout: EXEC_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -819,12 +832,21 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
         stdio: 'ignore',
       });
 
-      const deadline = Date.now() + 15000;
-      while (!fs.existsSync(markerPath) && Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 50));
+      // CI stability pass: guarantee the child is killed even if the marker
+      // never appears and the assertion below throws — without this, a
+      // child stuck before reaching the crash-window marker (e.g. blocked
+      // on its own Mongo connection under host contention) would leak as
+      // an orphaned process, continuing to hold this tenant's lock/CPU for
+      // every subsequent test in the file.
+      try {
+        const deadline = Date.now() + 15000;
+        while (!fs.existsSync(markerPath) && Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 50));
+        }
+        expect(fs.existsSync(markerPath)).toBe(true); // the child genuinely reached the crash window
+      } finally {
+        try { child.kill('SIGKILL'); } catch {}
       }
-      expect(fs.existsSync(markerPath)).toBe(true); // the child genuinely reached the crash window
-      child.kill('SIGKILL');
       await new Promise(r => setTimeout(r, 500)); // let the OS actually reap the process
 
       // users' OWN DB write landed before the kill (that's the whole point
@@ -873,10 +895,30 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
         const child = spawn('node', ['scripts/tenant-restore.js', ...args], {
           cwd: ROOT, env: { ...mongoEnv, RESTORE_YES: '1', ...envOverrides }, stdio: ['ignore', 'pipe', 'pipe'],
         });
-        let stdout = '', stderr = '';
+        let stdout = '', stderr = '', settled = false;
+        // CI stability pass: a hard watchdog — spawn()'s Promise otherwise
+        // has no bound at all, so a genuinely stuck child (unlike execSync,
+        // which now has its own `timeout` option elsewhere in this file)
+        // would hang this Promise, and by extension a Promise.all() awaiting
+        // it, forever. Kills the child and resolves (never hangs) if it
+        // hasn't exited within EXEC_TIMEOUT_MS; the synthetic `code: null`
+        // result still fails any test's own `expect(...code).toBe(0)`
+        // assertion normally — this never masks a real failure, it only
+        // prevents an indefinite wait.
+        const watchdog = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          try { child.kill('SIGKILL'); } catch {}
+          resolve({ code: null, stdout, stderr, timedOut: true });
+        }, EXEC_TIMEOUT_MS);
         child.stdout.on('data', d => { stdout += d; });
         child.stderr.on('data', d => { stderr += d; });
-        child.on('close', code => resolve({ code, stdout, stderr }));
+        child.on('close', code => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(watchdog);
+          resolve({ code, stdout, stderr });
+        });
       });
     }
 
@@ -1169,7 +1211,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       // Backup side (T031): its own default-duplicate pre-flight rejects.
       let backupRes;
       try {
-        execSync('node scripts/tenant-backup.js --tenant=default', { cwd: ROOT, env: mongoEnv, stdio: 'pipe' });
+        execSync('node scripts/tenant-backup.js --tenant=default', { cwd: ROOT, env: mongoEnv, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS });
         backupRes = { status: 0 };
       } catch (e) {
         backupRes = { status: e.status, stderr: e.stderr?.toString() || '' };

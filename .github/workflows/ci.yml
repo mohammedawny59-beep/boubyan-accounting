@@ -26,7 +26,16 @@ jobs:
         env:
           JWT_SECRET: ci-test-secret
           NODE_ENV: test
-        run: npm test
+        # CI stability fix: bounded worker concurrency (--maxWorkers=2).
+        # GitHub Actions runners have limited CPU; this repo's Mongo-backed
+        # suites each spin up their own real mongodb-memory-server instance,
+        # and full default parallelism (dozens of suites at once) caused
+        # real, observed CI-only failures under host contention -- a
+        # "Server selection timed out" connection failure at minimum, and
+        # once, a 6-hour hang killed only by GitHub's own job-timeout
+        # ceiling. Local `npm test` is intentionally left at full
+        # parallelism for fast dev-machine iteration; only CI is bounded.
+        run: npm run test:ci
 
       - name: Check for raw Anthropic fetch calls (should be 1 — streaming only)
         run: |

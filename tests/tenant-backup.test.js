@@ -41,6 +41,15 @@ _setDataFileForTooling(DATA_FILE); // lets this process's own _tenantFilePath() 
 function tenantFilePath(tid) { return _tenantFilePath(tid); }
 function tenantConfigFilePath(tid) { return _tenantConfigFilePath(tid); }
 
+// CI stability pass: every spawned CLI child gets a hard wall-clock bound.
+// execSync's own `timeout` option (unlike a Jest per-test timeout, which
+// cannot interrupt a synchronous, event-loop-blocking call) actually sends
+// SIGTERM once exceeded — this is what prevents a genuinely stuck child
+// from blocking the whole Jest worker (and by extension the CI job)
+// indefinitely. 30s is comfortably above the 20s Mongo connect timeout
+// (scripts/tenant-backup.js) plus normal operation time.
+const EXEC_TIMEOUT_MS = 30000;
+
 async function seedActiveTenant(tenantId) {
   await Tenant.create({ tenantId, name: tenantId, slug: tenantId, email: `${tenantId}@example.com`, status: 'active' });
 }
@@ -48,7 +57,7 @@ async function seedActiveTenant(tenantId) {
 function runBackupOnce(tenantId, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-backup.js --tenant=${tenantId}`, {
-      cwd: ROOT, env: { ...process.env, ...envOverrides }, stdio: 'pipe',
+      cwd: ROOT, env: { ...process.env, ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -68,7 +77,7 @@ function runBackup(tenantId, envOverrides) {
 function runBackupRawOnce(argsString, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-backup.js ${argsString}`, {
-      cwd: ROOT, env: { ...process.env, ...envOverrides }, stdio: 'pipe',
+      cwd: ROOT, env: { ...process.env, ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {

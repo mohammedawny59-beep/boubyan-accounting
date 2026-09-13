@@ -23,12 +23,19 @@ const backupDir = path.join(tmp, 'backups');
 
 afterAll(() => { try { fs.removeSync(tmp); } catch {} });
 
+// CI stability pass: a hard wall-clock bound on every spawned child, so a
+// genuinely stuck process can never block the whole Jest worker (execSync's
+// own `timeout` sends SIGTERM once exceeded — unlike a Jest per-test
+// timeout, which cannot interrupt a synchronous, event-loop-blocking call).
+const EXEC_TIMEOUT_MS = 30000;
+
 function run(cmd, envOverrides) {
   try {
     const out = execSync(cmd, {
       cwd: ROOT,
       env: { ...process.env, MONGO_URI: '', DATA_FILE, CONFIG_FILE, BACKUP_DIR: backupDir, ...envOverrides },
       stdio: 'pipe',
+      timeout: EXEC_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
