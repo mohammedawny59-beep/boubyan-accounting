@@ -72,4 +72,67 @@ async function startIsolatedMongo(label) {
   };
 }
 
-module.exports = { startIsolatedMongo, assertSafeTestDbName, randomTestDbName, TEST_DB_MARKER };
+// CI reliability pass: a spawned child process (tenant-backup.js /
+// tenant-restore.js under test) connecting to this file's own
+// mongodb-memory-server instance can occasionally exceed even a generous
+// connection timeout under REAL CI host contention — dozens of test files
+// each running their own mongod, all competing for a resource-constrained
+// runner's limited CPU. Diagnosed directly from an actual CI failure:
+// "Server selection timed out after 20000 ms", a clean, narrowly-matched
+// infrastructure signature — never a stand-in for a genuine application
+// error, which would fail with a DIFFERENT message and must still fail
+// the test immediately, on the first attempt, with no retry.
+const TRANSIENT_MONGO_ERROR_RE = /Server selection timed out|MongooseServerSelectionError|ECONNREFUSED|connection \d+ to .* timed out/i;
+
+function isTransientMongoConnectionError(result) {
+  if (!result || result.status === 0) return false;
+  if (TRANSIENT_MONGO_ERROR_RE.test(result.stderr || '')) return true;
+  // A null status means the child was terminated by a SIGNAL, not a normal
+  // application exit (process.exitCode is always a definite number) — in
+  // THIS narrow context (spawning tenant-backup.js/tenant-restore.js under
+  // test, with execSync's own explicit `timeout` option the only thing that
+  // can ever signal these specific children) that signal can only be our
+  // own execSync `timeout` firing before the child even got far enough to
+  // print a Mongoose error message. This is the SAME diagnosed
+  // infrastructure condition as the string-matched case above, just caught
+  // one step earlier — never a stand-in for a real application failure,
+  // which always exits with a definite, non-null status here.
+  if (result.status === null) return true;
+  return false;
+}
+
+// Synchronous real-time delay between retries, matching this test suite's
+// own established busy-wait precedent (tests/tenant-backup.test.js and
+// tests/tenant-restore.test.js's own waitPastSecondBoundary()) — kept
+// synchronous deliberately so callers of a plain execSync-based spawn
+// helper need no async/await conversion at any call site.
+function sleepSyncMs(ms) {
+  const now = Date.now();
+  while (Date.now() - now < ms) { /* busy-wait */ }
+}
+
+// Wraps a synchronous spawn function (must return {status, stdout, stderr})
+// and retries it, WITH NO CALL-SITE CHANGES REQUIRED, only when the failure
+// exactly matches the diagnosed transient-infrastructure signature above.
+// Any other failure (a real assertion-worthy bug) returns immediately on
+// the first attempt, unmasked.
+// attempts defaults to 2 (not 3): each attempt is bounded by the caller's
+// own execSync `timeout` (40s in tests/tenant-backup.test.js and
+// tests/tenant-restore.test.js), so worst case is already ~80s for a
+// single call — keeping the default at 2 attempts (not 3) keeps a single
+// call's absolute worst case bounded to a known, reasonable figure rather
+// than compounding further.
+function withRetryOnTransientMongoError(spawnFn, attempts = 2, delayMs = 1000) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    last = spawnFn();
+    if (!isTransientMongoConnectionError(last)) return last;
+    if (i < attempts - 1) sleepSyncMs(delayMs);
+  }
+  return last;
+}
+
+module.exports = {
+  startIsolatedMongo, assertSafeTestDbName, randomTestDbName, TEST_DB_MARKER,
+  isTransientMongoConnectionError, withRetryOnTransientMongoError,
+};

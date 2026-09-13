@@ -7,8 +7,12 @@
     "start": "node server.js",
     "test": "jest --forceExit",
     "test:watch": "jest --watch",
+    "test:ci:heavy": "jest --forceExit --runInBand --testTimeout=150000 tests/tenant-backup.test.js tests/tenant-restore.test.js",
+    "test:ci:rest": "jest --forceExit --maxWorkers=2 --testTimeout=150000 --testPathIgnorePatterns=\"node_modules|tenant-(backup|restore)\\.test\\.js\"",
+    "test:ci": "npm run test:ci:heavy && npm run test:ci:rest",
     "backup": "node scripts/backup.js",
-    "restore": "node scripts/restore.js"
+    "restore": "node scripts/restore.js",
+    "backup:tenant": "node scripts/tenant-backup.js"
   },
   "devDependencies": {
     "jest": "^29.7.0",

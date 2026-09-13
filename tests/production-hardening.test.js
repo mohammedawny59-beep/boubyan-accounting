@@ -52,10 +52,10 @@ process.env.DATA_FILE   = path.join(tmp, 'database.json');
 process.env.CONFIG_FILE = path.join(tmp, 'config.json');
 
 const app = require('../server');
-const { initDB, shutdownDB, runAsTenant, loadDB, saveDB, warmTenantCache, _atomicWriteJsonSync } = require('../lib/database');
+const { initDB, shutdownDB, runAsTenant, loadDB, saveDB, warmTenantCache, _atomicWriteJsonSync, ENTITY_KEYS, TENANT_BACKUP_ENTITY_KEYS } = require('../lib/database');
 const { DEFAULT_COA, DEFAULT_ROLES } = require('../lib/defaults');
 const { validateProductionSecrets } = require('../lib/secretValidation');
-const { validateBackupFile, validateBackupObject, computeChecksum } = require('../lib/backupValidation');
+const { validateBackupFile, validateBackupObject, computeChecksum, canonicalJson, computeCategoryDigest, validateTenantBackupObject } = require('../lib/backupValidation');
 const stripeLib = require('../lib/stripe');
 const ProcessedWebhookEvent = require('../models/ProcessedWebhookEvent');
 const Subscription = require('../models/Subscription');
@@ -456,6 +456,160 @@ describe('P0.5 — Backup generation and verification', () => {
   test('computeChecksum is deterministic', () => {
     expect(computeChecksum('abc')).toBe(computeChecksum('abc'));
     expect(computeChecksum('abc')).not.toBe(computeChecksum('abd'));
+  });
+
+  // P4 — Phase D (T029, third-pass addition, research.md Decision 6/9):
+  // canonicalJson()/computeCategoryDigest() must be byte-identical regardless
+  // of key-insertion order, array-element order, or a Mongo _id/__v field —
+  // otherwise a Mongo-sourced backup's own digest could never match
+  // restore's own recompute over _id-stripped records.
+  test('canonicalJson: identical logical input produces byte-identical output regardless of key-insertion order or array element order', () => {
+    const a = { z: 1, a: { c: 3, b: [{ id: '2', v: 'two' }, { id: '1', v: 'one' }] } };
+    const b = { a: { b: [{ v: 'one', id: '1' }, { v: 'two', id: '2' }], c: 3 }, z: 1 };
+    expect(JSON.stringify(canonicalJson(a))).toBe(JSON.stringify(canonicalJson(b)));
+  });
+
+  test('computeCategoryDigest: identical whether or not the records carry a Mongo _id/__v field', () => {
+    const withMeta = [
+      { _id: 'm1', __v: 0, id: 'u1', username: 'x' },
+      { _id: 'm2', __v: 0, id: 'u2', username: 'y' },
+    ];
+    const withoutMeta = [
+      { id: 'u2', username: 'y' },
+      { id: 'u1', username: 'x' },
+    ];
+    expect(computeCategoryDigest(withMeta)).toBe(computeCategoryDigest(withoutMeta));
+  });
+
+  test('computeCategoryDigest: a genuinely different record set hashes differently', () => {
+    expect(computeCategoryDigest([{ id: 'u1', username: 'x' }]))
+      .not.toBe(computeCategoryDigest([{ id: 'u1', username: 'DIFFERENT' }]));
+  });
+});
+
+// P4 — Phase D (T028, third/ninth-pass additions, research.md Decision 8):
+// guards TENANT_BACKUP_ENTITY_KEYS's whole exclusion-from-backup safety
+// property at the source — independent of any backup/restore fixture — so
+// '__restoreLock__'/'idempotencyRecords'/'auditLog' can never silently
+// become genuine, hand-added ENTITY_KEYS members in a later milestone
+// without this test catching it.
+describe('P4 Phase D — TENANT_BACKUP_ENTITY_KEYS exclusions (T028)', () => {
+  test('__restoreLock__ is never a real ENTITY_KEYS member and is excluded from TENANT_BACKUP_ENTITY_KEYS', () => {
+    expect(ENTITY_KEYS.includes('__restoreLock__')).toBe(false);
+    expect(TENANT_BACKUP_ENTITY_KEYS.includes('__restoreLock__')).toBe(false);
+  });
+  test('idempotencyRecords is excluded from TENANT_BACKUP_ENTITY_KEYS', () => {
+    expect(ENTITY_KEYS.includes('idempotencyRecords')).toBe(true); // it IS a real entity — just excluded from tenant backup/restore
+    expect(TENANT_BACKUP_ENTITY_KEYS.includes('idempotencyRecords')).toBe(false);
+  });
+  test('auditLog is excluded from TENANT_BACKUP_ENTITY_KEYS (ninth-pass, closes the Decision 23 self-destruction hazard)', () => {
+    expect(ENTITY_KEYS.includes('auditLog')).toBe(true);
+    expect(TENANT_BACKUP_ENTITY_KEYS.includes('auditLog')).toBe(false);
+  });
+});
+
+// P4 — Phase E (T037, tenant-restore-contract.md Step 1): validateTenantBackupObject()
+// unit tests, plus the one-line additive guard on the existing, whole-instance
+// validateBackupObject().
+describe('P4 Phase E — validateTenantBackupObject() (T037)', () => {
+  function validTenantBackup(overrides) {
+    const users = [{ id: 'u1', tenantId: 'acme', username: 'x' }];
+    const entityChunks = [{ tenantId: 'acme', key: 'vendors', data: [] }];
+    const appConfigs = [{ tenantId: 'acme', key: 'config', data: {} }];
+    const backup = {
+      scope: 'tenant', schemaVersion: 1, tenantId: 'acme', createdAt: '2026-01-01T00:00:00.000Z', source: 'mongodb',
+      recordCounts: { users: users.length, entityChunks: entityChunks.length, appConfigs: appConfigs.length },
+      categoryDigests: {
+        users: computeCategoryDigest(users),
+        entityChunks: computeCategoryDigest(entityChunks),
+        appConfigs: computeCategoryDigest(appConfigs),
+      },
+      collections: { users, entityChunks, appConfigs },
+    };
+    return { ...backup, ...overrides };
+  }
+
+  test('a fully valid tenant-scoped object passes', () => {
+    const result = validateTenantBackupObject(validTenantBackup(), 'acme');
+    expect(result.ok).toBe(true);
+    expect(result.problems).toEqual([]);
+  });
+
+  test('structural rejection: not an object', () => {
+    expect(validateTenantBackupObject(null, 'acme').ok).toBe(false);
+    expect(validateTenantBackupObject('x', 'acme').ok).toBe(false);
+  });
+
+  test('scope !== "tenant" is rejected', () => {
+    const result = validateTenantBackupObject(validTenantBackup({ scope: 'whole-instance' }), 'acme');
+    expect(result.ok).toBe(false);
+    expect(result.problems.some(p => /scope/i.test(p))).toBe(true);
+  });
+
+  test('unsupported schemaVersion is rejected', () => {
+    const result = validateTenantBackupObject(validTenantBackup({ schemaVersion: 99 }), 'acme');
+    expect(result.ok).toBe(false);
+    expect(result.problems.some(p => /schemaVersion/i.test(p))).toBe(true);
+  });
+
+  test('ambiguous (missing) tenantId is rejected', () => {
+    const result = validateTenantBackupObject(validTenantBackup({ tenantId: undefined }), 'acme');
+    expect(result.ok).toBe(false);
+  });
+
+  test('mismatched tenantId (backup for a different tenant than the restore target) is rejected', () => {
+    const result = validateTenantBackupObject(validTenantBackup(), 'a-different-tenant');
+    expect(result.ok).toBe(false);
+    expect(result.problems.some(p => /mismatch/i.test(p))).toBe(true);
+  });
+
+  test('a tenants/subscriptions key present is rejected', () => {
+    const withTenants = validTenantBackup();
+    withTenants.collections.tenants = [];
+    expect(validateTenantBackupObject(withTenants, 'acme').ok).toBe(false);
+
+    const withSubs = validTenantBackup();
+    withSubs.collections.subscriptions = [];
+    expect(validateTenantBackupObject(withSubs, 'acme').ok).toBe(false);
+  });
+
+  test('an idempotencyRecords entity chunk or top-level collections field is rejected', () => {
+    const chunkCase = validTenantBackup();
+    chunkCase.collections.entityChunks.push({ tenantId: 'acme', key: 'idempotencyRecords', data: [] });
+    expect(validateTenantBackupObject(chunkCase, 'acme').ok).toBe(false);
+
+    const topLevelCase = validTenantBackup();
+    topLevelCase.collections.idempotencyRecords = [];
+    expect(validateTenantBackupObject(topLevelCase, 'acme').ok).toBe(false);
+  });
+
+  test('a __restoreLock__ entity chunk is rejected (a planted lock-shaped record must never be restorable)', () => {
+    const backup = validTenantBackup();
+    backup.collections.entityChunks.push({ tenantId: 'acme', key: '__restoreLock__', data: { runId: 'x' } });
+    expect(validateTenantBackupObject(backup, 'acme').ok).toBe(false);
+  });
+
+  test('an auditLog entity chunk is rejected (ninth pass — closes the Decision 23 self-destruction hazard)', () => {
+    const backup = validTenantBackup();
+    backup.collections.entityChunks.push({ tenantId: 'acme', key: 'auditLog', data: [] });
+    expect(validateTenantBackupObject(backup, 'acme').ok).toBe(false);
+  });
+
+  test('recordCounts/categoryDigests mismatch is rejected (a hand-edited file is caught, not silently trusted)', () => {
+    const countMismatch = validTenantBackup();
+    countMismatch.recordCounts.users = 99;
+    expect(validateTenantBackupObject(countMismatch, 'acme').ok).toBe(false);
+
+    const digestMismatch = validTenantBackup();
+    digestMismatch.categoryDigests.entityChunks = 'tampered-digest';
+    expect(validateTenantBackupObject(digestMismatch, 'acme').ok).toBe(false);
+  });
+
+  test('validateBackupObject() (whole-instance) rejects a tenant-scoped file, and is otherwise unaffected by an absent scope', () => {
+    expect(validateBackupObject({ scope: 'tenant', schemaVersion: 1, tenantId: 'acme', collections: {} }).ok).toBe(false);
+    // An ordinary, pre-existing whole-instance backup (no scope field at all) is completely unaffected.
+    const wholeInstance = { createdAt: 'x', version: 2, source: 'file', database: {} };
+    expect(validateBackupObject(wholeInstance).ok).toBe(true);
   });
 });
 
