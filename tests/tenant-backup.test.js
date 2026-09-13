@@ -48,7 +48,13 @@ function tenantConfigFilePath(tid) { return _tenantConfigFilePath(tid); }
 // from blocking the whole Jest worker (and by extension the CI job)
 // indefinitely. 30s is comfortably above the 20s Mongo connect timeout
 // (scripts/tenant-backup.js) plus normal operation time.
-const EXEC_TIMEOUT_MS = 30000;
+// 40s deliberately leaves a comfortable margin above the 20s Mongo connect
+// timeout (scripts/tenant-backup.js's own MONGO_CONNECT_TIMEOUT_MS default)
+// so that inner timeout has a chance to fire FIRST and print a clean,
+// retry-matchable Mongoose error, rather than this outer bound firing
+// first and killing the child uninformatively (observed on CI: a tight
+// 30s bound produced a bare `status: null` with no captured error at all).
+const EXEC_TIMEOUT_MS = 40000;
 
 async function seedActiveTenant(tenantId) {
   await Tenant.create({ tenantId, name: tenantId, slug: tenantId, email: `${tenantId}@example.com`, status: 'active' });
