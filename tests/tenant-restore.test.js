@@ -220,6 +220,40 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
     try { fs.removeSync(tmp); } catch {}
   });
 
+  // ── Intra-suite accumulation diagnostic (investigation-only, bounded) ──
+  // beforeAll/afterAll above run exactly ONCE for all 51 tests in this
+  // describe block — before this diagnostic there was zero
+  // beforeEach/afterEach anywhere in the file. Every backup file, staging
+  // file, checkpoint file, and Mongo document any of the 51 sequential
+  // tests creates therefore persists in the SAME shared tmp dir / SAME
+  // shared mongod instance for the rest of the file's run, with no
+  // cleanup until the single afterAll above. This block measures —
+  // cheaply (a few small readdirSync calls, a few indexed
+  // countDocuments()), after every test, never scanning anything
+  // unbounded — whether any of that actually grows monotonically, to
+  // correlate against the CI runtime growth already observed (34s local
+  // vs. 70-208s on GitHub across recent runs, rising on nearly every
+  // attempt). Asserts nothing; never fails a test.
+  let __diagTestStart = null;
+  beforeEach(() => { __diagTestStart = Date.now(); });
+  afterEach(async () => {
+    const elapsedMs = Date.now() - __diagTestStart;
+    let staging = -1, checkpoints = -1, backups = -1;
+    try { staging = fs.readdirSync(path.join(backupDir, '.restore-staging')).length; } catch {}
+    try { checkpoints = fs.readdirSync(path.join(backupDir, '.restore-checkpoints')).length; } catch {}
+    try { backups = fs.readdirSync(backupDir).filter(f => f.endsWith('.json')).length; } catch {}
+    let tenants = -1, users = -1, chunks = -1, auditEvents = -1;
+    try {
+      tenants = await Tenant.countDocuments({});
+      users = await User.countDocuments({});
+      chunks = await EntityChunk.countDocuments({});
+      const auditDoc = await EntityChunk.findOne({ tenantId: 'default', key: 'auditLog' }).lean();
+      auditEvents = auditDoc?.data?.length ?? 0;
+    } catch {}
+    const name = expect.getState().currentTestName || '(unknown)';
+    console.log(`[accum-diagnostic] elapsedMs=${elapsedMs} staging=${staging} checkpoints=${checkpoints} backups=${backups} tenants=${tenants} users=${users} entityChunks=${chunks} auditEvents=${auditEvents} mongoConns=${mongoose.connections.length} test="${name}"`);
+  });
+
   // ── T040a: Step -1 quiesce warning, unconditional ──────────────────────
   describe('Step -1: pre-restore quiesce warning', () => {
     test('prints on an invocation missing required flags (before argument-parsing rejects)', () => {
