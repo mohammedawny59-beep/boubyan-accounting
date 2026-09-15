@@ -153,11 +153,15 @@ function sleepSyncMs(ms) {
 // Any other failure (a real assertion-worthy bug) returns immediately on
 // the first attempt, unmasked.
 // attempts defaults to 2 (not 3): each attempt is bounded by the caller's
-// own execSync `timeout` (40s in tests/tenant-backup.test.js and
-// tests/tenant-restore.test.js), so worst case is already ~80s for a
-// single call — keeping the default at 2 attempts (not 3) keeps a single
-// call's absolute worst case bounded to a known, reasonable figure rather
-// than compounding further.
+// own execSync `timeout` (40s in tests/tenant-backup.test.js;
+// tests/tenant-restore.test.js's own RESTORE_CHILD_TIMEOUT_MS is
+// CI-calibrated, 40s locally / 90s on CI), so worst case is already
+// ~80-180s for a single call — keeping the default at 2 attempts (not 3)
+// keeps a single call's absolute worst case bounded to a known,
+// reasonable figure rather than compounding further. This retry path
+// only fires on a clean, fully-printed transient-connect error now (see
+// isTransientMongoConnectionError's own comment), so this worst case is
+// itself a rare, already-bounded edge, not the common case.
 function withRetryOnTransientMongoError(spawnFn, attempts = 2, delayMs = 1000) {
   let last;
   for (let i = 0; i < attempts; i++) {

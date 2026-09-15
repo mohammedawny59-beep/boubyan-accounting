@@ -55,7 +55,23 @@ _setDataFileForTooling(DATA_FILE);
 // retry-matchable Mongoose error, rather than this outer bound firing
 // first and killing the child uninformatively (observed on CI: a tight
 // 30s bound produced a bare `status: null` with no captured error at all).
-const EXEC_TIMEOUT_MS = 40000;
+//
+// CI watchdog calibration, proven (not inferred) via the
+// classifyChildResult() diagnostic wired into "the local staging file is
+// preserved on a failed apply": one real GitHub Actions run showed
+// classification=application_exit (no watchdog) for THAT call, while a
+// DIFFERENT call in the SAME file, SAME run, failed with the unambiguous
+// "Received: null" that only execSync's own `timeout` firing can ever
+// produce for these children — direct proof the 40s bound is occasionally
+// too tight for this file's real, honest work on a slower GitHub runner
+// (that run's whole-file time: 161-168s, vs. ~34s local). Not a
+// stuck/hung process either time, a genuinely slow one. process.env.CI is
+// set by GitHub Actions (and effectively every CI system) on every run,
+// never by a normal local shell, so this raises the bound only where the
+// evidence says it's needed — local iteration stays fast, and the bound
+// itself stays hard and finite on CI too: a truly hung child is still
+// killed, just after more real time.
+const RESTORE_CHILD_TIMEOUT_MS = process.env.CI ? 90000 : 40000;
 
 async function seedActiveTenant(tenantId) {
   await Tenant.create({ tenantId, name: tenantId, slug: tenantId, email: `${tenantId}@example.com`, status: 'active' });
@@ -64,7 +80,7 @@ async function seedActiveTenant(tenantId) {
 function runBackupOnce(tenantId, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-backup.js --tenant=${tenantId}`, {
-      cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
+      cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe', timeout: RESTORE_CHILD_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -92,7 +108,7 @@ function latestTenantBackupFile(tenantId) {
 function runRestoreOnce(argsString, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
-      cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
+      cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe', timeout: RESTORE_CHILD_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString(), signal: null, killed: false };
   } catch (e) {
@@ -138,7 +154,7 @@ function runRestoreInteractive(argsString, envOverrides, stdinInput) {
   delete env.RESTORE_YES;
   try {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
-      cwd: ROOT, env, stdio: 'pipe', input: stdinInput, timeout: EXEC_TIMEOUT_MS,
+      cwd: ROOT, env, stdio: 'pipe', input: stdinInput, timeout: RESTORE_CHILD_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -999,7 +1015,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
         // which now has its own `timeout` option elsewhere in this file)
         // would hang this Promise, and by extension a Promise.all() awaiting
         // it, forever. Kills the child and resolves (never hangs) if it
-        // hasn't exited within EXEC_TIMEOUT_MS; the synthetic `code: null`
+        // hasn't exited within RESTORE_CHILD_TIMEOUT_MS; the synthetic `code: null`
         // result still fails any test's own `expect(...code).toBe(0)`
         // assertion normally — this never masks a real failure, it only
         // prevents an indefinite wait.
@@ -1008,7 +1024,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
           settled = true;
           try { child.kill('SIGKILL'); } catch {}
           resolve({ code: null, stdout, stderr, timedOut: true });
-        }, EXEC_TIMEOUT_MS);
+        }, RESTORE_CHILD_TIMEOUT_MS);
         child.stdout.on('data', d => { stdout += d; });
         child.stderr.on('data', d => { stderr += d; });
         child.on('close', code => {
@@ -1309,7 +1325,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       // Backup side (T031): its own default-duplicate pre-flight rejects.
       let backupRes;
       try {
-        execSync('node scripts/tenant-backup.js --tenant=default', { cwd: ROOT, env: mongoEnv, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS });
+        execSync('node scripts/tenant-backup.js --tenant=default', { cwd: ROOT, env: mongoEnv, stdio: 'pipe', timeout: RESTORE_CHILD_TIMEOUT_MS });
         backupRes = { status: 0 };
       } catch (e) {
         backupRes = { status: e.status, stderr: e.stderr?.toString() || '' };
