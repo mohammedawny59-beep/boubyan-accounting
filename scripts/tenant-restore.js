@@ -170,11 +170,28 @@ function writeCheckpoint(tenantId, checkpoint) {
   return checkpoint;
 }
 
+// CI stability finding: this prompt's own TEXT is pure string
+// interpolation (target/targetLabel in, a string out) with no I/O and no
+// Mongo dependency whatsoever — but the two tests that only cared about
+// this exact contract ("the prompt names the right tenant/target", "yes
+// skips it non-interactively") were previously exercised only via a full
+// spawned CLI run, which must first complete Steps 0-4 (a real Mongo
+// connect + lock + validate + stage + checkpoint) before ever reaching
+// this point — coupling a pure-string/pure-control-flow question to real
+// Mongo cold-start latency under CI host contention, and were the two
+// tests actually observed flaking. Factored out so both properties can be
+// tested directly, instantly, with zero Mongo/process-spawn dependency;
+// unchanged in behavior — confirmApply() below still does exactly what it
+// always did, just built from this piece.
+function confirmPromptText(target, targetLabel) {
+  return `اكتب "نعم" للتأكيد أنك تريد استعادة المستأجر "${target}" إلى "${targetLabel}": `;
+}
+
 // Step 4a — explicit typed confirmation (research.md Decision 25, tasks.md
 // T053a), mirroring scripts/restore.js:104-107's own gate exactly.
 async function confirmApply(target, targetLabel, yes) {
   if (yes) return true;
-  const ans = await ask(`اكتب "نعم" للتأكيد أنك تريد استعادة المستأجر "${target}" إلى "${targetLabel}": `);
+  const ans = await ask(confirmPromptText(target, targetLabel));
   return ans === 'نعم';
 }
 
@@ -828,4 +845,10 @@ module.exports = {
   // {ok, error} without needing to actually break the shared test
   // connection every other test in this file also depends on.
   recordAuditEvent,
+  // Exported for direct unit-testing of Step 4a's own confirmation-gate
+  // contract (CI stability finding) — precise and instant, independent of
+  // real Mongo cold-start latency: confirmPromptText() proves the prompt
+  // names the right tenant/target with zero I/O; confirmApply(...,true)
+  // proves the yes-path resolves immediately with no stdin interaction.
+  confirmApply, confirmPromptText,
 };

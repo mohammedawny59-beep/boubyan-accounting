@@ -87,18 +87,54 @@ const TRANSIENT_MONGO_ERROR_RE = /Server selection timed out|MongooseServerSelec
 function isTransientMongoConnectionError(result) {
   if (!result || result.status === 0) return false;
   if (TRANSIENT_MONGO_ERROR_RE.test(result.stderr || '')) return true;
-  // A null status means the child was terminated by a SIGNAL, not a normal
-  // application exit (process.exitCode is always a definite number) — in
-  // THIS narrow context (spawning tenant-backup.js/tenant-restore.js under
-  // test, with execSync's own explicit `timeout` option the only thing that
-  // can ever signal these specific children) that signal can only be our
-  // own execSync `timeout` firing before the child even got far enough to
-  // print a Mongoose error message. This is the SAME diagnosed
-  // infrastructure condition as the string-matched case above, just caught
-  // one step earlier — never a stand-in for a real application failure,
-  // which always exits with a definite, non-null status here.
-  if (result.status === null) return true;
+  // A null status means the child was terminated by execSync's own
+  // `timeout` option (the only thing that ever signals these specific
+  // children) — but that does NOT mean it was killed before doing
+  // anything. tenant-restore.js's mongoose.connect() is awaited near the
+  // very top of run(), true, but plenty of its OWN real work follows
+  // still inside the same 40s budget: Step 0's lock acquisition, Step
+  // 3's staging write, Step 5's actual category apply. A timeout landing
+  // after Step 0 kills a child that ALREADY holds a Mongo lock — the
+  // script registers no SIGTERM handler, so its own `finally` (lock
+  // release) never runs, orphaning the lock. Retrying then spawns a
+  // FRESH attempt that hits Step 0's own correct, by-design,
+  // no-staleness-bypass rejection instead of re-running the scenario the
+  // test actually means to exercise: a DIFFERENT code path, silently
+  // substituted for the intended one. Both the orphaned-lock rejection
+  // and a genuine application failure exit with a real, definite,
+  // non-null status, so a bare `status !== 0` assertion can't tell them
+  // apart — but anything checking a specific single-attempt side effect
+  // (a staging file, checkpoint stage/categoriesApplied, an audit event,
+  // an expected 0-on-success) can silently break. Confirmed from two
+  // independent CI failures on the SAME run, both shaped exactly like
+  // this: "Step 6: staging-file cleanup" (file never written — attempt 1
+  // never reached Step 3) and "Step 4: checkpoint lifecycle: a corrupted
+  // checkpoint..." (expected 0, got 1 — attempt 2 rejected at Step 0).
+  // A null status is therefore NOT retried — only a clean, fully-printed
+  // transient-connect error (the regex match above) is, since that
+  // message can only be produced by mongoose.connect() itself, strictly
+  // before Step 0 ever runs, before anything exists to orphan.
   return false;
+}
+
+// CI watchdog-calibration diagnostic: classifies a spawned child's
+// {status, stderr, signal, killed} result (the spawn helper must capture
+// signal/killed from execSync's own thrown error — see runRestoreOnce)
+// into exactly one of the three distinct failure shapes these children
+// can produce, so a flaky assertion's failure output can state WHICH one
+// actually happened instead of leaving it to be inferred from timing.
+// 'watchdog_timeout' checks killed/signal FIRST (the direct, unambiguous
+// signal from Node that execSync's own `timeout` fired) and falls back to
+// a null status only for callers that haven't been updated to capture
+// signal/killed yet — a null status has no other possible cause for these
+// specific spawned children (see isTransientMongoConnectionError above).
+function classifyChildResult(result) {
+  if (!result) return 'no_result';
+  if (result.status === 0) return 'success';
+  if (result.killed === true || result.signal) return 'watchdog_timeout';
+  if (TRANSIENT_MONGO_ERROR_RE.test(result.stderr || '')) return 'mongo_connection_error';
+  if (result.status === null) return 'watchdog_timeout';
+  return 'application_exit';
 }
 
 // Synchronous real-time delay between retries, matching this test suite's
@@ -117,11 +153,15 @@ function sleepSyncMs(ms) {
 // Any other failure (a real assertion-worthy bug) returns immediately on
 // the first attempt, unmasked.
 // attempts defaults to 2 (not 3): each attempt is bounded by the caller's
-// own execSync `timeout` (40s in tests/tenant-backup.test.js and
-// tests/tenant-restore.test.js), so worst case is already ~80s for a
-// single call — keeping the default at 2 attempts (not 3) keeps a single
-// call's absolute worst case bounded to a known, reasonable figure rather
-// than compounding further.
+// own execSync `timeout` (40s in tests/tenant-backup.test.js;
+// tests/tenant-restore.test.js's own RESTORE_CHILD_TIMEOUT_MS is
+// CI-calibrated, 40s locally / 90s on CI), so worst case is already
+// ~80-180s for a single call — keeping the default at 2 attempts (not 3)
+// keeps a single call's absolute worst case bounded to a known,
+// reasonable figure rather than compounding further. This retry path
+// only fires on a clean, fully-printed transient-connect error now (see
+// isTransientMongoConnectionError's own comment), so this worst case is
+// itself a rare, already-bounded edge, not the common case.
 function withRetryOnTransientMongoError(spawnFn, attempts = 2, delayMs = 1000) {
   let last;
   for (let i = 0; i < attempts; i++) {
@@ -134,5 +174,5 @@ function withRetryOnTransientMongoError(spawnFn, attempts = 2, delayMs = 1000) {
 
 module.exports = {
   startIsolatedMongo, assertSafeTestDbName, randomTestDbName, TEST_DB_MARKER,
-  isTransientMongoConnectionError, withRetryOnTransientMongoError,
+  isTransientMongoConnectionError, withRetryOnTransientMongoError, classifyChildResult,
 };
