@@ -1,10 +1,23 @@
 name: CI
 
+# A feature-branch push that already has an open PR into main used to
+# trigger the full suite twice, concurrently: once via `push` (branches:
+# ['**']) and once via `pull_request`. Narrowing `push` to `main` only
+# keeps both intended cases covered (a direct push to main; any PR
+# targeting main) while removing the duplicate. `concurrency` below is a
+# second, independent guard: if a PR gets several commits in quick
+# succession, an already-running CI for an older commit on the same PR/ref
+# is cancelled rather than left to keep consuming runner time after a
+# newer commit supersedes it.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
