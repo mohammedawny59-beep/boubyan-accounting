@@ -87,17 +87,33 @@ const TRANSIENT_MONGO_ERROR_RE = /Server selection timed out|MongooseServerSelec
 function isTransientMongoConnectionError(result) {
   if (!result || result.status === 0) return false;
   if (TRANSIENT_MONGO_ERROR_RE.test(result.stderr || '')) return true;
-  // A null status means the child was terminated by a SIGNAL, not a normal
-  // application exit (process.exitCode is always a definite number) — in
-  // THIS narrow context (spawning tenant-backup.js/tenant-restore.js under
-  // test, with execSync's own explicit `timeout` option the only thing that
-  // can ever signal these specific children) that signal can only be our
-  // own execSync `timeout` firing before the child even got far enough to
-  // print a Mongoose error message. This is the SAME diagnosed
-  // infrastructure condition as the string-matched case above, just caught
-  // one step earlier — never a stand-in for a real application failure,
-  // which always exits with a definite, non-null status here.
-  if (result.status === null) return true;
+  // A null status means the child was terminated by execSync's own
+  // `timeout` option (the only thing that ever signals these specific
+  // children) — but that does NOT mean it was killed before doing
+  // anything. tenant-restore.js's mongoose.connect() is awaited near the
+  // very top of run(), true, but plenty of its OWN real work follows
+  // still inside the same 40s budget: Step 0's lock acquisition, Step
+  // 3's staging write, Step 5's actual category apply. A timeout landing
+  // after Step 0 kills a child that ALREADY holds a Mongo lock — the
+  // script registers no SIGTERM handler, so its own `finally` (lock
+  // release) never runs, orphaning the lock. Retrying then spawns a
+  // FRESH attempt that hits Step 0's own correct, by-design,
+  // no-staleness-bypass rejection instead of re-running the scenario the
+  // test actually means to exercise: a DIFFERENT code path, silently
+  // substituted for the intended one. Both the orphaned-lock rejection
+  // and a genuine application failure exit with a real, definite,
+  // non-null status, so a bare `status !== 0` assertion can't tell them
+  // apart — but anything checking a specific single-attempt side effect
+  // (a staging file, checkpoint stage/categoriesApplied, an audit event,
+  // an expected 0-on-success) can silently break. Confirmed from two
+  // independent CI failures on the SAME run, both shaped exactly like
+  // this: "Step 6: staging-file cleanup" (file never written — attempt 1
+  // never reached Step 3) and "Step 4: checkpoint lifecycle: a corrupted
+  // checkpoint..." (expected 0, got 1 — attempt 2 rejected at Step 0).
+  // A null status is therefore NOT retried — only a clean, fully-printed
+  // transient-connect error (the regex match above) is, since that
+  // message can only be produced by mongoose.connect() itself, strictly
+  // before Step 0 ever runs, before anything exists to orphan.
   return false;
 }
 

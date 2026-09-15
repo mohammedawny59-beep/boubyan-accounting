@@ -104,24 +104,11 @@ function runRestoreOnce(argsString, envOverrides) {
 // runBackup() above. Never used by the Phase H concurrency tests (those
 // spawn via spawnRestore() below, deliberately NOT wrapped here — retrying
 // one side of a deliberate two-process race would change the very
-// interleaving those tests exist to exercise).
-//
-// CI reliability pass (Step 6 staging-file flake, diagnosed from a real CI
-// failure): the SAME reasoning excludes any call that exercises the
-// __TENANT_RESTORE_TEST_FAIL_AFTER__ hook — those calls acquire Step 0's
-// real Mongo lock and perform a genuine Step 5 apply before failing.
-// isTransientMongoConnectionError() treats a null exit status as "killed
-// before the child got far enough to do anything" (safe to retry), but that
-// assumption only holds before Step 0. A slow-CI execSync timeout landing
-// AFTER lock acquisition kills the child with no chance for its (unhandled-
-// SIGTERM) finally block to release the lock, so a retried attempt hits
-// Step 0's own correct, by-design, no-staleness-bypass rejection instead —
-// a DIFFERENT code path than the one the test means to exercise. Both
-// outcomes still exit non-zero, so a bare `status !== 0` assertion can't
-// tell them apart, but anything checking a SPECIFIC single-attempt side
-// effect (the staging file, checkpoint stage/categoriesApplied, the exact
-// audit event) silently breaks. Tests using that hook must call
-// runRestoreOnce() directly, never this retrying wrapper.
+// interleaving those tests exist to exercise). Safe for every other caller
+// in this file, including ones that reach Step 0's lock/Step 5's apply —
+// see isTransientMongoConnectionError()'s own comment in mongoTestHarness.js
+// for why a signal-killed (null-status) attempt is deliberately NOT
+// retried, only a clean, fully-printed transient-connect error is.
 function runRestore(argsString, envOverrides) {
   return withRetryOnTransientMongoError(() => runRestoreOnce(argsString, envOverrides));
 }
@@ -749,10 +736,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
     test('the local staging file is preserved on a failed apply (forensic artifact)', async () => {
       await seedActiveTenant('g-staging-cleanup-fail');
       const file = latestBackupOrCreate('g-staging-cleanup-fail', mongoEnv);
-      // runRestoreOnce, not runRestore: see the comment above runRestore()'s
-      // own definition — this is the exact hook/assertion pair that flake
-      // was diagnosed from.
-      const res = runRestoreOnce(`"${file}" --tenant=g-staging-cleanup-fail --target=t1`, {
+      const res = runRestore(`"${file}" --tenant=g-staging-cleanup-fail --target=t1`, {
         ...mongoEnv, __TENANT_RESTORE_TEST_FAIL_AFTER__: 'users',
       });
       expect(res.status).not.toBe(0);
@@ -765,9 +749,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
     test('a Step 5 apply failure appends exactly one outcome:failure event with categoriesApplied reflecting what actually landed', async () => {
       await seedActiveTenant('g-audit-apply-fail');
       const file = latestBackupOrCreate('g-audit-apply-fail', mongoEnv);
-      // runRestoreOnce: asserts on this exact attempt's own audit event —
-      // see the comment above runRestore()'s definition.
-      const res = runRestoreOnce(`"${file}" --tenant=g-audit-apply-fail --target=t1`, {
+      const res = runRestore(`"${file}" --tenant=g-audit-apply-fail --target=t1`, {
         ...mongoEnv, __TENANT_RESTORE_TEST_FAIL_AFTER__: 'users',
       });
       expect(res.status).not.toBe(0);
@@ -884,9 +866,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       await EntityChunk.updateOne({ tenantId: 'g-t057-a', key: 'vendors' }, { $set: { data: [{ id: 'VA1', corrupted: true }] } });
       const entityChunksBefore = await EntityChunk.findOne({ tenantId: 'g-t057-a', key: 'vendors' }).lean();
 
-      // runRestoreOnce: asserts on this exact attempt's own checkpoint/live
-      // DB state — see the comment above runRestore()'s definition.
-      const res = runRestoreOnce(`"${file}" --tenant=g-t057-a --target=t1`, {
+      const res = runRestore(`"${file}" --tenant=g-t057-a --target=t1`, {
         ...mongoEnv, __TENANT_RESTORE_TEST_FAIL_AFTER__: 'users',
       });
       expect(res.status).not.toBe(0);
@@ -1063,10 +1043,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       await EntityChunk.create({ tenantId: 'h-diff-file', key: 'vendors', data: [{ id: 'V1' }] });
       const file1 = latestBackupOrCreate('h-diff-file', mongoEnv);
 
-      // runRestoreOnce: the resume logic below assumes THIS attempt's own
-      // lock release/checkpoint — see the comment above runRestore()'s
-      // definition.
-      const failRes = runRestoreOnce(`"${file1}" --tenant=h-diff-file --target=t1`, {
+      const failRes = runRestore(`"${file1}" --tenant=h-diff-file --target=t1`, {
         ...mongoEnv, __TENANT_RESTORE_TEST_FAIL_AFTER__: 'users',
       });
       expect(failRes.status).not.toBe(0); // clean failure — lock released, checkpoint left at 'failed'
