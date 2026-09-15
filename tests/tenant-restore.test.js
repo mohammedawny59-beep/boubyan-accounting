@@ -541,21 +541,35 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       expect(res.stdout).toContain('اكتملت استعادة المستأجر');
     });
 
-    test('RESTORE_YES=1 skips the prompt non-interactively — no cancelled event', async () => {
-      await seedActiveTenant('g-restore-yes-env');
-      const file = latestBackupOrCreate('g-restore-yes-env', mongoEnv);
-      const res = runRestore(`"${file}" --tenant=g-restore-yes-env --target=t1`, mongoEnv); // runRestore's own default sets RESTORE_YES=1
-      expect(res.status).toBe(0);
-      expect(res.stdout).toContain('اكتملت استعادة المستأجر');
+    // CI stability finding (owner-mandated diagnosis): both tests below
+    // used to spawn a full CLI process and wait for it to complete Steps
+    // 0-4 (a real Mongo connect + lock + validate + stage + checkpoint)
+    // before ever reaching Step 4a's own prompt — coupling a pure-string/
+    // pure-control-flow question to real Mongo cold-start latency, and
+    // were the two tests actually observed flaking under CI host
+    // contention (a different specific test failing each run, always
+    // correlating with elevated total suite runtime). Neither property
+    // being tested here has anything to do with Mongo at all:
+    // confirmPromptText() is pure string interpolation, and
+    // confirmApply(...,true)'s whole contract is that it resolves
+    // WITHOUT touching stdin/Mongo/anything else. Restructured to call
+    // scripts/tenant-restore.js's own exported functions directly —
+    // deterministic, instant, and still the exact real production code
+    // (not a reimplementation of the prompt string or the yes-path logic).
+    // End-to-end coverage of "the real command honors the confirmation
+    // gate" is preserved by the three tests above (decline, explicit نعم,
+    // and --yes), which remain real spawned-CLI tests.
+    test('RESTORE_YES=1 (--yes) skips the prompt non-interactively — confirmApply resolves immediately, no stdin interaction (direct unit call, deterministic)', async () => {
+      const { confirmApply } = require('../scripts/tenant-restore');
+      const result = await confirmApply('g-restore-yes-env', 't1', true);
+      expect(result).toBe(true);
     });
 
-    test('the prompt text contains the target tenant identifier and the --target= label', async () => {
-      await seedActiveTenant('g-prompt-text');
-      const file = latestBackupOrCreate('g-prompt-text', mongoEnv);
-      const res = runRestoreInteractive(`"${file}" --tenant=g-prompt-text --target=staging-label`, mongoEnv, 'نعم\n');
-      expect(res.status).toBe(0);
-      expect(res.stdout).toContain('g-prompt-text');
-      expect(res.stdout).toContain('staging-label');
+    test('the prompt text contains the target tenant identifier and the --target= label (direct unit call, deterministic)', () => {
+      const { confirmPromptText } = require('../scripts/tenant-restore');
+      const promptText = confirmPromptText('g-prompt-text', 'staging-label');
+      expect(promptText).toContain('g-prompt-text');
+      expect(promptText).toContain('staging-label');
     });
   });
 
