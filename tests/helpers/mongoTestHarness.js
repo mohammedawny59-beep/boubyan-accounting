@@ -117,6 +117,26 @@ function isTransientMongoConnectionError(result) {
   return false;
 }
 
+// CI watchdog-calibration diagnostic: classifies a spawned child's
+// {status, stderr, signal, killed} result (the spawn helper must capture
+// signal/killed from execSync's own thrown error — see runRestoreOnce)
+// into exactly one of the three distinct failure shapes these children
+// can produce, so a flaky assertion's failure output can state WHICH one
+// actually happened instead of leaving it to be inferred from timing.
+// 'watchdog_timeout' checks killed/signal FIRST (the direct, unambiguous
+// signal from Node that execSync's own `timeout` fired) and falls back to
+// a null status only for callers that haven't been updated to capture
+// signal/killed yet — a null status has no other possible cause for these
+// specific spawned children (see isTransientMongoConnectionError above).
+function classifyChildResult(result) {
+  if (!result) return 'no_result';
+  if (result.status === 0) return 'success';
+  if (result.killed === true || result.signal) return 'watchdog_timeout';
+  if (TRANSIENT_MONGO_ERROR_RE.test(result.stderr || '')) return 'mongo_connection_error';
+  if (result.status === null) return 'watchdog_timeout';
+  return 'application_exit';
+}
+
 // Synchronous real-time delay between retries, matching this test suite's
 // own established busy-wait precedent (tests/tenant-backup.test.js and
 // tests/tenant-restore.test.js's own waitPastSecondBoundary()) — kept
@@ -150,5 +170,5 @@ function withRetryOnTransientMongoError(spawnFn, attempts = 2, delayMs = 1000) {
 
 module.exports = {
   startIsolatedMongo, assertSafeTestDbName, randomTestDbName, TEST_DB_MARKER,
-  isTransientMongoConnectionError, withRetryOnTransientMongoError,
+  isTransientMongoConnectionError, withRetryOnTransientMongoError, classifyChildResult,
 };

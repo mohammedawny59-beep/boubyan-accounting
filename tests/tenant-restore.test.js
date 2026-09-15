@@ -34,7 +34,7 @@ const User = require('../models/User');
 const EntityChunk = require('../models/EntityChunk');
 const AppConfig = require('../models/AppConfig');
 const Tenant = require('../models/Tenant');
-const { startIsolatedMongo, withRetryOnTransientMongoError } = require('./helpers/mongoTestHarness');
+const { startIsolatedMongo, withRetryOnTransientMongoError, classifyChildResult } = require('./helpers/mongoTestHarness');
 
 _setDataFileForTooling(DATA_FILE);
 
@@ -94,9 +94,19 @@ function runRestoreOnce(argsString, envOverrides) {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
       cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
     });
-    return { status: 0, stdout: out.toString() };
+    return { status: 0, stdout: out.toString(), signal: null, killed: false };
   } catch (e) {
-    return { status: e.status, stdout: e.stdout?.toString() || '', stderr: e.stderr?.toString() || '' };
+    // CI watchdog-calibration diagnostic: execSync's thrown error carries
+    // e.signal ('SIGTERM') and e.killed (true) whenever OUR OWN `timeout`
+    // option above is what ended the child, distinct from a normal
+    // non-zero application exit (both e.signal and e.killed are
+    // absent/false there) — captured so classifyChildResult() (see
+    // mongoTestHarness.js) can tell the two apart directly instead of by
+    // inference. Never previously read; harmless to add.
+    return {
+      status: e.status, stdout: e.stdout?.toString() || '', stderr: e.stderr?.toString() || '',
+      signal: e.signal || null, killed: e.killed === true,
+    };
   }
 }
 
@@ -739,6 +749,11 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       const res = runRestore(`"${file}" --tenant=g-staging-cleanup-fail --target=t1`, {
         ...mongoEnv, __TENANT_RESTORE_TEST_FAIL_AFTER__: 'users',
       });
+      // CI watchdog-calibration diagnostic (unconditional, not just
+      // on-failure): proves which of the three distinct failure shapes
+      // this specific call hit, instead of leaving it to be inferred
+      // from timing. Does not change either assertion below.
+      console.log(`[watchdog-diagnostic] classification=${classifyChildResult(res)} status=${res.status} signal=${res.signal} killed=${res.killed}`);
       expect(res.status).not.toBe(0);
       expect(fs.existsSync(stagingFileOnDisk('g-staging-cleanup-fail'))).toBe(true);
     });
