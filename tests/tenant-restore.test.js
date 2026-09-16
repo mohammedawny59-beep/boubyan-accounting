@@ -34,7 +34,7 @@ const User = require('../models/User');
 const EntityChunk = require('../models/EntityChunk');
 const AppConfig = require('../models/AppConfig');
 const Tenant = require('../models/Tenant');
-const { startIsolatedMongo, withRetryOnTransientMongoError } = require('./helpers/mongoTestHarness');
+const { startIsolatedMongo, withRetryOnTransientMongoError, classifyChildResult } = require('./helpers/mongoTestHarness');
 
 _setDataFileForTooling(DATA_FILE);
 
@@ -55,7 +55,23 @@ _setDataFileForTooling(DATA_FILE);
 // retry-matchable Mongoose error, rather than this outer bound firing
 // first and killing the child uninformatively (observed on CI: a tight
 // 30s bound produced a bare `status: null` with no captured error at all).
-const EXEC_TIMEOUT_MS = 40000;
+//
+// CI watchdog calibration, proven (not inferred) via the
+// classifyChildResult() diagnostic wired into "the local staging file is
+// preserved on a failed apply": one real GitHub Actions run showed
+// classification=application_exit (no watchdog) for THAT call, while a
+// DIFFERENT call in the SAME file, SAME run, failed with the unambiguous
+// "Received: null" that only execSync's own `timeout` firing can ever
+// produce for these children — direct proof the 40s bound is occasionally
+// too tight for this file's real, honest work on a slower GitHub runner
+// (that run's whole-file time: 161-168s, vs. ~34s local). Not a
+// stuck/hung process either time, a genuinely slow one. process.env.CI is
+// set by GitHub Actions (and effectively every CI system) on every run,
+// never by a normal local shell, so this raises the bound only where the
+// evidence says it's needed — local iteration stays fast, and the bound
+// itself stays hard and finite on CI too: a truly hung child is still
+// killed, just after more real time.
+const RESTORE_CHILD_TIMEOUT_MS = process.env.CI ? 90000 : 40000;
 
 async function seedActiveTenant(tenantId) {
   await Tenant.create({ tenantId, name: tenantId, slug: tenantId, email: `${tenantId}@example.com`, status: 'active' });
@@ -64,7 +80,7 @@ async function seedActiveTenant(tenantId) {
 function runBackupOnce(tenantId, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-backup.js --tenant=${tenantId}`, {
-      cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
+      cwd: ROOT, env: { ...process.env, BACKUP_DIR: backupDir, ...envOverrides }, stdio: 'pipe', timeout: RESTORE_CHILD_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -92,11 +108,21 @@ function latestTenantBackupFile(tenantId) {
 function runRestoreOnce(argsString, envOverrides) {
   try {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
-      cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS,
+      cwd: ROOT, env: { ...process.env, RESTORE_YES: '1', ...envOverrides }, stdio: 'pipe', timeout: RESTORE_CHILD_TIMEOUT_MS,
     });
-    return { status: 0, stdout: out.toString() };
+    return { status: 0, stdout: out.toString(), signal: null, killed: false };
   } catch (e) {
-    return { status: e.status, stdout: e.stdout?.toString() || '', stderr: e.stderr?.toString() || '' };
+    // CI watchdog-calibration diagnostic: execSync's thrown error carries
+    // e.signal ('SIGTERM') and e.killed (true) whenever OUR OWN `timeout`
+    // option above is what ended the child, distinct from a normal
+    // non-zero application exit (both e.signal and e.killed are
+    // absent/false there) — captured so classifyChildResult() (see
+    // mongoTestHarness.js) can tell the two apart directly instead of by
+    // inference. Never previously read; harmless to add.
+    return {
+      status: e.status, stdout: e.stdout?.toString() || '', stderr: e.stderr?.toString() || '',
+      signal: e.signal || null, killed: e.killed === true,
+    };
   }
 }
 
@@ -104,7 +130,11 @@ function runRestoreOnce(argsString, envOverrides) {
 // runBackup() above. Never used by the Phase H concurrency tests (those
 // spawn via spawnRestore() below, deliberately NOT wrapped here — retrying
 // one side of a deliberate two-process race would change the very
-// interleaving those tests exist to exercise).
+// interleaving those tests exist to exercise). Safe for every other caller
+// in this file, including ones that reach Step 0's lock/Step 5's apply —
+// see isTransientMongoConnectionError()'s own comment in mongoTestHarness.js
+// for why a signal-killed (null-status) attempt is deliberately NOT
+// retried, only a clean, fully-printed transient-connect error is.
 function runRestore(argsString, envOverrides) {
   return withRetryOnTransientMongoError(() => runRestoreOnce(argsString, envOverrides));
 }
@@ -124,7 +154,7 @@ function runRestoreInteractive(argsString, envOverrides, stdinInput) {
   delete env.RESTORE_YES;
   try {
     const out = execSync(`node scripts/tenant-restore.js ${argsString}`, {
-      cwd: ROOT, env, stdio: 'pipe', input: stdinInput, timeout: EXEC_TIMEOUT_MS,
+      cwd: ROOT, env, stdio: 'pipe', input: stdinInput, timeout: RESTORE_CHILD_TIMEOUT_MS,
     });
     return { status: 0, stdout: out.toString() };
   } catch (e) {
@@ -188,6 +218,40 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
     try { await mongoose.connection.close(); } catch {}
     if (mongoInstance) { try { await mongoInstance.stop(); } catch {} }
     try { fs.removeSync(tmp); } catch {}
+  });
+
+  // ── Intra-suite accumulation diagnostic (investigation-only, bounded) ──
+  // beforeAll/afterAll above run exactly ONCE for all 51 tests in this
+  // describe block — before this diagnostic there was zero
+  // beforeEach/afterEach anywhere in the file. Every backup file, staging
+  // file, checkpoint file, and Mongo document any of the 51 sequential
+  // tests creates therefore persists in the SAME shared tmp dir / SAME
+  // shared mongod instance for the rest of the file's run, with no
+  // cleanup until the single afterAll above. This block measures —
+  // cheaply (a few small readdirSync calls, a few indexed
+  // countDocuments()), after every test, never scanning anything
+  // unbounded — whether any of that actually grows monotonically, to
+  // correlate against the CI runtime growth already observed (34s local
+  // vs. 70-208s on GitHub across recent runs, rising on nearly every
+  // attempt). Asserts nothing; never fails a test.
+  let __diagTestStart = null;
+  beforeEach(() => { __diagTestStart = Date.now(); });
+  afterEach(async () => {
+    const elapsedMs = Date.now() - __diagTestStart;
+    let staging = -1, checkpoints = -1, backups = -1;
+    try { staging = fs.readdirSync(path.join(backupDir, '.restore-staging')).length; } catch {}
+    try { checkpoints = fs.readdirSync(path.join(backupDir, '.restore-checkpoints')).length; } catch {}
+    try { backups = fs.readdirSync(backupDir).filter(f => f.endsWith('.json')).length; } catch {}
+    let tenants = -1, users = -1, chunks = -1, auditEvents = -1;
+    try {
+      tenants = await Tenant.countDocuments({});
+      users = await User.countDocuments({});
+      chunks = await EntityChunk.countDocuments({});
+      const auditDoc = await EntityChunk.findOne({ tenantId: 'default', key: 'auditLog' }).lean();
+      auditEvents = auditDoc?.data?.length ?? 0;
+    } catch {}
+    const name = expect.getState().currentTestName || '(unknown)';
+    console.log(`[accum-diagnostic] elapsedMs=${elapsedMs} staging=${staging} checkpoints=${checkpoints} backups=${backups} tenants=${tenants} users=${users} entityChunks=${chunks} auditEvents=${auditEvents} mongoConns=${mongoose.connections.length} test="${name}"`);
   });
 
   // ── T040a: Step -1 quiesce warning, unconditional ──────────────────────
@@ -541,21 +605,35 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       expect(res.stdout).toContain('اكتملت استعادة المستأجر');
     });
 
-    test('RESTORE_YES=1 skips the prompt non-interactively — no cancelled event', async () => {
-      await seedActiveTenant('g-restore-yes-env');
-      const file = latestBackupOrCreate('g-restore-yes-env', mongoEnv);
-      const res = runRestore(`"${file}" --tenant=g-restore-yes-env --target=t1`, mongoEnv); // runRestore's own default sets RESTORE_YES=1
-      expect(res.status).toBe(0);
-      expect(res.stdout).toContain('اكتملت استعادة المستأجر');
+    // CI stability finding (owner-mandated diagnosis): both tests below
+    // used to spawn a full CLI process and wait for it to complete Steps
+    // 0-4 (a real Mongo connect + lock + validate + stage + checkpoint)
+    // before ever reaching Step 4a's own prompt — coupling a pure-string/
+    // pure-control-flow question to real Mongo cold-start latency, and
+    // were the two tests actually observed flaking under CI host
+    // contention (a different specific test failing each run, always
+    // correlating with elevated total suite runtime). Neither property
+    // being tested here has anything to do with Mongo at all:
+    // confirmPromptText() is pure string interpolation, and
+    // confirmApply(...,true)'s whole contract is that it resolves
+    // WITHOUT touching stdin/Mongo/anything else. Restructured to call
+    // scripts/tenant-restore.js's own exported functions directly —
+    // deterministic, instant, and still the exact real production code
+    // (not a reimplementation of the prompt string or the yes-path logic).
+    // End-to-end coverage of "the real command honors the confirmation
+    // gate" is preserved by the three tests above (decline, explicit نعم,
+    // and --yes), which remain real spawned-CLI tests.
+    test('RESTORE_YES=1 (--yes) skips the prompt non-interactively — confirmApply resolves immediately, no stdin interaction (direct unit call, deterministic)', async () => {
+      const { confirmApply } = require('../scripts/tenant-restore');
+      const result = await confirmApply('g-restore-yes-env', 't1', true);
+      expect(result).toBe(true);
     });
 
-    test('the prompt text contains the target tenant identifier and the --target= label', async () => {
-      await seedActiveTenant('g-prompt-text');
-      const file = latestBackupOrCreate('g-prompt-text', mongoEnv);
-      const res = runRestoreInteractive(`"${file}" --tenant=g-prompt-text --target=staging-label`, mongoEnv, 'نعم\n');
-      expect(res.status).toBe(0);
-      expect(res.stdout).toContain('g-prompt-text');
-      expect(res.stdout).toContain('staging-label');
+    test('the prompt text contains the target tenant identifier and the --target= label (direct unit call, deterministic)', () => {
+      const { confirmPromptText } = require('../scripts/tenant-restore');
+      const promptText = confirmPromptText('g-prompt-text', 'staging-label');
+      expect(promptText).toContain('g-prompt-text');
+      expect(promptText).toContain('staging-label');
     });
   });
 
@@ -721,6 +799,11 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       const res = runRestore(`"${file}" --tenant=g-staging-cleanup-fail --target=t1`, {
         ...mongoEnv, __TENANT_RESTORE_TEST_FAIL_AFTER__: 'users',
       });
+      // CI watchdog-calibration diagnostic (unconditional, not just
+      // on-failure): proves which of the three distinct failure shapes
+      // this specific call hit, instead of leaving it to be inferred
+      // from timing. Does not change either assertion below.
+      console.log(`[watchdog-diagnostic] classification=${classifyChildResult(res)} status=${res.status} signal=${res.signal} killed=${res.killed}`);
       expect(res.status).not.toBe(0);
       expect(fs.existsSync(stagingFileOnDisk('g-staging-cleanup-fail'))).toBe(true);
     });
@@ -966,7 +1049,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
         // which now has its own `timeout` option elsewhere in this file)
         // would hang this Promise, and by extension a Promise.all() awaiting
         // it, forever. Kills the child and resolves (never hangs) if it
-        // hasn't exited within EXEC_TIMEOUT_MS; the synthetic `code: null`
+        // hasn't exited within RESTORE_CHILD_TIMEOUT_MS; the synthetic `code: null`
         // result still fails any test's own `expect(...code).toBe(0)`
         // assertion normally — this never masks a real failure, it only
         // prevents an indefinite wait.
@@ -975,7 +1058,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
           settled = true;
           try { child.kill('SIGKILL'); } catch {}
           resolve({ code: null, stdout, stderr, timedOut: true });
-        }, EXEC_TIMEOUT_MS);
+        }, RESTORE_CHILD_TIMEOUT_MS);
         child.stdout.on('data', d => { stdout += d; });
         child.stderr.on('data', d => { stderr += d; });
         child.on('close', code => {
@@ -1276,7 +1359,7 @@ describe('P4 Phase E — tenant-restore.js Steps -1/0/1/2 (T037-T045)', () => {
       // Backup side (T031): its own default-duplicate pre-flight rejects.
       let backupRes;
       try {
-        execSync('node scripts/tenant-backup.js --tenant=default', { cwd: ROOT, env: mongoEnv, stdio: 'pipe', timeout: EXEC_TIMEOUT_MS });
+        execSync('node scripts/tenant-backup.js --tenant=default', { cwd: ROOT, env: mongoEnv, stdio: 'pipe', timeout: RESTORE_CHILD_TIMEOUT_MS });
         backupRes = { status: 0 };
       } catch (e) {
         backupRes = { status: e.status, stderr: e.stderr?.toString() || '' };
